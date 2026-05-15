@@ -10,6 +10,7 @@ from .config import AppConfig
 from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 
 TABLES = ("raw_daily", "adj_daily", "factors", "corporate_actions")
+SCALED_COLUMNS = {"volume", "amount"}
 
 
 @dataclass(frozen=True)
@@ -296,7 +297,8 @@ def print_rows(columns: Sequence[str], rows: Sequence[dict], max_width: int = 28
         print("(no rows)")
         return
     rendered_rows = [
-        [format_cell(row.get(column), max_width=max_width) for column in columns] for row in rows
+        [format_cell(row.get(column), column=column, max_width=max_width) for column in columns]
+        for row in rows
     ]
     widths = [
         min(
@@ -313,14 +315,77 @@ def print_rows(columns: Sequence[str], rows: Sequence[dict], max_width: int = 28
         print("  ".join(row[index].ljust(widths[index]) for index in range(len(columns))))
 
 
-def format_cell(value, max_width: int) -> str:
+def format_cell(value, column: str | None = None, max_width: int = 28) -> str:
     if value is None:
         text = "NULL"
+    elif isinstance(value, bool):
+        text = "TRUE" if value else "FALSE"
+    elif isinstance(value, int) and not isinstance(value, bool):
+        text = format_scaled_number(float(value)) if should_scale_column(column) else str(value)
+    elif isinstance(value, float):
+        text = (
+            format_scaled_number(value)
+            if should_scale_column(column)
+            else format_number(value)
+        )
     else:
         text = str(value)
     if len(text) > max_width:
         return text[: max_width - 1] + "…"
     return text
+
+
+def format_number(value: float) -> str:
+    text = f"{value:.2f}"
+    text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def format_scaled_number(value: float) -> str:
+    abs_value = abs(value)
+    for divisor, suffix in (
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    ):
+        if abs_value >= divisor:
+            return f"{format_number(value / divisor)}{suffix}"
+    return format_number(value)
+
+
+def normalize_output_data(data):
+    if isinstance(data, dict):
+        return {key: normalize_output_data_for_column(value, key) for key, value in data.items()}
+    if isinstance(data, list):
+        return [normalize_output_data(item) for item in data]
+    return data
+
+
+def normalize_output_data_for_column(value, column: str | None = None):
+    if isinstance(value, dict):
+        return {key: normalize_output_data_for_column(item, key) for key, item in value.items()}
+    if isinstance(value, list):
+        return [normalize_output_data_for_column(item, column=column) for item in value]
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        if should_scale_column(column):
+            return format_scaled_number(float(value))
+        return value
+    if isinstance(value, float):
+        if should_scale_column(column):
+            return format_scaled_number(value)
+        rounded = round(value, 2)
+        return int(rounded) if rounded.is_integer() else rounded
+    return value
+
+
+def should_scale_column(column: str | None) -> bool:
+    if column is None:
+        return False
+    lower = column.lower()
+    return lower in SCALED_COLUMNS or lower.startswith("vol")
 
 
 def disk_usage(path: Path) -> int:

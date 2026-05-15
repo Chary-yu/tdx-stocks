@@ -113,6 +113,9 @@ tdx-stocks stock 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 5
 tdx-stocks stock 600519.SH --no-limit
 ```
 
+CLI output rounds numeric values to at most two decimals. `volume` and `amount`
+are abbreviated with units like `K`, `M`, and `B` for readability.
+
 Run ad hoc SQL:
 
 ```bash

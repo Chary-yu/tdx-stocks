@@ -7,6 +7,7 @@ from unittest.mock import patch
 from tdx_stocks.query import (
     build_stock_sql,
     format_bytes,
+    normalize_output_data,
     print_rows,
     register_query_macros,
     validate_table,
@@ -32,6 +33,25 @@ class QueryHelpersTest(unittest.TestCase):
         with patch("builtins.print") as mocked_print:
             print_rows(["a"], [])
         mocked_print.assert_called_once_with("(no rows)")
+
+    def test_print_rows_formats_numbers(self) -> None:
+        with patch("builtins.print") as mocked_print:
+            print_rows(
+                ["price", "volume", "amount"],
+                [{"price": 101.239, "volume": 1234567, "amount": 987654321.0}],
+            )
+        rendered = "\n".join(call.args[0] for call in mocked_print.call_args_list)
+        self.assertIn("101.24", rendered)
+        self.assertIn("1.23M", rendered)
+        self.assertIn("987.65M", rendered)
+
+    def test_normalize_output_data_rounds_values(self) -> None:
+        normalized = normalize_output_data(
+            [{"price": 101.239, "volume": 1234567, "amount": 987654321.0}]
+        )
+        self.assertEqual(normalized[0]["price"], 101.24)
+        self.assertEqual(normalized[0]["volume"], "1.23M")
+        self.assertEqual(normalized[0]["amount"], "987.65M")
 
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_register_query_macros_last_n_days(self) -> None:

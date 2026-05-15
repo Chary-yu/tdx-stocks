@@ -15,6 +15,7 @@ from .query import (
     export_query_csv,
     fetch_dicts,
     format_bytes,
+    normalize_output_data,
     open_query_context,
     print_rows,
     table_columns,
@@ -131,7 +132,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         limit_symbols=args.limit_symbols,
         overwrite_staging=args.overwrite_staging or None,
     )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
     return 0
 
 
@@ -235,7 +236,14 @@ def cmd_head(args: argparse.Namespace) -> int:
         )
         columns, rows = fetch_dicts(ctx.con, sql)
         if args.json:
-            print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+            print(
+                json.dumps(
+                    normalize_output_data(rows),
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            )
         else:
             print_rows(columns, rows)
     finally:
@@ -252,7 +260,14 @@ def cmd_sql(args: argparse.Namespace) -> int:
             sql = f"{sql.rstrip().rstrip(';')}\nLIMIT {args.limit}"
         columns, rows = fetch_dicts(ctx.con, sql)
         if args.json:
-            print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+            print(
+                json.dumps(
+                    normalize_output_data(rows),
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            )
         else:
             print_rows(columns, rows)
     finally:
@@ -298,7 +313,14 @@ def cmd_stock(args: argparse.Namespace) -> int:
         )
         columns, rows = fetch_dicts(ctx.con, sql)
         if args.json:
-            print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+            print(
+                json.dumps(
+                    normalize_output_data(rows),
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            )
         else:
             print_rows(columns, rows)
     finally:
