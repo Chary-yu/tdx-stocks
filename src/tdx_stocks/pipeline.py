@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from datetime import date, datetime
 
 from .checks import CheckResult, check_adj_daily, check_factors, check_raw_daily
@@ -10,6 +11,8 @@ from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily
 from .parquet_io import RawDailyWriter, write_empty_corporate_actions
 from .paths import RunPaths, ensure_base_dirs
 from .tdx_day import iter_day_files, read_day_records
+
+ProgressCallback = Callable[[str], None]
 
 
 def make_run_id(now: datetime | None = None) -> str:
@@ -29,6 +32,7 @@ def build_dataset(
     to_date: date | None = None,
     limit_symbols: int | None = None,
     overwrite_staging: bool | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict:
     run_id = make_run_id()
     run_paths = RunPaths(config.paths.data_root, run_id)
@@ -42,6 +46,7 @@ def build_dataset(
     run_paths.staging_dir.mkdir(parents=True)
     run_paths.reports_dir.mkdir(parents=True)
 
+    _progress(progress, f"Scanning local TDX files under {config.paths.tdx_vipdoc}")
     files = list(
         iter_day_files(
             config.paths.tdx_vipdoc,
@@ -51,6 +56,8 @@ def build_dataset(
     )
     if limit_symbols is not None:
         files = files[:limit_symbols]
+    total_files = len(files)
+    _progress(progress, f"Parsing {total_files} day files")
 
     raw_writer = RawDailyWriter(
         run_paths.raw_daily_dir,
@@ -58,39 +65,49 @@ def build_dataset(
         batch_rows=config.build.batch_rows,
     )
     parsed_files = 0
+    report_every = max(1, total_files // 20) if total_files else 1
     for path in files:
         raw_writer.add_many(read_day_records(path, from_date=from_date, to_date=to_date))
         parsed_files += 1
+        if parsed_files == 1 or parsed_files == total_files or parsed_files % report_every == 0:
+            _progress(progress, f"Parsed {parsed_files}/{total_files} day files")
     raw_writer.close()
     if raw_writer.rows_written == 0:
         raise RuntimeError("No raw_daily rows were parsed from the selected TDX day files")
+    _progress(progress, f"Wrote {raw_writer.rows_written} raw rows")
 
     write_empty_corporate_actions(
         run_paths.corporate_actions_dir,
         compression=config.build.compression,
     )
+    _progress(progress, "Wrote empty corporate_actions table")
 
     con = connect_duckdb(run_paths.duckdb_tmp_dir, config.build.duckdb_memory_limit)
     checks: list[CheckResult] = []
     try:
+        _progress(progress, "Checking raw_daily")
         checks.append(check_raw_daily(con, run_paths.raw_daily_dir))
         _raise_on_errors(checks)
 
+        _progress(progress, "Building adj_daily")
         copy_adj_daily(
             con,
             run_paths.raw_daily_dir,
             run_paths.adj_daily_dir,
             config.build.compression,
         )
+        _progress(progress, "Checking adj_daily")
         checks.append(check_adj_daily(con, run_paths.adj_daily_dir))
         _raise_on_errors(checks)
 
+        _progress(progress, "Building factors")
         build_factors(
             con,
             run_paths.adj_daily_dir,
             run_paths.factors_dir,
             config.build.compression,
         )
+        _progress(progress, "Checking factors")
         checks.append(check_factors(con, run_paths.factors_dir))
         _raise_on_errors(checks)
     finally:
@@ -115,7 +132,9 @@ def build_dataset(
         encoding="utf-8",
     )
 
+    _progress(progress, "Writing build report")
     commit_version(run_paths, report)
+    _progress(progress, f"Completed run_id={run_id}")
     return report | {"version_dir": run_paths.version_dir.as_posix()}
 
 
@@ -125,8 +144,10 @@ def rebuild_dataset(
     to_date: date | None = None,
     limit_symbols: int | None = None,
     overwrite_staging: bool | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict:
     if config.paths.data_root.exists():
+        _progress(progress, f"Clearing database root: {config.paths.data_root}")
         shutil.rmtree(config.paths.data_root)
     return build_dataset(
         config,
@@ -134,7 +155,13 @@ def rebuild_dataset(
         to_date=to_date,
         limit_symbols=limit_symbols,
         overwrite_staging=overwrite_staging,
+        progress=progress,
     )
+
+
+def _progress(progress: ProgressCallback | None, message: str) -> None:
+    if progress is not None:
+        progress(message)
 
 
 def commit_version(run_paths: RunPaths, report: dict) -> None:

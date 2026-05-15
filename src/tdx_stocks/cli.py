@@ -142,6 +142,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         to_date=parse_iso_date(args.to_date),
         limit_symbols=args.limit_symbols,
         overwrite_staging=args.overwrite_staging or None,
+        progress=stderr_progress,
     )
     print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
     return 0
@@ -155,9 +156,14 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         to_date=parse_iso_date(args.to_date),
         limit_symbols=args.limit_symbols,
         overwrite_staging=args.overwrite_staging or None,
+        progress=stderr_progress,
     )
     print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
     return 0
+
+
+def stderr_progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def add_query_args(parser: argparse.ArgumentParser, default_limit: int) -> None:

@@ -67,6 +67,8 @@ Clear `Database/` and rebuild from local TDX data:
 tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
 ```
 
+`build` and `rebuild` print stage progress to stderr while they run.
+
 The committed dataset is written under:
 
 ```text
