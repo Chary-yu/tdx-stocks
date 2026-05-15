@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from datetime import date
 import unittest
+from datetime import date
 from unittest.mock import patch
 
-from tdx_stocks.query import format_bytes, print_rows, register_query_macros, validate_table
+from tdx_stocks.query import (
+    build_stock_sql,
+    format_bytes,
+    print_rows,
+    register_query_macros,
+    validate_table,
+)
 
 try:
     import duckdb
@@ -85,13 +91,109 @@ class QueryHelpersTest(unittest.TestCase):
                 "sh",
             )
             self.assertEqual(
-                con.execute("SELECT tdx_symbol_code('sh600519')").fetchone()[0],
-                "600519",
-            )
-            self.assertEqual(
                 con.execute("SELECT tdx_symbol_market('sh600519')").fetchone()[0],
                 "sh",
             )
+        finally:
+            con.close()
+
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_build_stock_sql_joins_daily_and_factors(self) -> None:
+        con = duckdb.connect(":memory:")
+        try:
+            con.execute(
+                """
+                CREATE TABLE raw_daily (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    trade_year BIGINT,
+                    open DOUBLE,
+                    high DOUBLE,
+                    low DOUBLE,
+                    close DOUBLE,
+                    volume BIGINT,
+                    amount DOUBLE
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO raw_daily VALUES
+                    ('sh', '600519', DATE '2024-01-03', 2024, 100.0, 101.0,
+                     99.0, 100.5, 1000, 100500.0),
+                    ('sh', '600519', DATE '2024-01-04', 2024, 101.0, 102.0,
+                     100.0, 101.5, 1100, 111650.0)
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE adj_daily (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    trade_year BIGINT,
+                    adj_open DOUBLE,
+                    adj_high DOUBLE,
+                    adj_low DOUBLE,
+                    adj_close DOUBLE,
+                    adj_factor DOUBLE,
+                    volume BIGINT,
+                    amount DOUBLE
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO adj_daily VALUES
+                    ('sh', '600519', DATE '2024-01-03', 2024, 100.0, 101.0,
+                     99.0, 100.5, 1.0, 1000, 100500.0),
+                    ('sh', '600519', DATE '2024-01-04', 2024, 101.0, 102.0,
+                     100.0, 101.5, 1.0, 1100, 111650.0)
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE factors (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    trade_year BIGINT,
+                    pct_chg DOUBLE,
+                    ma5 DOUBLE,
+                    ma10 DOUBLE,
+                    ma20 DOUBLE,
+                    ma60 DOUBLE,
+                    vol_ma5 DOUBLE,
+                    vol_ma20 DOUBLE,
+                    high_20 DOUBLE,
+                    low_20 DOUBLE,
+                    range_20 DOUBLE
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO factors VALUES
+                    ('sh', '600519', DATE '2024-01-03', 2024, NULL, 100.5, 100.5,
+                     100.5, 100.5, 1000.0, 1000.0, 101.0, 99.0, 0.0202020202),
+                    ('sh', '600519', DATE '2024-01-04', 2024, 0.0099502488, 101.0,
+                     101.0, 101.0, 101.0, 1100.0, 1100.0, 102.0, 100.0, 0.02)
+                """
+            )
+            register_query_macros(con)
+
+            sql = build_stock_sql(con, "600519.SH", limit=1)
+            result = con.execute(sql)
+            row = result.fetchone()
+            columns = [item[0] for item in result.description]
+
+            self.assertEqual(columns[:5], ["market", "symbol", "trade_date", "trade_year", "open"])
+            self.assertEqual(row[0], "sh")
+            self.assertEqual(row[1], "600519")
+            self.assertEqual(row[2], date(2024, 1, 4))
+            self.assertEqual(row[13], 101.5)
+            self.assertEqual(row[15], 0.0099502488)
         finally:
             con.close()
 

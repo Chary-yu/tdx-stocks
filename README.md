@@ -105,6 +105,14 @@ tdx-stocks head raw_daily --symbol 600000 --from-date 2024-01-01 --desc --limit 
 tdx-stocks head factors --columns symbol,trade_date,pct_chg,ma20,range_20 --limit 30
 ```
 
+Show one stock's merged daily rows and factors:
+
+```bash
+tdx-stocks stock 600519.SH --limit 20
+tdx-stocks stock 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
+tdx-stocks stock 600519.SH --no-limit
+```
+
 Run ad hoc SQL:
 
 ```bash

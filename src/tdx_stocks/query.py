@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import csv
 import json
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
 
 from .config import AppConfig
 from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
-
 
 TABLES = ("raw_daily", "adj_daily", "factors", "corporate_actions")
 
@@ -215,6 +214,69 @@ def build_select_sql(
     elif "ex_date" in known_columns:
         sql.append(f"ORDER BY ex_date {'DESC' if desc else 'ASC'}")
 
+    if limit is not None:
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        sql.append(f"LIMIT {limit}")
+    return "\n".join(sql)
+
+
+def build_stock_sql(
+    con,
+    input_symbol: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    order_by: str = "trade_date",
+    desc: bool = True,
+    limit: int | None = 100,
+) -> str:
+    code_expr = f"tdx_symbol_code('{sql_literal(input_symbol)}')"
+    market_expr = f"tdx_symbol_market('{sql_literal(input_symbol)}')"
+    where = [
+        f"raw.symbol = {code_expr}",
+        f"({market_expr} IS NULL OR raw.market = {market_expr})",
+    ]
+    if from_date:
+        where.append(f"raw.trade_date >= DATE '{sql_literal(from_date)}'")
+    if to_date:
+        where.append(f"raw.trade_date <= DATE '{sql_literal(to_date)}'")
+
+    sql = [
+        "SELECT",
+        "    raw.market,",
+        "    raw.symbol,",
+        "    raw.trade_date,",
+        "    raw.trade_year,",
+        "    raw.open,",
+        "    raw.high,",
+        "    raw.low,",
+        "    raw.close,",
+        "    raw.volume,",
+        "    raw.amount,",
+        "    adj.adj_open,",
+        "    adj.adj_high,",
+        "    adj.adj_low,",
+        "    adj.adj_close,",
+        "    adj.adj_factor,",
+        "    factors.pct_chg,",
+        "    factors.ma5,",
+        "    factors.ma10,",
+        "    factors.ma20,",
+        "    factors.ma60,",
+        "    factors.vol_ma5,",
+        "    factors.vol_ma20,",
+        "    factors.high_20,",
+        "    factors.low_20,",
+        "    factors.range_20",
+        "FROM raw_daily AS raw",
+        "LEFT JOIN adj_daily AS adj USING (market, symbol, trade_date, trade_year)",
+        "LEFT JOIN factors USING (market, symbol, trade_date, trade_year)",
+        "WHERE " + " AND ".join(where),
+    ]
+    if order_by not in {"trade_date", "trade_year"}:
+        raise ValueError("order_by must be trade_date or trade_year")
+    order_target = f"raw.{order_by}"
+    sql.append(f"ORDER BY {order_target} {'DESC' if desc else 'ASC'}")
     if limit is not None:
         if limit <= 0:
             raise ValueError("limit must be positive")

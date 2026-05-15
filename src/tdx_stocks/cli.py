@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from .config import load_config, write_default_config
 from .pipeline import build_dataset, parse_iso_date
 from .query import (
     TABLES,
     build_select_sql,
+    build_stock_sql,
     disk_usage,
     export_query_csv,
     fetch_dicts,
@@ -58,6 +59,13 @@ def main(argv: list[str] | None = None) -> int:
     head_parser = subparsers.add_parser("head", help="Show rows from a latest table.")
     add_query_args(head_parser, default_limit=20)
     head_parser.set_defaults(func=cmd_head)
+
+    stock_parser = subparsers.add_parser(
+        "stock",
+        help="Show merged daily rows and factors for one stock code.",
+    )
+    add_stock_args(stock_parser, default_limit=100)
+    stock_parser.set_defaults(func=cmd_stock)
 
     sql_parser = subparsers.add_parser("sql", help="Run SQL against latest table views.")
     sql_parser.add_argument("sql")
@@ -142,6 +150,18 @@ def add_query_args(parser: argparse.ArgumentParser, default_limit: int) -> None:
     parser.add_argument("--json", action="store_true")
 
 
+def add_stock_args(parser: argparse.ArgumentParser, default_limit: int) -> None:
+    parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--limit", type=int, default=default_limit)
+    parser.add_argument("--from-date", dest="from_date")
+    parser.add_argument("--to-date", dest="to_date")
+    parser.add_argument("--asc", dest="desc", action="store_false")
+    parser.set_defaults(desc=True)
+    parser.add_argument("--no-limit", action="store_true")
+    parser.add_argument("--json", action="store_true")
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     ctx = open_query_context(config)
@@ -161,7 +181,10 @@ def cmd_status(args: argparse.Namespace) -> int:
             metrics = check.get("metrics", {})
             rows = metrics.get("rows")
             symbols = metrics.get("symbols")
-            print(f"- {check.get('name')}: rows={rows} symbols={symbols} errors={errors} warnings={warnings}")
+            print(
+                f"- {check.get('name')}: rows={rows} symbols={symbols} "
+                f"errors={errors} warnings={warnings}"
+            )
     finally:
         ctx.close()
     return 0
@@ -183,7 +206,10 @@ def cmd_schema(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
-        rows = [{"column": name, "type": type_} for name, type_ in table_columns(ctx.con, args.table)]
+        rows = [
+            {"column": name, "type": type_}
+            for name, type_ in table_columns(ctx.con, args.table)
+        ]
         print_rows(["column", "type"], rows)
     finally:
         ctx.close()
@@ -253,6 +279,28 @@ def cmd_export(args: argparse.Namespace) -> int:
         )
         count = export_query_csv(ctx.con, sql, args.to)
         print(f"exported rows={count} path={args.to}")
+    finally:
+        ctx.close()
+    return 0
+
+
+def cmd_stock(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    ctx = open_query_context(config)
+    try:
+        sql = build_stock_sql(
+            ctx.con,
+            args.symbol,
+            from_date=args.from_date,
+            to_date=args.to_date,
+            desc=args.desc,
+            limit=None if args.no_limit else args.limit,
+        )
+        columns, rows = fetch_dicts(ctx.con, sql)
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+        else:
+            print_rows(columns, rows)
     finally:
         ctx.close()
     return 0
