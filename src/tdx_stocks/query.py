@@ -31,8 +31,12 @@ def load_latest_manifest(data_root: Path) -> dict:
 
 def open_query_context(config: AppConfig) -> QueryContext:
     manifest = load_latest_manifest(config.paths.data_root)
-    con = connect_duckdb(config.paths.data_root / "duckdb" / "tmp", config.build.duckdb_memory_limit)
+    con = connect_duckdb(
+        config.paths.data_root / "duckdb" / "tmp",
+        config.build.duckdb_memory_limit,
+    )
     register_latest_views(con, manifest)
+    register_query_macros(con)
     return QueryContext(con=con, manifest=manifest)
 
 
@@ -46,6 +50,67 @@ def register_latest_views(con, manifest: dict) -> None:
             FROM read_parquet('{sql_literal(parquet_glob(path))}', hive_partitioning=true)
             """
         )
+
+
+def register_query_macros(con) -> None:
+    con.execute(
+        """
+        CREATE OR REPLACE MACRO tdx_symbol_code(input_symbol) AS (
+            CASE
+                WHEN strpos(CAST(input_symbol AS VARCHAR), '.') > 0
+                    THEN split_part(CAST(input_symbol AS VARCHAR), '.', 1)
+                WHEN length(CAST(input_symbol AS VARCHAR)) = 8
+                    AND substr(lower(CAST(input_symbol AS VARCHAR)), 1, 2) IN ('sh', 'sz', 'bj')
+                    THEN substr(CAST(input_symbol AS VARCHAR), 3, 6)
+                ELSE CAST(input_symbol AS VARCHAR)
+            END
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE OR REPLACE MACRO tdx_symbol_market(input_symbol) AS (
+            CASE
+                WHEN strpos(CAST(input_symbol AS VARCHAR), '.') > 0
+                    THEN lower(split_part(CAST(input_symbol AS VARCHAR), '.', 2))
+                WHEN length(CAST(input_symbol AS VARCHAR)) = 8
+                    AND substr(lower(CAST(input_symbol AS VARCHAR)), 1, 2) IN ('sh', 'sz', 'bj')
+                    THEN substr(lower(CAST(input_symbol AS VARCHAR)), 1, 2)
+                ELSE NULL
+            END
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE OR REPLACE MACRO last_n_days(input_symbol, day_count) AS TABLE (
+            SELECT *
+            FROM adj_daily
+            WHERE symbol = tdx_symbol_code(input_symbol)
+                AND (
+                    tdx_symbol_market(input_symbol) IS NULL
+                    OR market = tdx_symbol_market(input_symbol)
+                )
+            ORDER BY trade_date DESC
+            LIMIT CAST(day_count AS BIGINT)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE OR REPLACE MACRO last_n_factors(input_symbol, day_count) AS TABLE (
+            SELECT *
+            FROM factors
+            WHERE symbol = tdx_symbol_code(input_symbol)
+                AND (
+                    tdx_symbol_market(input_symbol) IS NULL
+                    OR market = tdx_symbol_market(input_symbol)
+                )
+            ORDER BY trade_date DESC
+            LIMIT CAST(day_count AS BIGINT)
+        )
+        """
+    )
 
 
 def table_path(manifest: dict, table: str) -> Path:
@@ -226,10 +291,14 @@ def table_summary(con, manifest: dict, table: str) -> dict:
         "path": table_path(manifest, table).as_posix(),
     }
     if "symbol" in columns:
-        metrics["symbols"] = con.execute(f"SELECT count(DISTINCT symbol) FROM {table}").fetchone()[0]
+        metrics["symbols"] = con.execute(
+            f"SELECT count(DISTINCT symbol) FROM {table}"
+        ).fetchone()[0]
     date_col = date_column(con, table)
     if date_col:
-        min_date, max_date = con.execute(f"SELECT min({date_col}), max({date_col}) FROM {table}").fetchone()
+        min_date, max_date = con.execute(
+            f"SELECT min({date_col}), max({date_col}) FROM {table}"
+        ).fetchone()
         metrics["min_date"] = str(min_date) if min_date is not None else None
         metrics["max_date"] = str(max_date) if max_date is not None else None
     return metrics

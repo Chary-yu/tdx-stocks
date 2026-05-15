@@ -111,6 +111,13 @@ Run ad hoc SQL:
 tdx-stocks sql "select symbol, count(*) as row_count, max(trade_date) as last_date from raw_daily group by symbol order by symbol"
 ```
 
+The SQL session also registers convenience macros:
+
+```bash
+tdx-stocks sql "select * from last_n_days('600519.SH', 10)"
+tdx-stocks sql "select * from last_n_factors('600519.SH', 10)"
+```
+
 Export a filtered result to CSV:
 
 ```bash
