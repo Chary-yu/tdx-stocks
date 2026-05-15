@@ -25,6 +25,16 @@ from .tdx_day import iter_day_files
 
 
 def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tdx-stocks")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -91,13 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     export_parser.add_argument("--to", type=Path, required=True)
     export_parser.add_argument("--no-limit", action="store_true")
     export_parser.set_defaults(func=cmd_export)
-
-    args = parser.parse_args(argv)
-    try:
-        return args.func(args)
-    except Exception as exc:  # noqa: BLE001
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
+    return parser
 
 
 def cmd_init_config(args: argparse.Namespace) -> int:

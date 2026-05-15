@@ -245,3 +245,4 @@ tdx-stocks sql "select * from last_n_days('600519.SH', 10)"
 - 命令、参数或默认值变化时，先更新 `src/tdx_stocks/cli.py`，再同步本手册。
 - 新增命令后，需要补一条使用示例和参数说明。
 - 如果查询层新增宏，也要在本手册第 7 节补充。
+- `tools/generate_cli_help_summary.py` 会从 `src/tdx_stocks/cli.py` 自动生成摘要版手册。

@@ -37,7 +37,7 @@ python -m pip install -e .
 
 ## Usage
 
-CLI 手册见 `docs/cli_manual.md`。
+CLI 手册见 `docs/cli_manual.md`，摘要版由 `tools/generate_cli_help_summary.py` 生成到 `docs/cli_help_summary.md`。
 
 Create a config file:
 
