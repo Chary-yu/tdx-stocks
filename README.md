@@ -37,6 +37,8 @@ python -m pip install -e .
 
 ## Usage
 
+CLI 手册见 `docs/cli_manual.md`。
+
 Create a config file:
 
 ```bash
