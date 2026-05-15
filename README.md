@@ -140,5 +140,6 @@ tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Databas
 - `raw_daily` stores unadjusted OHLCV parsed from TDX `.day` files.
 - `corporate_actions` is present but empty in version 0.1.
 - `adj_daily` stores adjusted OHLCV. In version 0.1 values equal raw prices.
-- `factors` stores basic derived indicators based on adjusted close.
+- `factors` stores derived indicators based on adjusted close, including `ma5`,
+  `ma10`, `ma20`, `ma60`, `ma120`, `ma250`, `range_20`, and MACD.
 - `latest.json` is replaced only after all stages and checks complete.
