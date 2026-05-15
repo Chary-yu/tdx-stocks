@@ -6,8 +6,15 @@ import sys
 import unittest
 from pathlib import Path
 
+from tdx_stocks.cli import build_parser
+
 
 class CliHelpSummaryTest(unittest.TestCase):
+    def test_top_level_help_mentions_help_summary(self) -> None:
+        help_text = build_parser().format_help()
+        self.assertIn("tdx-stocks help-summary", help_text)
+        self.assertIn("markdown CLI manual", help_text)
+
     def test_generate_cli_help_summary_contains_supported_commands(self) -> None:
         env = os.environ.copy()
         env["PYTHONPATH"] = "src"

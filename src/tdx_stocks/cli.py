@@ -36,7 +36,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tdx-stocks")
+    parser = argparse.ArgumentParser(
+        prog="tdx-stocks",
+        epilog="Tip: use `tdx-stocks help-summary` to generate the markdown CLI manual.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init-config", help="Write a default TOML config.")
