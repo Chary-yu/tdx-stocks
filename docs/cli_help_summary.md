@@ -15,6 +15,7 @@
 | `stock` | Show merged daily rows and factors for one stock code. |
 | `sql` | Run SQL against latest table views. |
 | `export` | Export a filtered table query to CSV. |
+| `help-summary` | Generate a markdown summary of the CLI. |
 
 ## 命令参数
 
@@ -126,3 +127,9 @@
 | `--json` |  |
 | `--to` |  |
 | `--no-limit` |  |
+
+### `help-summary`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--output` | Output markdown path, or - for stdout. (default: docs/cli_help_summary.md) |

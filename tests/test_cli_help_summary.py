@@ -38,6 +38,7 @@ class CliHelpSummaryTest(unittest.TestCase):
             "stock",
             "sql",
             "export",
+            "help-summary",
         ):
             self.assertIn(f"`{command_name}`", output)
         self.assertIn("build", output)

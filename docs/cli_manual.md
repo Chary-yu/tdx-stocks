@@ -212,6 +212,23 @@ tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Databas
 - `--to <path>`：CSV 输出路径
 - `--no-limit`
 
+### `help-summary`
+
+生成 CLI 的摘要版 Markdown 手册。
+
+```bash
+tdx-stocks help-summary --output docs/cli_help_summary.md
+tdx-stocks help-summary --output -
+```
+
+参数：
+
+- `--output`：输出路径，`-` 表示直接打印到标准输出
+
+默认输出：
+
+- `docs/cli_help_summary.md`
+
 ## 6. 输出规则
 
 - 命令行表格输出的数值默认最多两位小数。

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import load_config, write_default_config
+from .help_summary import write_markdown
 from .pipeline import build_dataset, parse_iso_date, rebuild_dataset
 from .query import (
     TABLES,
@@ -101,6 +102,18 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--to", type=Path, required=True)
     export_parser.add_argument("--no-limit", action="store_true")
     export_parser.set_defaults(func=cmd_export)
+
+    help_summary_parser = subparsers.add_parser(
+        "help-summary",
+        help="Generate a markdown summary of the CLI.",
+    )
+    help_summary_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("docs/cli_help_summary.md"),
+        help="Output markdown path, or - for stdout.",
+    )
+    help_summary_parser.set_defaults(func=cmd_help_summary)
     return parser
 
 
@@ -330,6 +343,14 @@ def cmd_export(args: argparse.Namespace) -> int:
         print(f"exported rows={count} path={args.to}")
     finally:
         ctx.close()
+    return 0
+
+
+def cmd_help_summary(args: argparse.Namespace) -> int:
+    parser = build_parser()
+    result = write_markdown(parser, args.output)
+    if result is not None:
+        print(f"wrote {result}")
     return 0
 
 
