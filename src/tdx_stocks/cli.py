@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import load_config, write_default_config
-from .pipeline import build_dataset, parse_iso_date
+from .pipeline import build_dataset, parse_iso_date, rebuild_dataset
 from .query import (
     TABLES,
     build_select_sql,
@@ -43,6 +43,17 @@ def main(argv: list[str] | None = None) -> int:
     build_parser.add_argument("--limit-symbols", type=int)
     build_parser.add_argument("--overwrite-staging", action="store_true")
     build_parser.set_defaults(func=cmd_build)
+
+    rebuild_parser = subparsers.add_parser(
+        "rebuild",
+        help="Clear the current database and rebuild from local TDX data.",
+    )
+    rebuild_parser.add_argument("--config", type=Path)
+    rebuild_parser.add_argument("--from-date", dest="from_date")
+    rebuild_parser.add_argument("--to-date", dest="to_date")
+    rebuild_parser.add_argument("--limit-symbols", type=int)
+    rebuild_parser.add_argument("--overwrite-staging", action="store_true")
+    rebuild_parser.set_defaults(func=cmd_rebuild)
 
     status_parser = subparsers.add_parser("status", help="Show latest dataset status.")
     status_parser.add_argument("--config", type=Path)
@@ -126,6 +137,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_build(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     report = build_dataset(
+        config,
+        from_date=parse_iso_date(args.from_date),
+        to_date=parse_iso_date(args.to_date),
+        limit_symbols=args.limit_symbols,
+        overwrite_staging=args.overwrite_staging or None,
+    )
+    print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_rebuild(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    report = rebuild_dataset(
         config,
         from_date=parse_iso_date(args.from_date),
         to_date=parse_iso_date(args.to_date),

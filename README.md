@@ -61,6 +61,12 @@ Run a full A-share build:
 tdx-stocks build --config tdx_stocks.toml --overwrite-staging
 ```
 
+Clear `Database/` and rebuild from local TDX data:
+
+```bash
+tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
+```
+
 The committed dataset is written under:
 
 ```text

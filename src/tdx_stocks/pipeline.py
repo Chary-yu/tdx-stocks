@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import date, datetime
 import json
 import shutil
-from pathlib import Path
+from datetime import date, datetime
 
 from .checks import CheckResult, check_adj_daily, check_factors, check_raw_daily
 from .config import AppConfig
@@ -119,6 +117,24 @@ def build_dataset(
 
     commit_version(run_paths, report)
     return report | {"version_dir": run_paths.version_dir.as_posix()}
+
+
+def rebuild_dataset(
+    config: AppConfig,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    limit_symbols: int | None = None,
+    overwrite_staging: bool | None = None,
+) -> dict:
+    if config.paths.data_root.exists():
+        shutil.rmtree(config.paths.data_root)
+    return build_dataset(
+        config,
+        from_date=from_date,
+        to_date=to_date,
+        limit_symbols=limit_symbols,
+        overwrite_staging=overwrite_staging,
+    )
 
 
 def commit_version(run_paths: RunPaths, report: dict) -> None:
