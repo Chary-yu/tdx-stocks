@@ -120,7 +120,7 @@ def load_export_adjustment_factor_rows(
         for trade_date in common_dates:
             raw_close = raw_records[trade_date].close
             export_close = export_records[trade_date].close
-            if raw_close <= 0:
+            if raw_close <= 0 or export_close <= 0:
                 continue
             raw_ratios.append((trade_date, export_close / raw_close))
 

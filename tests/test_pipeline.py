@@ -160,6 +160,49 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(rows[1]["qfq_factor"], 1.0)
             self.assertEqual(rows[1]["hfq_factor"], 2.0)
 
+    def test_export_source_skips_nonpositive_export_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vipdoc = root / "vipdoc"
+            export_dir = root / "export"
+            raw_file = vipdoc / "sh" / "lday" / "sh600188.day"
+            export_file = export_dir / "SH#600188.txt"
+            raw_file.parent.mkdir(parents=True, exist_ok=True)
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+            raw_rows = [
+                (20201201, 1000, 1100, 990, 1000, 1000000.0, 100000, 0),
+                (20201202, 2000, 2100, 1980, 2000, 2000000.0, 120000, 0),
+                (20201203, 3000, 3100, 2980, 3000, 3000000.0, 140000, 0),
+            ]
+            with raw_file.open("wb") as handle:
+                for row in raw_rows:
+                    handle.write(DAY_RECORD.pack(*row))
+
+            export_file.write_text(
+                "\n".join(
+                    [
+                        "600188 测试证券 日线 前复权",
+                        "      日期\t    开盘\t    最高\t    最低\t    收盘\t    成交量\t    成交额",
+                        "2020/12/01\t-0.70\t-0.59\t-0.73\t-0.70\t100000\t1000000.00",
+                        "2020/12/02\t0.60\t0.70\t0.50\t0.60\t120000\t2000000.00",
+                        "2020/12/03\t0.90\t1.00\t0.80\t0.90\t140000\t3000000.00",
+                    ]
+                )
+                + "\n",
+                encoding="gbk",
+            )
+
+            rows = load_export_adjustment_factor_rows(
+                export_dir,
+                vipdoc,
+                markets=("sh",),
+                universe="ashare",
+            )
+
+            self.assertEqual([row["trade_date"].isoformat() for row in rows], ["2020-12-02", "2020-12-03"])
+            self.assertEqual(rows[-1]["qfq_factor"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
