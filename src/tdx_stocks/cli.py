@@ -85,6 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional CSV file or directory containing corporate_actions.csv and adjustment_factors.csv.",
     )
+    update_actions_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Derive the update report without writing cache files.",
+    )
     update_actions_parser.set_defaults(func=cmd_update_actions)
 
     status_parser = subparsers.add_parser("status", help="Show latest dataset status.")
@@ -208,6 +213,7 @@ def cmd_update_actions(args: argparse.Namespace) -> int:
         config,
         source=args.source,
         input_path=args.input,
+        dry_run=args.dry_run,
         progress=stderr_progress,
     )
     print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))

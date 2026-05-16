@@ -22,6 +22,12 @@ class ExportDailyRecord:
     amount: float
 
 
+@dataclass(frozen=True)
+class ExportAdjustmentFactorResult:
+    rows: list[dict[str, object]]
+    report: dict[str, object]
+
+
 def code_from_export_path(path: Path) -> tuple[str, str]:
     stem = path.stem.lower()
     if len(stem) != 9 or stem[2] != "#" or not stem[:2].isalpha() or not stem[3:].isdigit():
@@ -79,27 +85,36 @@ def read_export_records(path: Path) -> Iterator[ExportDailyRecord]:
             )
 
 
-def load_export_adjustment_factor_rows(
+def build_export_adjustment_factor_result(
     export_dir: Path,
     raw_vipdoc: Path,
     markets: tuple[str, ...] = ("sh", "sz"),
     universe: str = "ashare",
     from_date: date | None = None,
     to_date: date | None = None,
-) -> list[dict[str, object]]:
-    if export_dir.is_file():
-        export_files = {code_from_export_path(export_dir): export_dir}
-    else:
-        export_files = {
-            code_from_export_path(path): path
-            for path in iter_export_files(export_dir, markets, universe)
-        }
+) -> ExportAdjustmentFactorResult:
+    export_files = _resolve_export_files(export_dir, markets, universe)
     rows: list[dict[str, object]] = []
+    matched_symbols: list[dict[str, object]] = []
+    issues: list[dict[str, object]] = []
+    matched_keys: set[tuple[str, str]] = set()
+    min_trade_date: date | None = None
+    max_trade_date: date | None = None
+    raw_file_count = 0
 
     for raw_path in iter_day_files(raw_vipdoc, markets=markets, universe=universe):
+        raw_file_count += 1
         market, symbol = code_from_path(raw_path)
         export_path = export_files.get((market, symbol))
         if export_path is None:
+            issues.append(
+                {
+                    "market": market,
+                    "symbol": symbol,
+                    "reason": "missing_export_file",
+                    "raw_path": raw_path.as_posix(),
+                }
+            )
             continue
 
         raw_records = {
@@ -114,22 +129,49 @@ def load_export_adjustment_factor_rows(
         }
         common_dates = sorted(raw_records.keys() & export_records.keys())
         if not common_dates:
+            issues.append(
+                {
+                    "market": market,
+                    "symbol": symbol,
+                    "reason": "no_common_dates",
+                    "export_path": export_path.as_posix(),
+                }
+            )
             continue
 
         raw_ratios: list[tuple[date, float]] = []
+        skipped_rows = 0
         for trade_date in common_dates:
             raw_close = raw_records[trade_date].close
             export_close = export_records[trade_date].close
             if raw_close <= 0 or export_close <= 0:
+                skipped_rows += 1
                 continue
             raw_ratios.append((trade_date, export_close / raw_close))
 
         if not raw_ratios:
+            issues.append(
+                {
+                    "market": market,
+                    "symbol": symbol,
+                    "reason": "no_positive_rows",
+                    "export_path": export_path.as_posix(),
+                    "skipped_rows": skipped_rows,
+                }
+            )
             continue
 
         normalized_base = raw_ratios[-1][1]
         if normalized_base <= 0:
-            raise ValueError(f"Invalid export normalization base for {market}:{symbol}")
+            issues.append(
+                {
+                    "market": market,
+                    "symbol": symbol,
+                    "reason": "invalid_normalization_base",
+                    "export_path": export_path.as_posix(),
+                }
+            )
+            continue
 
         qfq_rows: list[tuple[date, float]] = []
         for trade_date, raw_ratio in raw_ratios:
@@ -137,7 +179,31 @@ def load_export_adjustment_factor_rows(
 
         first_qfq_factor = qfq_rows[0][1]
         if first_qfq_factor <= 0:
-            raise ValueError(f"Invalid export qfq factor base for {market}:{symbol}")
+            issues.append(
+                {
+                    "market": market,
+                    "symbol": symbol,
+                    "reason": "invalid_qfq_factor_base",
+                    "export_path": export_path.as_posix(),
+                }
+            )
+            continue
+
+        matched_keys.add((market, symbol))
+        matched_symbols.append(
+            {
+                "market": market,
+                "symbol": symbol,
+                "export_path": export_path.as_posix(),
+                "common_dates": len(common_dates),
+                "positive_rows": len(qfq_rows),
+                "skipped_rows": skipped_rows,
+                "start_date": str(qfq_rows[0][0]),
+                "end_date": str(qfq_rows[-1][0]),
+            }
+        )
+        min_trade_date = qfq_rows[0][0] if min_trade_date is None else min(min_trade_date, qfq_rows[0][0])
+        max_trade_date = qfq_rows[-1][0] if max_trade_date is None else max(max_trade_date, qfq_rows[-1][0])
 
         for trade_date, qfq_factor in qfq_rows:
             rows.append(
@@ -153,4 +219,83 @@ def load_export_adjustment_factor_rows(
                 }
             )
 
-    return rows
+    for key, export_path in export_files.items():
+        if key not in matched_keys and not any(
+            issue.get("reason") == "no_common_dates"
+            and issue.get("market") == key[0]
+            and issue.get("symbol") == key[1]
+            for issue in issues
+        ):
+            issues.append(
+                {
+                    "market": key[0],
+                    "symbol": key[1],
+                    "reason": "missing_raw_file",
+                    "export_path": export_path.as_posix(),
+                }
+            )
+
+    report = {
+        "source": "export",
+        "export_dir": export_dir.as_posix(),
+        "raw_vipdoc": raw_vipdoc.as_posix(),
+        "export_files": len(export_files),
+        "raw_files": raw_file_count,
+        "matched_symbols": len(matched_symbols),
+        "rows_written": len(rows),
+        "skipped_issue_count": len(issues),
+        "matched_symbols_sample": matched_symbols[:50],
+        "issues_sample": issues[:100],
+        "min_trade_date": str(min_trade_date) if min_trade_date else None,
+        "max_trade_date": str(max_trade_date) if max_trade_date else None,
+    }
+    return ExportAdjustmentFactorResult(rows=rows, report=report)
+
+
+def load_export_adjustment_factor_rows(
+    export_dir: Path,
+    raw_vipdoc: Path,
+    markets: tuple[str, ...] = ("sh", "sz"),
+    universe: str = "ashare",
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> list[dict[str, object]]:
+    return build_export_adjustment_factor_result(
+        export_dir,
+        raw_vipdoc,
+        markets=markets,
+        universe=universe,
+        from_date=from_date,
+        to_date=to_date,
+    ).rows
+
+
+def build_export_adjustment_factor_report(
+    export_dir: Path,
+    raw_vipdoc: Path,
+    markets: tuple[str, ...] = ("sh", "sz"),
+    universe: str = "ashare",
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> dict[str, object]:
+    return build_export_adjustment_factor_result(
+        export_dir,
+        raw_vipdoc,
+        markets=markets,
+        universe=universe,
+        from_date=from_date,
+        to_date=to_date,
+    ).report
+
+
+def _resolve_export_files(
+    export_dir: Path,
+    markets: tuple[str, ...],
+    universe: str,
+) -> dict[tuple[str, str], Path]:
+    if export_dir.is_file():
+        return {code_from_export_path(export_dir): export_dir}
+    return {
+        code_from_export_path(path): path
+        for path in iter_export_files(export_dir, markets, universe)
+    }

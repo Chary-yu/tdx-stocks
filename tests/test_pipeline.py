@@ -9,7 +9,7 @@ from unittest.mock import patch
 from tdx_stocks.cli import cmd_build, cmd_rebuild, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.export_io import load_export_adjustment_factor_rows
-from tdx_stocks.pipeline import rebuild_dataset
+from tdx_stocks.pipeline import rebuild_dataset, update_actions
 from tdx_stocks.tdx_day import DAY_RECORD
 
 
@@ -94,6 +94,7 @@ class PipelineTest(unittest.TestCase):
             config=None,
             source="local",
             input=None,
+            dry_run=False,
         )
         with patch("builtins.print"), patch(
             "tdx_stocks.cli.load_config"
@@ -159,6 +160,77 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(rows[1]["trade_date"].isoformat(), "2024-01-03")
             self.assertEqual(rows[1]["qfq_factor"], 1.0)
             self.assertEqual(rows[1]["hfq_factor"], 2.0)
+
+    def test_update_actions_export_dry_run_reports_skipped_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vipdoc = root / "vipdoc"
+            export_dir = root / "export"
+            raw_file = vipdoc / "sh" / "lday" / "sh600000.day"
+            matching_export_file = export_dir / "SH#600000.txt"
+            skipped_export_file = export_dir / "SH#600001.txt"
+            raw_file.parent.mkdir(parents=True, exist_ok=True)
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+            raw_rows = [
+                (20240102, 1000, 1100, 990, 1000, 1000000.0, 100000, 0),
+                (20240103, 2000, 2100, 1980, 2000, 2000000.0, 120000, 0),
+            ]
+            with raw_file.open("wb") as handle:
+                for row in raw_rows:
+                    handle.write(DAY_RECORD.pack(*row))
+
+            matching_export_file.write_text(
+                "\n".join(
+                    [
+                        "600000 测试银行 日线 前复权",
+                        "      日期\t    开盘\t    最高\t    最低\t    收盘\t    成交量\t    成交额",
+                        "2024/01/02\t5.00\t5.50\t4.95\t5.00\t100000\t1000000.00",
+                        "2024/01/03\t20.00\t21.00\t19.80\t20.00\t120000\t2000000.00",
+                    ]
+                )
+                + "\n",
+                encoding="gbk",
+            )
+            skipped_export_file.write_text(
+                "\n".join(
+                    [
+                        "600001 测试证券 日线 前复权",
+                        "      日期\t    开盘\t    最高\t    最低\t    收盘\t    成交量\t    成交额",
+                        "2024/01/02\t1.00\t1.10\t0.95\t1.00\t1000\t10000.00",
+                    ]
+                )
+                + "\n",
+                encoding="gbk",
+            )
+
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=vipdoc,
+                    tdx_export=export_dir,
+                    data_root=root / "Database",
+                ),
+                build=BuildConfig(markets=("sh",), universe="ashare"),
+            )
+
+            report = update_actions(config, source="export", dry_run=True)
+
+            cache_dir = config.paths.data_root / "cache" / "adjustment_factors"
+            self.assertFalse(cache_dir.exists() and any(cache_dir.rglob("*.parquet")))
+            self.assertTrue((config.paths.data_root / "cache" / "action_update_report.json").exists())
+            self.assertTrue(report["dry_run"])
+            self.assertEqual(report["adjustment_factors_rows"], 2)
+            self.assertEqual(report["adjustment_factors_state"], "dry-run")
+            nested_report = report["adjustment_factors_report"]
+            self.assertEqual(nested_report["matched_symbols"], 1)
+            self.assertGreaterEqual(nested_report["skipped_issue_count"], 1)
+            self.assertTrue(
+                any(
+                    issue["reason"] == "missing_raw_file" and issue["symbol"] == "600001"
+                    for issue in nested_report["issues_sample"]
+                )
+            )
+            self.assertEqual(nested_report["matched_symbols_sample"][0]["skipped_rows"], 0)
 
     def test_export_source_skips_nonpositive_export_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
