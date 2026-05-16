@@ -280,11 +280,23 @@ tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Databas
 
 常用回归命令：
 
+日常开发：
+
 ```bash
-./.venv/bin/python -m unittest discover -s tests -q
 ./.venv/bin/python -m unittest tests.test_pipeline -q
 ./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+```
+
+提交前：
+
+```bash
 ./.venv/bin/python -m unittest tests.test_query -q
+./.venv/bin/python -m unittest discover -s tests -q
+```
+
+定点排障：
+
+```bash
 ./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_actions_status_reports_cache_and_update_report -q
 ./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols -q
 ```

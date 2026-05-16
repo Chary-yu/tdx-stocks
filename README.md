@@ -109,11 +109,23 @@ If you want to verify a specific feature, run the matching test case below:
 
 Quick regression commands:
 
+Daily:
+
 ```bash
-./.venv/bin/python -m unittest discover -s tests -q
 ./.venv/bin/python -m unittest tests.test_pipeline -q
 ./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+```
+
+Pre-commit:
+
+```bash
 ./.venv/bin/python -m unittest tests.test_query -q
+./.venv/bin/python -m unittest discover -s tests -q
+```
+
+Targeted troubleshooting:
+
+```bash
 ./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_actions_status_reports_cache_and_update_report -q
 ./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols -q
 ```
