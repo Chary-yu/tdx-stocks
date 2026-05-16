@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
-from tdx_stocks.cli import cmd_actions_status, cmd_build, cmd_rebuild, cmd_update_actions
+from tdx_stocks.cli import cmd_actions_status, cmd_build, cmd_rebuild, cmd_sync, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.export_io import load_export_adjustment_factor_rows
 from tdx_stocks.parquet_io import (
@@ -80,21 +80,29 @@ class PipelineTest(unittest.TestCase):
         with patch("builtins.print"), patch(
             "tdx_stocks.cli.load_config"
         ) as load_config, patch(
+            "tdx_stocks.cli._write_lock",
+            return_value=contextlib.nullcontext(),
+        ) as mocked_lock, patch(
             "tdx_stocks.cli.build_dataset",
             return_value={"ok": True},
         ) as mocked_build:
             load_config.return_value = AppConfig()
             self.assertEqual(cmd_build(args), 0)
+            mocked_lock.assert_called_once()
             self.assertTrue(callable(mocked_build.call_args.kwargs["progress"]))
 
         with patch("builtins.print"), patch(
             "tdx_stocks.cli.load_config"
         ) as load_config, patch(
+            "tdx_stocks.cli._write_lock",
+            return_value=contextlib.nullcontext(),
+        ) as mocked_lock, patch(
             "tdx_stocks.cli.rebuild_dataset",
             return_value={"ok": True},
         ) as mocked_rebuild:
             load_config.return_value = AppConfig()
             self.assertEqual(cmd_rebuild(args), 0)
+            mocked_lock.assert_called_once()
             self.assertTrue(callable(mocked_rebuild.call_args.kwargs["progress"]))
 
     def test_update_actions_command_passes_progress(self) -> None:
@@ -107,13 +115,72 @@ class PipelineTest(unittest.TestCase):
         with patch("builtins.print"), patch(
             "tdx_stocks.cli.load_config"
         ) as load_config, patch(
+            "tdx_stocks.cli._write_lock",
+            return_value=contextlib.nullcontext(),
+        ) as mocked_lock, patch(
             "tdx_stocks.cli.update_actions",
             return_value={"ok": True},
         ) as mocked_update:
             load_config.return_value = AppConfig()
             self.assertEqual(cmd_update_actions(args), 0)
+            mocked_lock.assert_called_once()
             self.assertTrue(callable(mocked_update.call_args.kwargs["progress"]))
             self.assertEqual(mocked_update.call_args.kwargs["source"], "local")
+
+    def test_update_actions_dry_run_skips_lock_and_report_write(self) -> None:
+        args = Namespace(
+            config=None,
+            source="export",
+            input=None,
+            dry_run=True,
+        )
+        with patch("builtins.print"), patch(
+            "tdx_stocks.cli.load_config"
+        ) as load_config, patch(
+            "tdx_stocks.cli._write_lock"
+        ) as mocked_lock, patch(
+            "tdx_stocks.cli.update_actions",
+            return_value={"ok": True},
+        ) as mocked_update:
+            load_config.return_value = AppConfig()
+            self.assertEqual(cmd_update_actions(args), 0)
+            mocked_lock.assert_not_called()
+            self.assertEqual(mocked_update.call_args.kwargs["write_report"], False)
+
+    def test_sync_dry_run_skips_lock_and_execution(self) -> None:
+        args = Namespace(
+            config=None,
+            from_date=None,
+            to_date=None,
+            limit_symbols=None,
+            overwrite_staging=False,
+            dry_run=True,
+            json=False,
+        )
+        from types import SimpleNamespace
+
+        plan = SimpleNamespace(
+            needs_write=True,
+            to_dict=lambda: {"steps": [{"name": "data update", "reason": "export newer"}]},
+        )
+        with patch("builtins.print"), patch(
+            "tdx_stocks.cli.load_config"
+        ) as load_config, patch(
+            "tdx_stocks.cli.build_sync_plan",
+            return_value=plan,
+        ) as mocked_plan, patch(
+            "tdx_stocks.cli._write_lock"
+        ) as mocked_lock, patch(
+            "tdx_stocks.cli.update_actions"
+        ) as mocked_update, patch(
+            "tdx_stocks.cli.rebuild_dataset"
+        ) as mocked_rebuild:
+            load_config.return_value = AppConfig()
+            self.assertEqual(cmd_sync(args), 0)
+            mocked_plan.assert_called_once()
+            mocked_lock.assert_not_called()
+            mocked_update.assert_not_called()
+            mocked_rebuild.assert_not_called()
 
     def test_export_source_derives_adjustment_factors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -219,7 +219,7 @@ class AdjustmentVerifyTest(unittest.TestCase):
                 json=False,
             )
             with patch("tdx_stocks.cli.load_config", return_value=config), contextlib.redirect_stdout(buf):
-                self.assertEqual(cmd_verify_adjustment(args), 0)
+                self.assertEqual(cmd_verify_adjustment(args), 3)
             output = buf.getvalue()
             self.assertIn("ok=False", output)
             self.assertIn("mismatch_count=1", output)

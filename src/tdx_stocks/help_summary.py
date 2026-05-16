@@ -11,28 +11,79 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
     if parser.description:
         lines.append(parser.description)
         lines.append("")
+
+    visible, hidden = _collect_subcommands(parser)
     lines.append("## 支持命令")
     lines.append("")
     lines.append("| 命令 | 功能 |")
     lines.append("| --- | --- |")
+    for command_name, command_parser, help_text in visible:
+        lines.append(f"| `{command_name}` | {help_text} |")
 
-    subparsers_action = next(
-        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
-    )
-    command_help = {item.dest: item.help or "" for item in subparsers_action._choices_actions}
-    for command_name, _command_parser in subparsers_action.choices.items():
-        lines.append(f"| `{command_name}` | {command_help.get(command_name, '')} |")
+    if hidden:
+        lines.append("")
+        lines.append("## 兼容别名")
+        lines.append("")
+        lines.append("| 命令 | 替代 |")
+        lines.append("| --- | --- |")
+        for command_name, _command_parser, replacement in hidden:
+            lines.append(f"| `{command_name}` | `{replacement}` |")
 
     lines.append("")
     lines.append("## 命令参数")
     lines.append("")
-    for command_name, command_parser in subparsers_action.choices.items():
-        lines.append(f"### `{command_name}`")
+    _render_command_tree(parser, lines, path=(), level=3)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _collect_subcommands(
+    parser: argparse.ArgumentParser,
+) -> tuple[list[tuple[str, argparse.ArgumentParser, str]], list[tuple[str, argparse.ArgumentParser, str]]]:
+    subparsers_action = next(
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+    visible: list[tuple[str, argparse.ArgumentParser, str]] = []
+    hidden: list[tuple[str, argparse.ArgumentParser, str]] = []
+    for choice_action in subparsers_action._choices_actions:
+        command_name = choice_action.dest
+        command_parser = subparsers_action.choices[command_name]
+        help_text = choice_action.help or ""
+        if choice_action.help == argparse.SUPPRESS:
+            replacement = getattr(command_parser, "_legacy_target", command_name)
+            hidden.append((command_name, command_parser, str(replacement)))
+        else:
+            visible.append((command_name, command_parser, help_text))
+    return visible, hidden
+
+
+def _render_command_tree(
+    parser: argparse.ArgumentParser,
+    lines: list[str],
+    *,
+    path: tuple[str, ...],
+    level: int,
+) -> None:
+    if path:
+        lines.append(f"{'#' * level} `{ ' '.join(path) }`")
         lines.append("")
-        lines.extend(render_actions(command_parser))
+        lines.extend(render_actions(parser))
         lines.append("")
 
-    return "\n".join(lines).rstrip() + "\n"
+    visible, _hidden = _collect_subcommands(parser) if _has_subcommands(parser) else ([], [])
+    if visible:
+        lines.append(f"{'#' * level} 子命令")
+        lines.append("")
+        lines.append("| 命令 | 功能 |")
+        lines.append("| --- | --- |")
+        for command_name, command_parser, help_text in visible:
+            lines.append(f"| `{command_name}` | {help_text} |")
+        lines.append("")
+        for command_name, command_parser, _help_text in visible:
+            _render_command_tree(command_parser, lines, path=path + (command_name,), level=level + 1)
+
+
+def _has_subcommands(parser: argparse.ArgumentParser) -> bool:
+    return any(isinstance(action, argparse._SubParsersAction) for action in parser._actions)
 
 
 def render_actions(parser: argparse.ArgumentParser) -> list[str]:

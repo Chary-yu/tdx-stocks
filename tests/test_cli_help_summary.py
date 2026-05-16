@@ -35,23 +35,23 @@ class CliHelpSummaryTest(unittest.TestCase):
         self.assertIn("tdx-stocks CLI 摘要", output)
         for command_name in (
             "init-config",
-            "doctor",
-            "build",
-            "rebuild",
-            "update-actions",
-            "status",
-            "tables",
-            "schema",
-            "head",
-            "stock",
-            "sql",
-            "export",
+            "sync",
+            "data",
+            "audit",
+            "query",
             "help-summary",
         ):
             self.assertIn(f"`{command_name}`", output)
-        self.assertIn("build", output)
-        self.assertIn("rebuild", output)
-        self.assertIn("stock", output)
+        for command_name in (
+            "update-actions",
+            "actions-status",
+            "verify-adjustment",
+            "build",
+            "rebuild",
+            "stock",
+        ):
+            self.assertIn(f"`{command_name}`", output)
+        self.assertIn("兼容别名", output)
 
 
 if __name__ == "__main__":

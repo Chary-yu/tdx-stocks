@@ -276,11 +276,11 @@ def update_actions(
     input_path: Path | None = None,
     dry_run: bool = False,
     overwrite_staging: bool | None = None,
+    write_report: bool = True,
     progress: ProgressCallback | None = None,
 ) -> dict:
     del overwrite_staging
     cache_root = config.paths.data_root / "cache"
-    cache_root.mkdir(parents=True, exist_ok=True)
     cache_corporate_actions_dir = cache_root / "corporate_actions"
     cache_adjustment_factors_dir = cache_root / "adjustment_factors"
     report: dict[str, object] = {
@@ -293,6 +293,9 @@ def update_actions(
         "adjustment_factors_state": "unchanged",
         "dry_run": dry_run,
     }
+
+    if not dry_run or write_report:
+        cache_root.mkdir(parents=True, exist_ok=True)
 
     if source == "export":
         export_dir = input_path or config.paths.tdx_export
@@ -409,8 +412,9 @@ def update_actions(
         else:
             _progress(progress, "Kept existing adjustment_factors cache")
 
-    (cache_root / "action_update_report.json").write_text(
-        json.dumps(report, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+    if write_report:
+        (cache_root / "action_update_report.json").write_text(
+            json.dumps(report, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
     return report

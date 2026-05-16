@@ -6,9 +6,11 @@ Local TDX daily data pipeline:
 .day -> raw_daily -> checks -> adj_daily / hfq_daily -> checks -> factors -> checks -> atomic latest
 ```
 
-`update-actions` refreshes the cached `corporate_actions` and `adjustment_factors`
-tables. `build` and `rebuild` only consume those local caches and do not fetch
-new rights/dividend data automatically.
+`data update` refreshes the cached `corporate_actions` and
+`adjustment_factors` tables. `data build` and `data rebuild` only consume those
+local caches and do not fetch new rights/dividend data automatically. `sync`
+is the high-level macro command that decides whether to refresh export-derived
+data and rebuild the dataset.
 
 Quick copy-paste commands:
 
@@ -16,6 +18,7 @@ Quick copy-paste commands:
 ./.venv/bin/python -m unittest tests.test_pipeline -q
 ./.venv/bin/python -m unittest tests.test_duckdb_ops -q
 ./.venv/bin/python -m unittest tests.test_adjustment_verify -q
+./.venv/bin/python -m unittest tests.test_lock -q
 ./.venv/bin/python -m unittest discover -s tests -q
 ```
 
@@ -58,35 +61,36 @@ tdx-stocks init-config --path tdx_stocks.toml
 Inspect the local TDX directory:
 
 ```bash
-tdx-stocks doctor --config tdx_stocks.toml
+tdx-stocks audit doctor --config tdx_stocks.toml
 ```
 
 Run a small smoke build:
 
 ```bash
-tdx-stocks build --config tdx_stocks.toml --limit-symbols 20 --overwrite-staging
+tdx-stocks data build --config tdx_stocks.toml --limit-symbols 20 --overwrite-staging
 ```
 
 Run a full A-share build:
 
 ```bash
-tdx-stocks build --config tdx_stocks.toml --overwrite-staging
+tdx-stocks data build --config tdx_stocks.toml --overwrite-staging
 ```
 
 Clear `Database/` and rebuild from local TDX data:
 
 ```bash
-tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
+tdx-stocks data rebuild --config tdx_stocks.toml --overwrite-staging
 ```
 
 Refresh cached rights/dividend data separately:
 
 ```bash
-tdx-stocks update-actions --config tdx_stocks.toml --source file --input action_inputs/
-tdx-stocks update-actions --config tdx_stocks.toml --source export
-tdx-stocks update-actions --config tdx_stocks.toml --source export --dry-run
-tdx-stocks actions-status --config tdx_stocks.toml
-tdx-stocks verify-adjustment 600519.SH --config tdx_stocks.toml
+tdx-stocks data update --config tdx_stocks.toml --source file --input action_inputs/
+tdx-stocks data update --config tdx_stocks.toml --source export
+tdx-stocks data update --config tdx_stocks.toml --source export --dry-run
+tdx-stocks data status --config tdx_stocks.toml
+tdx-stocks audit verify 600519.SH --config tdx_stocks.toml
+tdx-stocks sync --config tdx_stocks.toml --dry-run
 ```
 
 Use `actions-status --json` when you want to inspect the current cache and the
@@ -174,35 +178,35 @@ and `factors`.
 Show current version status:
 
 ```bash
-tdx-stocks status
+tdx-stocks query status
 ```
 
 Show table-level row counts, date ranges, and disk usage:
 
 ```bash
-tdx-stocks tables
+tdx-stocks query tables
 ```
 
 Show schema:
 
 ```bash
-tdx-stocks schema raw_daily
-tdx-stocks schema factors
+tdx-stocks query schema raw_daily
+tdx-stocks query schema factors
 ```
 
 Show filtered rows:
 
 ```bash
-tdx-stocks head raw_daily --symbol 600000 --from-date 2024-01-01 --desc --limit 20
-tdx-stocks head factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14,adx_14 --limit 30
+tdx-stocks query table raw_daily --symbol 600000 --from-date 2024-01-01 --desc --limit 20
+tdx-stocks query table factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14,adx_14 --limit 30
 ```
 
 Show one stock's merged daily rows and factors:
 
 ```bash
-tdx-stocks stock 600519.SH --limit 20
-tdx-stocks stock 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
-tdx-stocks stock 600519.SH --no-limit
+tdx-stocks query price 600519.SH --limit 20
+tdx-stocks query price 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
+tdx-stocks query price 600519.SH --no-limit
 ```
 
 CLI output rounds numeric values to at most two decimals. `volume` and `amount`
@@ -211,20 +215,20 @@ are abbreviated with units like `K`, `M`, and `B` for readability.
 Run ad hoc SQL:
 
 ```bash
-tdx-stocks sql "select symbol, count(*) as row_count, max(trade_date) as last_date from raw_daily group by symbol order by symbol"
+tdx-stocks query sql "select symbol, count(*) as row_count, max(trade_date) as last_date from raw_daily group by symbol order by symbol"
 ```
 
 The SQL session also registers convenience macros:
 
 ```bash
-tdx-stocks sql "select * from last_n_days('600519.SH', 10)"
-tdx-stocks sql "select * from last_n_factors('600519.SH', 10)"
+tdx-stocks query sql "select * from last_n_days('600519.SH', 10)"
+tdx-stocks query sql "select * from last_n_factors('600519.SH', 10)"
 ```
 
 Export a filtered result to CSV:
 
 ```bash
-tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Database/exports/factors_600000.csv --limit 1000
+tdx-stocks query export factors --symbol 600000 --from-date 2024-01-01 --to ../Database/exports/factors_600000.csv --limit 1000
 ```
 
 ## Notes
@@ -242,7 +246,7 @@ tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Databas
   `bias_10`, `bias_20`, `bias_60`, `rsv_9`, `k_9`, `d_9`, `j_9`,
   `plus_di_14`, `minus_di_14`, `adx_14`, `amount_ma20`, `amount_ma60`,
   `vol_ratio_20`, `amp_1`, and MACD.
-- `stock` shows a compact subset of the merged daily data and highlights core
+- `query price` shows a compact subset of the merged daily data and highlights core
   factor columns such as `ret_20`, `vol_20`, `rsi_14`, `atr_pct_14`, `adx_14`,
   and KDJ.
 - `latest.json` is replaced only after all stages and checks complete.
