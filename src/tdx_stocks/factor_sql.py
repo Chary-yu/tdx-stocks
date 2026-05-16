@@ -407,7 +407,7 @@ def render_create_rolling_stats_sql() -> str:
             "    vol_ratio_20,",
             "    amp_1,",
             "    cci_20,",
-            "    CASE WHEN cnt_14 < 14 THEN NULL ELSE avg(dx_14) OVER (PARTITION BY market, symbol ORDER BY trade_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) END AS adx_14",
+            "    CASE WHEN cnt_14 < 14 THEN NULL ELSE least(100.0, greatest(0.0, ROUND(avg(dx_14) OVER (PARTITION BY market, symbol ORDER BY trade_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW), 6))) END AS adx_14",
             "FROM technical",
         ]
     )

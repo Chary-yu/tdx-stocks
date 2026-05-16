@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tdx_stocks.duckdb_ops import build_factors
+from tdx_stocks.factor_sql import render_build_factors_sql
 from tdx_stocks.query import (
     build_stock_sql,
     format_bytes,
@@ -580,6 +581,11 @@ class QueryHelpersTest(unittest.TestCase):
                 self.assertAlmostEqual(row["macd_hist"], hist, places=12)
             finally:
                 con.close()
+
+    def test_render_build_factors_sql_clamps_adx(self) -> None:
+        sql = render_build_factors_sql(Path("/tmp/in"), Path("/tmp/out"), "zstd")
+        self.assertIn("ROUND(avg(dx_14)", sql)
+        self.assertIn("least(100.0, greatest(0.0", sql)
 
 
 if __name__ == "__main__":

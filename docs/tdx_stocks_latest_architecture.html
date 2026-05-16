@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tdx-stocks Latest Architecture Diagram</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem;
+      min-height: 100vh;
+      background: #020617;
+      color: #e2e8f0;
+      font-family: "JetBrains Mono", monospace;
+    }
+    .container {
+      max-width: 1340px;
+      margin: 0 auto;
+    }
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .title-block { min-width: 0; }
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      margin-bottom: 0.35rem;
+    }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #22d3ee;
+      box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.45);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5); }
+      70% { box-shadow: 0 0 0 12px rgba(34, 211, 238, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.55rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: #f8fafc;
+    }
+    .subtitle {
+      margin: 0 0 0 1.9rem;
+      color: #94a3b8;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      max-width: 980px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .toolbar-toggle {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: #64748b;
+      font-size: 1.3rem;
+      line-height: 1;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.35rem;
+      cursor: pointer;
+    }
+    .toolbar-toggle:hover { background: rgba(30, 41, 59, 0.65); color: #cbd5e1; }
+    .toolbar-actions {
+      display: none;
+      gap: 0.5rem;
+    }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button {
+      appearance: none;
+      border: 1px solid #334155;
+      border-radius: 0.4rem;
+      background: rgba(15, 23, 42, 0.85);
+      color: #cbd5e1;
+      padding: 0.4rem 0.8rem;
+      font: inherit;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .toolbar-actions button:hover {
+      background: rgba(30, 41, 59, 0.95);
+      border-color: #475569;
+      color: #fff;
+    }
+    .diagram-shell {
+      background: rgba(15, 23, 42, 0.56);
+      border: 1px solid #1e293b;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      overflow-x: auto;
+      box-shadow: 0 18px 60px rgba(2, 6, 23, 0.35);
+    }
+    svg {
+      width: 100%;
+      min-width: 1240px;
+      display: block;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.56);
+      border: 1px solid #1e293b;
+      border-radius: 0.85rem;
+      padding: 1rem 1.05rem;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.7rem;
+    }
+    .card-dot { width: 8px; height: 8px; border-radius: 999px; }
+    .cyan { background: #22d3ee; }
+    .emerald { background: #34d399; }
+    .violet { background: #a78bfa; }
+    .amber { background: #fbbf24; }
+    .rose { background: #fb7185; }
+    .card h3 {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #f8fafc;
+    }
+    .card ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      color: #94a3b8;
+      font-size: 0.76rem;
+      line-height: 1.65;
+    }
+    .card li { margin-bottom: 0.3rem; }
+    .footer {
+      margin-top: 1rem;
+      color: #64748b;
+      font-size: 0.75rem;
+      text-align: center;
+    }
+    @media print {
+      body { padding: 1rem; background: #020617; }
+      .toolbar { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="title-block">
+        <div class="header-row">
+          <div class="pulse-dot"></div>
+          <h1>tdx-stocks Latest Architecture</h1>
+          <div class="toolbar">
+            <div class="toolbar-actions">
+              <button onclick="copyAsImage(this)">📋 Copy</button>
+              <button onclick="downloadPNG(this)">🖼️ PNG</button>
+              <button onclick="downloadPDF(this)">📄 PDF</button>
+            </div>
+            <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" aria-label="Export options" title="Export options">⋯</button>
+          </div>
+        </div>
+        <p class="subtitle">
+          最新代码把权息数据更新和日线构建解耦：`update-actions` 负责慢变缓存，`build` / `rebuild` 只消费本地缓存；新增 `T0002/export` 前复权文本源后，可直接反推 `adjustment_factors`。
+        </p>
+      </div>
+    </div>
+
+    <div class="diagram-shell">
+      <svg viewBox="0 0 1300 820" role="img" aria-label="tdx-stocks architecture diagram">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"></polygon>
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"></path>
+          </pattern>
+          <linearGradient id="softGlow" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.08"></stop>
+            <stop offset="100%" stop-color="#a78bfa" stop-opacity="0.05"></stop>
+          </linearGradient>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#020617"></rect>
+        <rect width="100%" height="100%" fill="url(#grid)"></rect>
+        <rect x="18" y="18" width="1264" height="784" rx="16" fill="url(#softGlow)" stroke="#1e293b" stroke-width="1"></rect>
+
+        <!-- arrows behind boxes -->
+        <path d="M 400 170 L 470 170" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 400 250 L 470 250" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 400 330 L 470 330" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 580 210 L 660 210" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 580 290 L 660 290" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 760 250 L 860 250" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 760 390 L 860 390" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 980 250 L 1080 250" stroke="#22d3ee" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 980 390 L 1080 390" stroke="#22d3ee" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 760 570 L 860 570" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 860 610 L 1040 610" stroke="#22d3ee" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 1080 570 L 1190 570" stroke="#22d3ee" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"></path>
+        <path d="M 240 670 L 430 670" stroke="#fb7185" stroke-width="1.5" fill="none" stroke-dasharray="5,5" marker-end="url(#arrowhead)"></path>
+        <path d="M 700 700 L 860 700" stroke="#fb7185" stroke-width="1.5" fill="none" stroke-dasharray="5,5" marker-end="url(#arrowhead)"></path>
+
+        <!-- left: sources -->
+        <text x="48" y="70" fill="#fbbf24" font-size="10" font-weight="600">DATA SOURCES</text>
+
+        <rect x="40" y="100" width="260" height="60" rx="8" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"></rect>
+        <rect x="40" y="100" width="260" height="60" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"></rect>
+        <text x="170" y="123" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">vipdoc .day files</text>
+        <text x="170" y="141" fill="#94a3b8" font-size="9" text-anchor="middle">/mnt/d/ProgramFiles/Tdx/vipdoc</text>
+        <text x="170" y="154" fill="#94a3b8" font-size="8" text-anchor="middle">raw OHLCV, trade_date, amount, volume</text>
+
+        <rect x="40" y="190" width="260" height="60" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
+        <rect x="40" y="190" width="260" height="60" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
+        <text x="170" y="213" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">T0002/export front-adjusted</text>
+        <text x="170" y="231" fill="#94a3b8" font-size="9" text-anchor="middle">/mnt/d/ProgramFiles/Tdx/T0002/export</text>
+        <text x="170" y="244" fill="#94a3b8" font-size="8" text-anchor="middle">per-symbol text, qfq close/volume/amount</text>
+
+        <rect x="40" y="280" width="260" height="60" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <rect x="40" y="280" width="260" height="60" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <text x="170" y="303" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">CSV / Parquet inputs</text>
+        <text x="170" y="321" fill="#94a3b8" font-size="9" text-anchor="middle">manual action files, fallback caches</text>
+        <text x="170" y="334" fill="#94a3b8" font-size="8" text-anchor="middle">action_inputs/, corporate_actions.csv, factors.csv</text>
+
+        <rect x="40" y="395" width="260" height="90" rx="10" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
+        <text x="170" y="420" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Slow-changing data update</text>
+        <text x="170" y="440" fill="#cbd5e1" font-size="9" text-anchor="middle">No auto-refresh in build/rebuild</text>
+        <text x="170" y="456" fill="#cbd5e1" font-size="9" text-anchor="middle">`tdx-stocks update-actions` only</text>
+
+        <!-- middle: update layer -->
+        <text x="460" y="70" fill="#fbbf24" font-size="10" font-weight="600">UPDATE LAYER</text>
+
+        <rect x="470" y="120" width="290" height="92" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
+        <rect x="470" y="120" width="290" height="92" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
+        <text x="615" y="145" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">update-actions CLI</text>
+        <text x="615" y="163" fill="#94a3b8" font-size="9" text-anchor="middle">cli.py → pipeline.update_actions()</text>
+        <text x="615" y="177" fill="#94a3b8" font-size="8" text-anchor="middle">source = local | official | file | export</text>
+        <text x="615" y="192" fill="#94a3b8" font-size="8" text-anchor="middle">keeps build/rebuild offline and deterministic</text>
+
+        <rect x="470" y="235" width="290" height="92" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
+        <rect x="470" y="235" width="290" height="92" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
+        <text x="615" y="260" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Export parser</text>
+        <text x="615" y="278" fill="#94a3b8" font-size="9" text-anchor="middle">export_io.py</text>
+        <text x="615" y="292" fill="#94a3b8" font-size="8" text-anchor="middle">reads front-adjusted daily text</text>
+        <text x="615" y="307" fill="#94a3b8" font-size="8" text-anchor="middle">aligns export rows with raw .day rows</text>
+
+        <rect x="470" y="350" width="290" height="92" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <rect x="470" y="350" width="290" height="92" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <text x="615" y="375" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Cache writers</text>
+        <text x="615" y="393" fill="#94a3b8" font-size="9" text-anchor="middle">cache/corporate_actions</text>
+        <text x="615" y="407" fill="#94a3b8" font-size="9" text-anchor="middle">cache/adjustment_factors</text>
+        <text x="615" y="421" fill="#94a3b8" font-size="8" text-anchor="middle">parquet_io.py + write_records_table()</text>
+        <text x="615" y="436" fill="#94a3b8" font-size="8" text-anchor="middle">export source rewrites only factor cache</text>
+
+        <rect x="470" y="475" width="290" height="82" rx="8" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
+        <text x="615" y="500" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Cache contract</text>
+        <text x="615" y="518" fill="#cbd5e1" font-size="8" text-anchor="middle">`build` reads cache; no live network fetch</text>
+        <text x="615" y="532" fill="#cbd5e1" font-size="8" text-anchor="middle">`update-actions` is the only refresh entrypoint</text>
+
+        <!-- right middle: build pipeline -->
+        <text x="860" y="70" fill="#fbbf24" font-size="10" font-weight="600">BUILD PIPELINE</text>
+
+        <rect x="860" y="120" width="250" height="90" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <rect x="860" y="120" width="250" height="90" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <text x="985" y="145" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">build / rebuild</text>
+        <text x="985" y="163" fill="#94a3b8" font-size="9" text-anchor="middle">pipeline.build_dataset()</text>
+        <text x="985" y="177" fill="#94a3b8" font-size="8" text-anchor="middle">scans .day files and writes raw_daily</text>
+        <text x="985" y="192" fill="#94a3b8" font-size="8" text-anchor="middle">consumes cached actions / factors only</text>
+
+        <rect x="860" y="235" width="250" height="90" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
+        <rect x="860" y="235" width="250" height="90" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
+        <text x="985" y="260" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">DuckDB staged transforms</text>
+        <text x="985" y="278" fill="#94a3b8" font-size="9" text-anchor="middle">checks.py + duckdb_ops.py</text>
+        <text x="985" y="292" fill="#94a3b8" font-size="8" text-anchor="middle">copy_adj_daily() / build_factors()</text>
+        <text x="985" y="307" fill="#94a3b8" font-size="8" text-anchor="middle">qfq_factor / hfq_factor / adjusted volume</text>
+
+        <rect x="860" y="350" width="250" height="92" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <rect x="860" y="350" width="250" height="92" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <text x="985" y="375" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Versioned outputs</text>
+        <text x="985" y="393" fill="#94a3b8" font-size="9" text-anchor="middle">Database/versions/&lt;run_id&gt;/parquet</text>
+        <text x="985" y="407" fill="#94a3b8" font-size="8" text-anchor="middle">raw_daily / corporate_actions / adjustment_factors</text>
+        <text x="985" y="422" fill="#94a3b8" font-size="8" text-anchor="middle">adj_daily / hfq_daily / factors</text>
+
+        <rect x="860" y="475" width="250" height="82" rx="8" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
+        <text x="985" y="500" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Atomic commit</text>
+        <text x="985" y="518" fill="#cbd5e1" font-size="8" text-anchor="middle">staging -> version_dir -> latest.json</text>
+        <text x="985" y="532" fill="#cbd5e1" font-size="8" text-anchor="middle">latest manifest points all readers to one run</text>
+
+        <!-- far right: query / inspection -->
+        <text x="1090" y="70" fill="#fbbf24" font-size="10" font-weight="600">QUERY LAYER</text>
+
+        <rect x="1110" y="120" width="150" height="90" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <rect x="1110" y="120" width="150" height="90" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <text x="1185" y="145" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">query.py</text>
+        <text x="1185" y="163" fill="#94a3b8" font-size="9" text-anchor="middle">DuckDB views</text>
+        <text x="1185" y="178" fill="#94a3b8" font-size="8" text-anchor="middle">register_latest_views()</text>
+        <text x="1185" y="192" fill="#94a3b8" font-size="8" text-anchor="middle">table routing & SQL helpers</text>
+
+        <rect x="1110" y="235" width="150" height="90" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <rect x="1110" y="235" width="150" height="90" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <text x="1185" y="260" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">stock / sql</text>
+        <text x="1185" y="278" fill="#94a3b8" font-size="9" text-anchor="middle">stock --adjust raw|qfq|hfq</text>
+        <text x="1185" y="292" fill="#94a3b8" font-size="8" text-anchor="middle">uses adj_daily or hfq_daily</text>
+        <text x="1185" y="307" fill="#94a3b8" font-size="8" text-anchor="middle">technical factors from qfq series</text>
+
+        <rect x="1110" y="350" width="150" height="92" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
+        <rect x="1110" y="350" width="150" height="92" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
+        <text x="1185" y="375" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Inspector CLI</text>
+        <text x="1185" y="393" fill="#94a3b8" font-size="9" text-anchor="middle">status / tables / schema</text>
+        <text x="1185" y="407" fill="#94a3b8" font-size="8" text-anchor="middle">head / export / help-summary</text>
+        <text x="1185" y="422" fill="#94a3b8" font-size="8" text-anchor="middle">reads latest.json only</text>
+
+        <rect x="1110" y="475" width="150" height="82" rx="8" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
+        <text x="1185" y="500" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Query contract</text>
+        <text x="1185" y="518" fill="#cbd5e1" font-size="8" text-anchor="middle">latest.json + versioned parquet</text>
+        <text x="1185" y="532" fill="#cbd5e1" font-size="8" text-anchor="middle">all readers stay offline</text>
+
+        <!-- lower row: caches and outputs -->
+        <text x="48" y="610" fill="#fbbf24" font-size="10" font-weight="600">CACHE / OUTPUTS</text>
+
+        <rect x="40" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <rect x="40" y="635" width="250" height="84" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <text x="165" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Cache directories</text>
+        <text x="165" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">cache/corporate_actions</text>
+        <text x="165" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">cache/adjustment_factors</text>
+        <text x="165" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">refresh target for update-actions</text>
+
+        <rect x="330" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
+        <rect x="330" y="635" width="250" height="84" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
+        <text x="455" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Build outputs</text>
+        <text x="455" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">adj_daily / hfq_daily</text>
+        <text x="455" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">factors, checks, build_report</text>
+        <text x="455" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">OHLCV, adjusted volume, indicators</text>
+
+        <rect x="620" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <rect x="620" y="635" width="250" height="84" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
+        <text x="745" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Version manifest</text>
+        <text x="745" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">Database/latest.json</text>
+        <text x="745" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">points to one immutable run</text>
+        <text x="745" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">query layer resolves tables from here</text>
+
+        <rect x="910" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <rect x="910" y="635" width="250" height="84" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
+        <text x="1035" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Inspection commands</text>
+        <text x="1035" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">status / tables / schema / head</text>
+        <text x="1035" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">stock / sql / export</text>
+        <text x="1035" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">all read from latest views</text>
+
+        <!-- legend -->
+        <text x="40" y="780" fill="#f8fafc" font-size="10" font-weight="600">Legend</text>
+        <rect x="110" y="771" width="16" height="10" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"></rect>
+        <text x="132" y="779" fill="#94a3b8" font-size="8">External / source</text>
+        <rect x="250" y="771" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"></rect>
+        <text x="272" y="779" fill="#94a3b8" font-size="8">Update / pipeline</text>
+        <rect x="390" y="771" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"></rect>
+        <text x="412" y="779" fill="#94a3b8" font-size="8">Storage / versioned outputs</text>
+        <rect x="575" y="771" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"></rect>
+        <text x="597" y="779" fill="#94a3b8" font-size="8">Query / CLI</text>
+        <rect x="705" y="771" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,3"></rect>
+        <text x="727" y="779" fill="#94a3b8" font-size="8">Boundary / contract</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Update Path</h3>
+        </div>
+        <ul>
+          <li>• `update-actions` is the only refresh entrypoint.</li>
+          <li>• `source=export` reads `T0002/export` front-adjusted daily text.</li>
+          <li>• Local `vipdoc` + optional CSV/Parquet still supported.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>Build Path</h3>
+        </div>
+        <ul>
+          <li>• `build` / `rebuild` consume cached `adjustment_factors`.</li>
+          <li>• Generates `adj_daily`, `hfq_daily`, `factors`.</li>
+          <li>• Keeps technical indicators on continuous qfq prices.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Query Path</h3>
+        </div>
+        <ul>
+          <li>• `latest.json` resolves a single immutable version.</li>
+          <li>• `stock --adjust raw|qfq|hfq` selects the price basis.</li>
+          <li>• `status`, `tables`, `schema`, `head`, `sql`, `export` stay offline.</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">
+      tdx-stocks architecture snapshot • includes export-based adjustment factor updates • updated from current codebase
+    </p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const original = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, {
+          backgroundColor: '#020617',
+          scale: 2,
+          useCORS: true,
+          ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+          x: r.left + window.scrollX - pad,
+          y: r.top + window.scrollY - pad,
+          width: r.width + pad * 2,
+          height: r.height + pad * 2
+        });
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (err) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => { btn.textContent = original; }, 1800);
+    }
+
+    async function downloadPNG(btn) {
+      const original = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, {
+          backgroundColor: '#020617',
+          scale: 2,
+          useCORS: true,
+          ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+          x: r.left + window.scrollX - pad,
+          y: r.top + window.scrollY - pad,
+          width: r.width + pad * 2,
+          height: r.height + pad * 2
+        });
+        const link = document.createElement('a');
+        link.download = 'tdx-stocks-architecture.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        btn.textContent = '✓ Done!';
+      } catch (err) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => { btn.textContent = original; }, 1800);
+    }
+
+    async function downloadPDF(btn) {
+      const original = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, {
+          backgroundColor: '#020617',
+          scale: 2,
+          useCORS: true,
+          ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+          x: r.left + window.scrollX - pad,
+          y: r.top + window.scrollY - pad,
+          width: r.width + pad * 2,
+          height: r.height + pad * 2
+        });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('tdx-stocks-architecture.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (err) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => { btn.textContent = original; }, 1800);
+    }
+  </script>
+</body>
+</html>
