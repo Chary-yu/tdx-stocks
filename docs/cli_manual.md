@@ -10,13 +10,14 @@
 核心流程：
 
 ```text
-.day -> raw_daily -> checks -> adj_daily -> checks -> factors -> checks -> latest.json
+.day -> raw_daily -> checks -> adj_daily / hfq_daily -> checks -> factors -> checks -> latest.json
 ```
 
 当前版本特性：
 
-- `corporate_actions` 为空表占位。
-- `adj_daily` 暂时直接复制 raw 行情，`adj_factor = 1.0`。
+- `update-actions` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
+- `corporate_actions` 和 `adjustment_factors` 都可以来自本地缓存或外部输入文件。
+- `adj_daily` 默认是前复权行情，`hfq_daily` 默认是后复权行情；缓存不存在时会退回为 `adj_factor = 1.0` 的保守模式。
 - `factors` 已包含动量、波动率、回撤、布林带、RSI、KDJ、ADX、量价等派生指标。
 - `build` 和 `rebuild` 的 factors 阶段会在 DuckDB 内部分阶段物化为临时表，再合并导出，便于调试和降低单次查询压力。
 - `build` 和 `rebuild` 会把阶段进度打印到 `stderr`。
@@ -83,6 +84,20 @@ tdx-stocks build --config tdx_stocks.toml --overwrite-staging
 tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
 ```
 
+### `update-actions`
+
+刷新缓存中的权息数据或复权因子，不会自动进入 `build`。
+
+```bash
+tdx-stocks update-actions --config tdx_stocks.toml --source local --input action_inputs/
+tdx-stocks update-actions --config tdx_stocks.toml --source file --input corporate_actions.csv
+```
+
+常用参数：
+
+- `--source`：`local` / `official` / `file`
+- `--input`：可选输入文件或目录
+
 参数与 `build` 相同。
 
 ### `doctor`
@@ -105,9 +120,11 @@ tdx-stocks doctor --config tdx_stocks.toml
 所有查询类命令都会读取 `Database/latest.json`，并注册：
 
 - `raw_daily`
-- `adj_daily`
-- `factors`
 - `corporate_actions`
+- `adjustment_factors`
+- `adj_daily`
+- `hfq_daily`
+- `factors`
 
 ### `status`
 
@@ -167,7 +184,7 @@ tdx-stocks head factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14
 
 ### `stock`
 
-按股票代码查看一只股票的合并日线信息，包括 `raw_daily`、`adj_daily` 和 `factors`。默认会展示一组精简因子列，例如 `ret_20`、`vol_20`、`rsi_14`、`atr_pct_14`、`adx_14` 以及 `k_9`、`d_9`、`j_9`。
+按股票代码查看一只股票的合并日线信息，包括 `raw_daily`、`adj_daily`、`hfq_daily` 和 `factors`。默认会展示一组精简因子列，例如 `ret_20`、`vol_20`、`rsi_14`、`atr_pct_14`、`adx_14` 以及 `k_9`、`d_9`、`j_9`。
 
 ```bash
 tdx-stocks stock 600519.SH --limit 20

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .config import load_config, write_default_config
 from .help_summary import write_markdown
-from .pipeline import build_dataset, parse_iso_date, rebuild_dataset
+from .pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
 from .query import (
     TABLES,
     build_select_sql,
@@ -68,6 +68,24 @@ def build_parser() -> argparse.ArgumentParser:
     rebuild_parser.add_argument("--limit-symbols", type=int)
     rebuild_parser.add_argument("--overwrite-staging", action="store_true")
     rebuild_parser.set_defaults(func=cmd_rebuild)
+
+    update_actions_parser = subparsers.add_parser(
+        "update-actions",
+        help="Refresh cached corporate actions or adjustment factors.",
+    )
+    update_actions_parser.add_argument("--config", type=Path)
+    update_actions_parser.add_argument(
+        "--source",
+        choices=("local", "official", "file"),
+        default="local",
+        help="Update source label for the report.",
+    )
+    update_actions_parser.add_argument(
+        "--input",
+        type=Path,
+        help="Optional CSV file or directory containing corporate_actions.csv and adjustment_factors.csv.",
+    )
+    update_actions_parser.set_defaults(func=cmd_update_actions)
 
     status_parser = subparsers.add_parser("status", help="Show latest dataset status.")
     status_parser.add_argument("--config", type=Path)
@@ -182,6 +200,18 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update_actions(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    report = update_actions(
+        config,
+        source=args.source,
+        input_path=args.input,
+        progress=stderr_progress,
+    )
+    print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
+    return 0
+
+
 def stderr_progress(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
@@ -205,6 +235,7 @@ def add_stock_args(parser: argparse.ArgumentParser, default_limit: int) -> None:
     parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--limit", type=int, default=default_limit)
+    parser.add_argument("--adjust", choices=("raw", "qfq", "hfq"), default="qfq")
     parser.add_argument("--from-date", dest="from_date")
     parser.add_argument("--to-date", dest="to_date")
     parser.add_argument("--asc", dest="desc", action="store_false")
@@ -368,6 +399,7 @@ def cmd_stock(args: argparse.Namespace) -> int:
             to_date=args.to_date,
             desc=args.desc,
             limit=None if args.no_limit else args.limit,
+            adjust=args.adjust,
         )
         columns, rows = fetch_dicts(ctx.con, sql)
         if args.json:

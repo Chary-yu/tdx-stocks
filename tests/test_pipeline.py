@@ -6,7 +6,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from tdx_stocks.cli import cmd_build, cmd_rebuild
+from tdx_stocks.cli import cmd_build, cmd_rebuild, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.pipeline import rebuild_dataset
 
@@ -74,6 +74,23 @@ class PipelineTest(unittest.TestCase):
             load_config.return_value = AppConfig()
             self.assertEqual(cmd_rebuild(args), 0)
             self.assertTrue(callable(mocked_rebuild.call_args.kwargs["progress"]))
+
+    def test_update_actions_command_passes_progress(self) -> None:
+        args = Namespace(
+            config=None,
+            source="local",
+            input=None,
+        )
+        with patch("builtins.print"), patch(
+            "tdx_stocks.cli.load_config"
+        ) as load_config, patch(
+            "tdx_stocks.cli.update_actions",
+            return_value={"ok": True},
+        ) as mocked_update:
+            load_config.return_value = AppConfig()
+            self.assertEqual(cmd_update_actions(args), 0)
+            self.assertTrue(callable(mocked_update.call_args.kwargs["progress"]))
+            self.assertEqual(mocked_update.call_args.kwargs["source"], "local")
 
 
 if __name__ == "__main__":

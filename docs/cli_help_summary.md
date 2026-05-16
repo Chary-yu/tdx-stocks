@@ -8,6 +8,7 @@
 | `doctor` | Check paths and dependency imports. |
 | `build` | Build a versioned local dataset. |
 | `rebuild` | Clear the current database and rebuild from local TDX data. |
+| `update-actions` | Refresh cached corporate actions or adjustment factors. |
 | `status` | Show latest dataset status. |
 | `tables` | Show latest table summaries. |
 | `schema` | Show a table schema. |
@@ -50,6 +51,14 @@
 | `--to-date` |  |
 | `--limit-symbols` |  |
 | `--overwrite-staging` |  |
+
+### `update-actions`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--source` | Update source label for the report. (default: local) |
+| `--input` | Optional CSV file or directory containing corporate_actions.csv and adjustment_factors.csv. |
 
 ### `status`
 
@@ -94,6 +103,7 @@
 | `symbol` | Stock code such as 600519.SH or sh600519. |
 | `--config` |  |
 | `--limit` | (default: 100) |
+| `--adjust` | (default: qfq) |
 | `--from-date` |  |
 | `--to-date` |  |
 | `--asc` | (default: True) |

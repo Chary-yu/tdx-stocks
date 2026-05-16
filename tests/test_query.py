@@ -372,6 +372,18 @@ class QueryHelpersTest(unittest.TestCase):
             con.close()
 
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_build_stock_sql_supports_adjust_modes(self) -> None:
+        con = duckdb.connect(":memory:")
+        try:
+            sql_raw = build_stock_sql(con, "600519.SH", adjust="raw")
+            sql_hfq = build_stock_sql(con, "600519.SH", adjust="hfq")
+            self.assertIn("LEFT JOIN raw_daily AS adj", sql_raw)
+            self.assertIn("LEFT JOIN hfq_daily AS adj", sql_hfq)
+            self.assertIn("adj.open AS adj_open", sql_raw)
+        finally:
+            con.close()
+
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_factors_generates_core_indicators_and_kdj(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

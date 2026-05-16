@@ -42,11 +42,31 @@ def corporate_actions_schema():
             ("market", pa.string()),
             ("symbol", pa.string()),
             ("ex_date", pa.date32()),
+            ("category", pa.int16()),
             ("cash_dividend", pa.float64()),
-            ("bonus_share", pa.float64()),
-            ("transfer_share", pa.float64()),
+            ("stock_dividend", pa.float64()),
             ("allotment_share", pa.float64()),
             ("allotment_price", pa.float64()),
+            ("raw_c1", pa.float64()),
+            ("raw_c2", pa.float64()),
+            ("raw_c3", pa.float64()),
+            ("raw_c4", pa.float64()),
+            ("source", pa.string()),
+        ]
+    )
+
+
+def adjustment_factors_schema():
+    pa, _pq = _import_pyarrow()
+    return pa.schema(
+        [
+            ("market", pa.string()),
+            ("symbol", pa.string()),
+            ("trade_date", pa.date32()),
+            ("start_date", pa.date32()),
+            ("end_date", pa.date32()),
+            ("qfq_factor", pa.float64()),
+            ("hfq_factor", pa.float64()),
             ("source", pa.string()),
         ]
     )
@@ -104,10 +124,40 @@ class RawDailyWriter:
 
 
 def write_empty_corporate_actions(root_path: Path, compression: str = "zstd") -> None:
+    write_empty_table(root_path, corporate_actions_schema(), compression)
+
+
+def write_empty_adjustment_factors(root_path: Path, compression: str = "zstd") -> None:
+    write_empty_table(root_path, adjustment_factors_schema(), compression)
+
+
+def write_empty_table(root_path: Path, schema, compression: str = "zstd") -> None:
     pa, pq = _import_pyarrow()
     root_path.mkdir(parents=True, exist_ok=True)
-    table = pa.Table.from_arrays(
-        [pa.array([], type=field.type) for field in corporate_actions_schema()],
-        schema=corporate_actions_schema(),
-    )
+    _clear_parquet_files(root_path)
+    table = pa.Table.from_arrays([pa.array([], type=field.type) for field in schema], schema=schema)
     pq.write_table(table, root_path / "empty.parquet", compression=compression)
+
+
+def write_records_table(
+    root_path: Path,
+    schema,
+    rows: Iterable[dict],
+    compression: str = "zstd",
+    filename: str = "data.parquet",
+) -> None:
+    pa, pq = _import_pyarrow()
+    root_path.mkdir(parents=True, exist_ok=True)
+    _clear_parquet_files(root_path)
+    records = list(rows)
+    if records:
+        table = pa.Table.from_pylist(records, schema=schema)
+    else:
+        table = pa.Table.from_arrays([pa.array([], type=field.type) for field in schema], schema=schema)
+    pq.write_table(table, root_path / filename, compression=compression)
+
+
+def _clear_parquet_files(root_path: Path) -> None:
+    for path in root_path.rglob("*.parquet"):
+        if path.is_file():
+            path.unlink()

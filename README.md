@@ -3,12 +3,12 @@
 Local TDX daily data pipeline:
 
 ```text
-.day -> raw_daily -> checks -> adj_daily -> checks -> factors -> checks -> atomic latest
+.day -> raw_daily -> checks -> adj_daily / hfq_daily -> checks -> factors -> checks -> atomic latest
 ```
 
-Version 0.1 intentionally does not fetch real corporate actions. It writes an empty
-`corporate_actions` table and builds `adj_daily` with `adj_factor = 1.0`, so the full
-pipeline can be validated before adding a rights/dividend data source.
+`update-actions` refreshes the cached `corporate_actions` and `adjustment_factors`
+tables. `build` and `rebuild` only consume those local caches and do not fetch
+new rights/dividend data automatically.
 
 ## Paths
 
@@ -69,6 +69,12 @@ Clear `Database/` and rebuild from local TDX data:
 tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
 ```
 
+Refresh cached rights/dividend data separately:
+
+```bash
+tdx-stocks update-actions --config tdx_stocks.toml --source file --input action_inputs/
+```
+
 `build` and `rebuild` print stage progress to stderr while they run.
 Internally the factor build now runs in staged DuckDB temp tables so the heavy
 rolling-window and recursive calculations stay easier to debug and less memory
@@ -90,7 +96,8 @@ Database/duckdb/tmp/
 ## Inspect Data
 
 All inspection commands read `Database/latest.json` and register DuckDB views named
-`raw_daily`, `adj_daily`, `factors`, and `corporate_actions`.
+`raw_daily`, `corporate_actions`, `adjustment_factors`, `adj_daily`, `hfq_daily`,
+and `factors`.
 
 Show current version status:
 
@@ -151,8 +158,10 @@ tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Databas
 ## Notes
 
 - `raw_daily` stores unadjusted OHLCV parsed from TDX `.day` files.
-- `corporate_actions` is present but empty in version 0.1.
-- `adj_daily` stores adjusted OHLCV. In version 0.1 values equal raw prices.
+- `corporate_actions` stores cached rights/dividend events when available.
+- `adjustment_factors` stores cached qfq/hfq factors when available.
+- `adj_daily` stores adjusted OHLCV in front-adjusted form.
+- `hfq_daily` stores adjusted OHLCV in back-adjusted form.
 - `factors` stores derived indicators based on adjusted close, including
   `ret_1`, `ret_5`, `ret_10`, `ret_20`, `ret_60`, `ret_120`, `ret_250`,
   `ma5`, `ma10`, `ma20`, `ma60`, `ma120`, `ma250`, `vol_5`, `vol_10`,

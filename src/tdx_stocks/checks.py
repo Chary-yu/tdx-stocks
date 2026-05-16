@@ -89,8 +89,8 @@ def check_raw_daily(con, raw_daily_dir: Path) -> CheckResult:
     return result
 
 
-def check_adj_daily(con, adj_daily_dir: Path) -> CheckResult:
-    result = CheckResult(name="adj_daily")
+def check_adj_daily(con, adj_daily_dir: Path, name: str = "adj_daily") -> CheckResult:
+    result = CheckResult(name=name)
     source = f"read_parquet('{sql_literal(parquet_glob(adj_daily_dir))}', hive_partitioning=true)"
     row = con.execute(
         f"""
@@ -133,6 +133,48 @@ def check_adj_daily(con, adj_daily_dir: Path) -> CheckResult:
         result.errors.append(f"adj_daily has invalid OHLC rows: {row[4]}")
     if row[3]:
         result.warnings.append(f"adj_daily has non-positive price rows: {row[3]}")
+    return result
+
+
+def check_adjustment_factors(con, factors_dir: Path) -> CheckResult:
+    result = CheckResult(name="adjustment_factors")
+    source = f"read_parquet('{sql_literal(parquet_glob(factors_dir))}', hive_partitioning=true)"
+    row = con.execute(
+        f"""
+        SELECT
+            count(*) AS rows,
+            count(DISTINCT market || ':' || symbol) AS symbols,
+            sum(CASE WHEN qfq_factor IS NOT NULL AND qfq_factor <= 0 THEN 1 ELSE 0 END) AS invalid_qfq_rows,
+            sum(CASE WHEN hfq_factor IS NOT NULL AND hfq_factor <= 0 THEN 1 ELSE 0 END) AS invalid_hfq_rows
+        FROM {source}
+        """
+    ).fetchone()
+    dup_count = con.execute(
+        f"""
+        SELECT count(*)
+        FROM (
+            SELECT market, symbol, trade_date, count(*) AS n
+            FROM {source}
+            GROUP BY 1, 2, 3
+            HAVING count(*) > 1
+        )
+        """
+    ).fetchone()[0]
+    result.metrics.update(
+        {
+            "rows": row[0],
+            "symbols": row[1],
+            "invalid_qfq_rows": row[2],
+            "invalid_hfq_rows": row[3],
+            "duplicate_key_rows": dup_count,
+        }
+    )
+    if row[2]:
+        result.errors.append(f"adjustment_factors has invalid qfq_factor rows: {row[2]}")
+    if row[3]:
+        result.errors.append(f"adjustment_factors has invalid hfq_factor rows: {row[3]}")
+    if dup_count:
+        result.errors.append(f"adjustment_factors has duplicate primary keys: {dup_count}")
     return result
 
 

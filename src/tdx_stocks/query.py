@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import AppConfig
 from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 
-TABLES = ("raw_daily", "adj_daily", "factors", "corporate_actions")
+TABLES = ("raw_daily", "corporate_actions", "adjustment_factors", "adj_daily", "hfq_daily", "factors")
 SCALED_COLUMNS = {"volume", "amount"}
 
 
@@ -230,9 +230,33 @@ def build_stock_sql(
     order_by: str = "trade_date",
     desc: bool = True,
     limit: int | None = 100,
+    adjust: str = "qfq",
 ) -> str:
     code_expr = f"tdx_symbol_code('{sql_literal(input_symbol)}')"
     market_expr = f"tdx_symbol_market('{sql_literal(input_symbol)}')"
+    if adjust not in {"raw", "qfq", "hfq"}:
+        raise ValueError("adjust must be raw, qfq, or hfq")
+    adjusted_table = {
+        "raw": "raw_daily",
+        "qfq": "adj_daily",
+        "hfq": "hfq_daily",
+    }[adjust]
+    if adjust == "raw":
+        adjusted_columns = [
+            "    adj.open AS adj_open,",
+            "    adj.high AS adj_high,",
+            "    adj.low AS adj_low,",
+            "    adj.close AS adj_close,",
+            "    1.0::DOUBLE AS adj_factor,",
+        ]
+    else:
+        adjusted_columns = [
+            "    adj.adj_open,",
+            "    adj.adj_high,",
+            "    adj.adj_low,",
+            "    adj.adj_close,",
+            "    adj.adj_factor,",
+        ]
     where = [
         f"raw.symbol = {code_expr}",
         f"({market_expr} IS NULL OR raw.market = {market_expr})",
@@ -254,11 +278,7 @@ def build_stock_sql(
         "    raw.close,",
         "    raw.volume,",
         "    raw.amount,",
-        "    adj.adj_open,",
-        "    adj.adj_high,",
-        "    adj.adj_low,",
-        "    adj.adj_close,",
-        "    adj.adj_factor,",
+        *adjusted_columns,
         "    factors.pct_chg,",
         "    factors.ret_1,",
         "    factors.ret_20,",
@@ -294,7 +314,7 @@ def build_stock_sql(
         "    factors.macd_dea,",
         "    factors.macd_hist",
         "FROM raw_daily AS raw",
-        "LEFT JOIN adj_daily AS adj USING (market, symbol, trade_date, trade_year)",
+        f"LEFT JOIN {adjusted_table} AS adj USING (market, symbol, trade_date, trade_year)",
         "LEFT JOIN factors USING (market, symbol, trade_date, trade_year)",
         "WHERE " + " AND ".join(where),
     ]

@@ -30,6 +30,18 @@ class RunPaths:
         return self.staging_dir / "parquet"
 
     @property
+    def cache_dir(self) -> Path:
+        return self.data_root / "cache"
+
+    @property
+    def cache_corporate_actions_dir(self) -> Path:
+        return self.cache_dir / "corporate_actions"
+
+    @property
+    def cache_adjustment_factors_dir(self) -> Path:
+        return self.cache_dir / "adjustment_factors"
+
+    @property
     def raw_daily_dir(self) -> Path:
         return self.parquet_dir / "raw_daily"
 
@@ -38,8 +50,16 @@ class RunPaths:
         return self.parquet_dir / "corporate_actions"
 
     @property
+    def adjustment_factors_dir(self) -> Path:
+        return self.parquet_dir / "adjustment_factors"
+
+    @property
     def adj_daily_dir(self) -> Path:
         return self.parquet_dir / "adj_daily"
+
+    @property
+    def hfq_daily_dir(self) -> Path:
+        return self.parquet_dir / "hfq_daily"
 
     @property
     def factors_dir(self) -> Path:
@@ -51,5 +71,5 @@ class RunPaths:
 
 
 def ensure_base_dirs(data_root: Path) -> None:
-    for name in ("_staging", "versions", "duckdb/tmp"):
+    for name in ("_staging", "versions", "duckdb/tmp", "cache/corporate_actions", "cache/adjustment_factors"):
         (data_root / name).mkdir(parents=True, exist_ok=True)

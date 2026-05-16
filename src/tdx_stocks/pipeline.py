@@ -4,11 +4,26 @@ import json
 import shutil
 from collections.abc import Callable
 from datetime import date, datetime
+from pathlib import Path
 
-from .checks import CheckResult, check_adj_daily, check_factors, check_raw_daily
+from .checks import (
+    CheckResult,
+    check_adj_daily,
+    check_adjustment_factors,
+    check_factors,
+    check_raw_daily,
+)
+from .actions_io import load_adjustment_factor_rows, load_corporate_action_rows, resolve_action_inputs
 from .config import AppConfig
-from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily
-from .parquet_io import RawDailyWriter, write_empty_corporate_actions
+from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily, copy_parquet_dataset, has_parquet_files
+from .parquet_io import (
+    RawDailyWriter,
+    adjustment_factors_schema,
+    corporate_actions_schema,
+    write_empty_adjustment_factors,
+    write_empty_corporate_actions,
+    write_records_table,
+)
 from .paths import RunPaths, ensure_base_dirs
 from .tdx_day import iter_day_files, read_day_records
 
@@ -76,17 +91,48 @@ def build_dataset(
         raise RuntimeError("No raw_daily rows were parsed from the selected TDX day files")
     _progress(progress, f"Wrote {raw_writer.rows_written} raw rows")
 
-    write_empty_corporate_actions(
-        run_paths.corporate_actions_dir,
-        compression=config.build.compression,
-    )
-    _progress(progress, "Wrote empty corporate_actions table")
-
     con = connect_duckdb(run_paths.duckdb_tmp_dir, config.build.duckdb_memory_limit)
+    cache_root = config.paths.data_root / "cache"
+    cache_corporate_actions_dir = cache_root / "corporate_actions"
+    cache_adjustment_factors_dir = cache_root / "adjustment_factors"
+    if has_parquet_files(cache_corporate_actions_dir):
+        _progress(progress, "Copying cached corporate_actions")
+        copy_parquet_dataset(
+            con,
+            cache_corporate_actions_dir,
+            run_paths.corporate_actions_dir,
+            config.build.compression,
+        )
+    else:
+        write_empty_corporate_actions(
+            run_paths.corporate_actions_dir,
+            compression=config.build.compression,
+        )
+        _progress(progress, "Wrote empty corporate_actions table")
+
+    if has_parquet_files(cache_adjustment_factors_dir):
+        _progress(progress, "Copying cached adjustment_factors")
+        copy_parquet_dataset(
+            con,
+            cache_adjustment_factors_dir,
+            run_paths.adjustment_factors_dir,
+            config.build.compression,
+        )
+    else:
+        write_empty_adjustment_factors(
+            run_paths.adjustment_factors_dir,
+            compression=config.build.compression,
+        )
+        _progress(progress, "Wrote empty adjustment_factors table")
+
     checks: list[CheckResult] = []
     try:
         _progress(progress, "Checking raw_daily")
         checks.append(check_raw_daily(con, run_paths.raw_daily_dir))
+        _raise_on_errors(checks)
+
+        _progress(progress, "Checking adjustment_factors")
+        checks.append(check_adjustment_factors(con, run_paths.adjustment_factors_dir))
         _raise_on_errors(checks)
 
         _progress(progress, "Building adj_daily")
@@ -95,9 +141,24 @@ def build_dataset(
             run_paths.raw_daily_dir,
             run_paths.adj_daily_dir,
             config.build.compression,
+            cache_adjustment_factors_dir,
+            factor_column="qfq_factor",
         )
         _progress(progress, "Checking adj_daily")
         checks.append(check_adj_daily(con, run_paths.adj_daily_dir))
+        _raise_on_errors(checks)
+
+        _progress(progress, "Building hfq_daily")
+        copy_adj_daily(
+            con,
+            run_paths.raw_daily_dir,
+            run_paths.hfq_daily_dir,
+            config.build.compression,
+            cache_adjustment_factors_dir,
+            factor_column="hfq_factor",
+        )
+        _progress(progress, "Checking hfq_daily")
+        checks.append(check_adj_daily(con, run_paths.hfq_daily_dir, name="hfq_daily"))
         _raise_on_errors(checks)
 
         _progress(progress, "Building factors")
@@ -125,6 +186,8 @@ def build_dataset(
         "parsed_files": parsed_files,
         "raw_rows_written": raw_writer.rows_written,
         "compression": config.build.compression,
+        "cached_corporate_actions": has_parquet_files(cache_corporate_actions_dir),
+        "cached_adjustment_factors": has_parquet_files(cache_adjustment_factors_dir),
         "checks": [check.to_dict() for check in checks],
     }
     (run_paths.reports_dir / "build_report.json").write_text(
@@ -176,7 +239,9 @@ def commit_version(run_paths: RunPaths, report: dict) -> None:
         "parquet_dir": (run_paths.version_dir / "parquet").as_posix(),
         "raw_daily": (run_paths.version_dir / "parquet" / "raw_daily").as_posix(),
         "corporate_actions": (run_paths.version_dir / "parquet" / "corporate_actions").as_posix(),
+        "adjustment_factors": (run_paths.version_dir / "parquet" / "adjustment_factors").as_posix(),
         "adj_daily": (run_paths.version_dir / "parquet" / "adj_daily").as_posix(),
+        "hfq_daily": (run_paths.version_dir / "parquet" / "hfq_daily").as_posix(),
         "factors": (run_paths.version_dir / "parquet" / "factors").as_posix(),
         "report": (run_paths.version_dir / "reports" / "build_report.json").as_posix(),
         "summary": report,
@@ -191,3 +256,75 @@ def _raise_on_errors(checks: list[CheckResult]) -> None:
     if errors:
         rendered = "\n".join(f"- {error}" for error in errors)
         raise RuntimeError(f"Build checks failed:\n{rendered}")
+
+
+def update_actions(
+    config: AppConfig,
+    source: str = "local",
+    input_path: Path | None = None,
+    overwrite_staging: bool | None = None,
+    progress: ProgressCallback | None = None,
+) -> dict:
+    del overwrite_staging
+    cache_root = config.paths.data_root / "cache"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache_corporate_actions_dir = cache_root / "corporate_actions"
+    cache_adjustment_factors_dir = cache_root / "adjustment_factors"
+    inputs = resolve_action_inputs(input_path)
+    report: dict[str, object] = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "source": source,
+        "input_path": input_path.as_posix() if input_path else None,
+        "corporate_actions_rows": 0,
+        "adjustment_factors_rows": 0,
+        "corporate_actions_state": "unchanged",
+        "adjustment_factors_state": "unchanged",
+    }
+
+    if inputs.corporate_actions is not None:
+        rows = load_corporate_action_rows(inputs.corporate_actions)
+        write_records_table(
+            cache_corporate_actions_dir,
+            corporate_actions_schema(),
+            rows,
+            compression=config.build.compression,
+        )
+        report["corporate_actions_rows"] = len(rows)
+        report["corporate_actions_state"] = "updated"
+        _progress(progress, f"Wrote {len(rows)} corporate_actions rows")
+    elif not has_parquet_files(cache_corporate_actions_dir):
+        write_empty_corporate_actions(
+            cache_corporate_actions_dir,
+            compression=config.build.compression,
+        )
+        report["corporate_actions_state"] = "initialized"
+        _progress(progress, "Wrote empty corporate_actions cache")
+    else:
+        _progress(progress, "Kept existing corporate_actions cache")
+
+    if inputs.adjustment_factors is not None:
+        rows = load_adjustment_factor_rows(inputs.adjustment_factors)
+        write_records_table(
+            cache_adjustment_factors_dir,
+            adjustment_factors_schema(),
+            rows,
+            compression=config.build.compression,
+        )
+        report["adjustment_factors_rows"] = len(rows)
+        report["adjustment_factors_state"] = "updated"
+        _progress(progress, f"Wrote {len(rows)} adjustment_factors rows")
+    elif not has_parquet_files(cache_adjustment_factors_dir):
+        write_empty_adjustment_factors(
+            cache_adjustment_factors_dir,
+            compression=config.build.compression,
+        )
+        report["adjustment_factors_state"] = "initialized"
+        _progress(progress, "Wrote empty adjustment_factors cache")
+    else:
+        _progress(progress, "Kept existing adjustment_factors cache")
+
+    (cache_root / "action_update_report.json").write_text(
+        json.dumps(report, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+    return report

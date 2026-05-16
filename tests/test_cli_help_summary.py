@@ -38,6 +38,7 @@ class CliHelpSummaryTest(unittest.TestCase):
             "doctor",
             "build",
             "rebuild",
+            "update-actions",
             "status",
             "tables",
             "schema",
