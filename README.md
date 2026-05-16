@@ -16,6 +16,7 @@ Default local paths for this workspace:
 
 ```text
 TDX vipdoc: /mnt/d/ProgramFiles/Tdx/vipdoc
+TDX export: /mnt/d/ProgramFiles/Tdx/T0002/export
 Data root:  /mnt/d/Zcyu/Chary-codex/tdx-stocks/Database
 ```
 
@@ -73,6 +74,7 @@ Refresh cached rights/dividend data separately:
 
 ```bash
 tdx-stocks update-actions --config tdx_stocks.toml --source file --input action_inputs/
+tdx-stocks update-actions --config tdx_stocks.toml --source export
 ```
 
 `build` and `rebuild` print stage progress to stderr while they run.

@@ -134,7 +134,7 @@ def write_empty_adjustment_factors(root_path: Path, compression: str = "zstd") -
 def write_empty_table(root_path: Path, schema, compression: str = "zstd") -> None:
     pa, pq = _import_pyarrow()
     root_path.mkdir(parents=True, exist_ok=True)
-    _clear_parquet_files(root_path)
+    clear_parquet_files(root_path)
     table = pa.Table.from_arrays([pa.array([], type=field.type) for field in schema], schema=schema)
     pq.write_table(table, root_path / "empty.parquet", compression=compression)
 
@@ -148,7 +148,6 @@ def write_records_table(
 ) -> None:
     pa, pq = _import_pyarrow()
     root_path.mkdir(parents=True, exist_ok=True)
-    _clear_parquet_files(root_path)
     records = list(rows)
     if records:
         table = pa.Table.from_pylist(records, schema=schema)
@@ -157,7 +156,7 @@ def write_records_table(
     pq.write_table(table, root_path / filename, compression=compression)
 
 
-def _clear_parquet_files(root_path: Path) -> None:
+def clear_parquet_files(root_path: Path) -> None:
     for path in root_path.rglob("*.parquet"):
         if path.is_file():
             path.unlink()

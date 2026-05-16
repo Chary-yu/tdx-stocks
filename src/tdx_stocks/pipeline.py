@@ -16,10 +16,12 @@ from .checks import (
 from .actions_io import load_adjustment_factor_rows, load_corporate_action_rows, resolve_action_inputs
 from .config import AppConfig
 from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily, copy_parquet_dataset, has_parquet_files
+from .export_io import load_export_adjustment_factor_rows
 from .parquet_io import (
     RawDailyWriter,
     adjustment_factors_schema,
     corporate_actions_schema,
+    clear_parquet_files,
     write_empty_adjustment_factors,
     write_empty_corporate_actions,
     write_records_table,
@@ -270,7 +272,6 @@ def update_actions(
     cache_root.mkdir(parents=True, exist_ok=True)
     cache_corporate_actions_dir = cache_root / "corporate_actions"
     cache_adjustment_factors_dir = cache_root / "adjustment_factors"
-    inputs = resolve_action_inputs(input_path)
     report: dict[str, object] = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "source": source,
@@ -281,29 +282,17 @@ def update_actions(
         "adjustment_factors_state": "unchanged",
     }
 
-    if inputs.corporate_actions is not None:
-        rows = load_corporate_action_rows(inputs.corporate_actions)
-        write_records_table(
-            cache_corporate_actions_dir,
-            corporate_actions_schema(),
-            rows,
-            compression=config.build.compression,
+    if source == "export":
+        export_dir = input_path or config.paths.tdx_export
+        rows = load_export_adjustment_factor_rows(
+            export_dir,
+            config.paths.tdx_vipdoc,
+            markets=config.build.markets,
+            universe=config.build.universe,
         )
-        report["corporate_actions_rows"] = len(rows)
-        report["corporate_actions_state"] = "updated"
-        _progress(progress, f"Wrote {len(rows)} corporate_actions rows")
-    elif not has_parquet_files(cache_corporate_actions_dir):
-        write_empty_corporate_actions(
-            cache_corporate_actions_dir,
-            compression=config.build.compression,
-        )
-        report["corporate_actions_state"] = "initialized"
-        _progress(progress, "Wrote empty corporate_actions cache")
-    else:
-        _progress(progress, "Kept existing corporate_actions cache")
-
-    if inputs.adjustment_factors is not None:
-        rows = load_adjustment_factor_rows(inputs.adjustment_factors)
+        if not rows:
+            raise RuntimeError(f"No export adjustment factors were loaded from {export_dir}")
+        clear_parquet_files(cache_adjustment_factors_dir)
         write_records_table(
             cache_adjustment_factors_dir,
             adjustment_factors_schema(),
@@ -312,16 +301,62 @@ def update_actions(
         )
         report["adjustment_factors_rows"] = len(rows)
         report["adjustment_factors_state"] = "updated"
-        _progress(progress, f"Wrote {len(rows)} adjustment_factors rows")
-    elif not has_parquet_files(cache_adjustment_factors_dir):
-        write_empty_adjustment_factors(
-            cache_adjustment_factors_dir,
-            compression=config.build.compression,
-        )
-        report["adjustment_factors_state"] = "initialized"
-        _progress(progress, "Wrote empty adjustment_factors cache")
+        report["input_path"] = export_dir.as_posix()
+        _progress(progress, f"Wrote {len(rows)} export adjustment_factors rows")
+        if not has_parquet_files(cache_corporate_actions_dir):
+            write_empty_corporate_actions(
+                cache_corporate_actions_dir,
+                compression=config.build.compression,
+            )
+            report["corporate_actions_state"] = "initialized"
+            _progress(progress, "Wrote empty corporate_actions cache")
+        else:
+            _progress(progress, "Kept existing corporate_actions cache")
     else:
-        _progress(progress, "Kept existing adjustment_factors cache")
+        inputs = resolve_action_inputs(input_path)
+        if inputs.corporate_actions is not None:
+            rows = load_corporate_action_rows(inputs.corporate_actions)
+            clear_parquet_files(cache_corporate_actions_dir)
+            write_records_table(
+                cache_corporate_actions_dir,
+                corporate_actions_schema(),
+                rows,
+                compression=config.build.compression,
+            )
+            report["corporate_actions_rows"] = len(rows)
+            report["corporate_actions_state"] = "updated"
+            _progress(progress, f"Wrote {len(rows)} corporate_actions rows")
+        elif not has_parquet_files(cache_corporate_actions_dir):
+            write_empty_corporate_actions(
+                cache_corporate_actions_dir,
+                compression=config.build.compression,
+            )
+            report["corporate_actions_state"] = "initialized"
+            _progress(progress, "Wrote empty corporate_actions cache")
+        else:
+            _progress(progress, "Kept existing corporate_actions cache")
+
+        if inputs.adjustment_factors is not None:
+            rows = load_adjustment_factor_rows(inputs.adjustment_factors)
+            clear_parquet_files(cache_adjustment_factors_dir)
+            write_records_table(
+                cache_adjustment_factors_dir,
+                adjustment_factors_schema(),
+                rows,
+                compression=config.build.compression,
+            )
+            report["adjustment_factors_rows"] = len(rows)
+            report["adjustment_factors_state"] = "updated"
+            _progress(progress, f"Wrote {len(rows)} adjustment_factors rows")
+        elif not has_parquet_files(cache_adjustment_factors_dir):
+            write_empty_adjustment_factors(
+                cache_adjustment_factors_dir,
+                compression=config.build.compression,
+            )
+            report["adjustment_factors_state"] = "initialized"
+            _progress(progress, "Wrote empty adjustment_factors cache")
+        else:
+            _progress(progress, "Kept existing adjustment_factors cache")
 
     (cache_root / "action_update_report.json").write_text(
         json.dumps(report, ensure_ascii=True, indent=2),

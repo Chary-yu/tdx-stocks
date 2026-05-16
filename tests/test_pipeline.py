@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 from tdx_stocks.cli import cmd_build, cmd_rebuild, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
+from tdx_stocks.export_io import load_export_adjustment_factor_rows
 from tdx_stocks.pipeline import rebuild_dataset
+from tdx_stocks.tdx_day import DAY_RECORD
 
 
 class PipelineTest(unittest.TestCase):
@@ -91,6 +93,60 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(cmd_update_actions(args), 0)
             self.assertTrue(callable(mocked_update.call_args.kwargs["progress"]))
             self.assertEqual(mocked_update.call_args.kwargs["source"], "local")
+
+    def test_export_source_derives_adjustment_factors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vipdoc = root / "vipdoc"
+            export_dir = root / "export"
+            raw_file = vipdoc / "sh" / "lday" / "sh600000.day"
+            export_file = export_dir / "SH#600000.txt"
+            raw_file.parent.mkdir(parents=True, exist_ok=True)
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+            raw_rows = [
+                (20240102, 1000, 1100, 990, 1000, 1000000.0, 100000, 0),
+                (20240103, 2000, 2100, 1980, 2000, 2000000.0, 120000, 0),
+            ]
+            with raw_file.open("wb") as handle:
+                for row in raw_rows:
+                    handle.write(DAY_RECORD.pack(*row))
+
+            export_file.write_text(
+                "\n".join(
+                    [
+                        "600000 测试银行 日线 前复权",
+                        "      日期\t    开盘\t    最高\t    最低\t    收盘\t    成交量\t    成交额",
+                        "2024/01/02\t5.00\t5.50\t4.95\t5.00\t100000\t1000000.00",
+                        "2024/01/03\t20.00\t21.00\t19.80\t20.00\t120000\t2000000.00",
+                    ]
+                )
+                + "\n",
+                encoding="gbk",
+            )
+
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=vipdoc,
+                    tdx_export=export_dir,
+                ),
+                build=BuildConfig(markets=("sh",), universe="ashare"),
+            )
+
+            rows = load_export_adjustment_factor_rows(
+                export_dir,
+                config.paths.tdx_vipdoc,
+                markets=config.build.markets,
+                universe=config.build.universe,
+            )
+
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["trade_date"].isoformat(), "2024-01-02")
+            self.assertEqual(rows[0]["qfq_factor"], 0.5)
+            self.assertEqual(rows[0]["hfq_factor"], 1.0)
+            self.assertEqual(rows[1]["trade_date"].isoformat(), "2024-01-03")
+            self.assertEqual(rows[1]["qfq_factor"], 1.0)
+            self.assertEqual(rows[1]["hfq_factor"], 2.0)
 
 
 if __name__ == "__main__":

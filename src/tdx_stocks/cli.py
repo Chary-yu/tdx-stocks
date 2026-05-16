@@ -76,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     update_actions_parser.add_argument("--config", type=Path)
     update_actions_parser.add_argument(
         "--source",
-        choices=("local", "official", "file"),
+        choices=("local", "official", "file", "export"),
         default="local",
         help="Update source label for the report.",
     )
@@ -147,8 +147,10 @@ def cmd_init_config(args: argparse.Namespace) -> int:
 def cmd_doctor(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     print(f"tdx_vipdoc={config.paths.tdx_vipdoc}")
+    print(f"tdx_export={config.paths.tdx_export}")
     print(f"data_root={config.paths.data_root}")
     print(f"tdx_vipdoc_exists={config.paths.tdx_vipdoc.exists()}")
+    print(f"tdx_export_exists={config.paths.tdx_export.exists()}")
     print(f"data_root_exists={config.paths.data_root.exists()}")
 
     files = list(

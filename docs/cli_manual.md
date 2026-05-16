@@ -17,6 +17,7 @@
 
 - `update-actions` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
 - `corporate_actions` 和 `adjustment_factors` 都可以来自本地缓存或外部输入文件。
+- `update-actions --source export` 可以直接读取 `T0002/export` 的前复权文本，反推 `adjustment_factors`。
 - `adj_daily` 默认是前复权行情，`hfq_daily` 默认是后复权行情；缓存不存在时会退回为 `adj_factor = 1.0` 的保守模式。
 - `factors` 已包含动量、波动率、回撤、布林带、RSI、KDJ、ADX、量价等派生指标。
 - `build` 和 `rebuild` 的 factors 阶段会在 DuckDB 内部分阶段物化为临时表，再合并导出，便于调试和降低单次查询压力。
@@ -45,6 +46,7 @@ tdx-stocks init-config --path tdx_stocks.toml
 常见配置项：
 
 - `paths.tdx_vipdoc`：通达信 `vipdoc` 根目录
+- `paths.tdx_export`：通达信 `T0002/export` 根目录
 - `paths.data_root`：本地数据根目录
 - `build.markets`：默认 `["sh", "sz"]`
 - `build.universe`：默认 `ashare`
@@ -91,11 +93,12 @@ tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
 ```bash
 tdx-stocks update-actions --config tdx_stocks.toml --source local --input action_inputs/
 tdx-stocks update-actions --config tdx_stocks.toml --source file --input corporate_actions.csv
+tdx-stocks update-actions --config tdx_stocks.toml --source export
 ```
 
 常用参数：
 
-- `--source`：`local` / `official` / `file`
+- `--source`：`local` / `official` / `file` / `export`
 - `--input`：可选输入文件或目录
 
 参数与 `build` 相同。
@@ -111,6 +114,7 @@ tdx-stocks doctor --config tdx_stocks.toml
 输出：
 
 - `tdx_vipdoc` / `data_root`
+- `tdx_export`
 - 目录是否存在
 - 检测到的 `.day` 文件数与样本
 - `duckdb`、`pyarrow` 版本
