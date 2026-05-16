@@ -15,6 +15,7 @@ Quick copy-paste commands:
 ```bash
 ./.venv/bin/python -m unittest tests.test_pipeline -q
 ./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+./.venv/bin/python -m unittest tests.test_adjustment_verify -q
 ./.venv/bin/python -m unittest discover -s tests -q
 ```
 
@@ -85,10 +86,14 @@ tdx-stocks update-actions --config tdx_stocks.toml --source file --input action_
 tdx-stocks update-actions --config tdx_stocks.toml --source export
 tdx-stocks update-actions --config tdx_stocks.toml --source export --dry-run
 tdx-stocks actions-status --config tdx_stocks.toml
+tdx-stocks verify-adjustment 600519.SH --config tdx_stocks.toml
 ```
 
 Use `actions-status --json` when you want to inspect the current cache and the
 latest update report from tooling or `jq`.
+
+Use `verify-adjustment --json` when you want to compare `adj_daily` against a
+specific TDX export file from tooling or `jq`.
 
 `build` and `rebuild` print stage progress to stderr while they run.
 Internally the factor build now runs in staged DuckDB temp tables so the heavy
@@ -108,6 +113,8 @@ If you want to verify a specific feature, run the matching test case below:
 | 导出源跳过非正价格行 | `tests.test_pipeline.PipelineTest.test_export_source_skips_nonpositive_export_rows` |
 | `update-actions --dry-run` 报告跳过项 | `tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols` |
 | 缓存状态与最近更新报告 | `tests.test_pipeline.PipelineTest.test_actions_status_reports_cache_and_update_report` |
+| 复权对账零误差 | `tests.test_adjustment_verify.AdjustmentVerifyTest.test_verify_adjustment_reports_zero_error` |
+| 复权对账偏差样本 | `tests.test_adjustment_verify.AdjustmentVerifyTest.test_verify_adjustment_reports_mismatch` |
 | 稠密因子表 ASOF 结果等价 | `tests.test_duckdb_ops.CopyAdjDailyTest.test_dense_factor_map_matches_exact_trade_dates` |
 | 稀疏区间因子跨停牌缺口 | `tests.test_duckdb_ops.CopyAdjDailyTest.test_sparse_interval_map_crosses_suspended_ex_date_gap` |
 | 查询宏 `last_n_days` / `last_n_factors` | `tests.test_query.QueryHelpersTest.test_register_query_macros_last_n_days` |

@@ -96,24 +96,43 @@ def build_export_adjustment_factor_result(
     export_files = _resolve_export_files(export_dir, markets, universe)
     rows: list[dict[str, object]] = []
     matched_symbols: list[dict[str, object]] = []
-    issues: list[dict[str, object]] = []
+    skipped_details: list[dict[str, object]] = []
     matched_keys: set[tuple[str, str]] = set()
     min_trade_date: date | None = None
     max_trade_date: date | None = None
     raw_file_count = 0
+    bad_rows_dropped = 0
+
+    def skip_detail(
+        *,
+        market: str,
+        symbol: str,
+        reason: str,
+        path: Path,
+        bad_rows: int = 0,
+        extra: dict[str, object] | None = None,
+    ) -> None:
+        detail: dict[str, object] = {
+            "market": market,
+            "symbol": symbol,
+            "reason": reason,
+            "path": path.as_posix(),
+            "bad_rows": bad_rows,
+        }
+        if extra:
+            detail.update(extra)
+        skipped_details.append(detail)
 
     for raw_path in iter_day_files(raw_vipdoc, markets=markets, universe=universe):
         raw_file_count += 1
         market, symbol = code_from_path(raw_path)
         export_path = export_files.get((market, symbol))
         if export_path is None:
-            issues.append(
-                {
-                    "market": market,
-                    "symbol": symbol,
-                    "reason": "missing_export_file",
-                    "raw_path": raw_path.as_posix(),
-                }
+            skip_detail(
+                market=market,
+                symbol=symbol,
+                reason="missing_export_file",
+                path=raw_path,
             )
             continue
 
@@ -129,13 +148,11 @@ def build_export_adjustment_factor_result(
         }
         common_dates = sorted(raw_records.keys() & export_records.keys())
         if not common_dates:
-            issues.append(
-                {
-                    "market": market,
-                    "symbol": symbol,
-                    "reason": "no_common_dates",
-                    "export_path": export_path.as_posix(),
-                }
+            skip_detail(
+                market=market,
+                symbol=symbol,
+                reason="no_common_dates",
+                path=export_path,
             )
             continue
 
@@ -148,28 +165,25 @@ def build_export_adjustment_factor_result(
                 skipped_rows += 1
                 continue
             raw_ratios.append((trade_date, export_close / raw_close))
+        bad_rows_dropped += skipped_rows
 
         if not raw_ratios:
-            issues.append(
-                {
-                    "market": market,
-                    "symbol": symbol,
-                    "reason": "no_positive_rows",
-                    "export_path": export_path.as_posix(),
-                    "skipped_rows": skipped_rows,
-                }
+            skip_detail(
+                market=market,
+                symbol=symbol,
+                reason="no_positive_rows",
+                path=export_path,
+                bad_rows=skipped_rows,
             )
             continue
 
         normalized_base = raw_ratios[-1][1]
         if normalized_base <= 0:
-            issues.append(
-                {
-                    "market": market,
-                    "symbol": symbol,
-                    "reason": "invalid_normalization_base",
-                    "export_path": export_path.as_posix(),
-                }
+            skip_detail(
+                market=market,
+                symbol=symbol,
+                reason="invalid_normalization_base",
+                path=export_path,
             )
             continue
 
@@ -179,13 +193,11 @@ def build_export_adjustment_factor_result(
 
         first_qfq_factor = qfq_rows[0][1]
         if first_qfq_factor <= 0:
-            issues.append(
-                {
-                    "market": market,
-                    "symbol": symbol,
-                    "reason": "invalid_qfq_factor_base",
-                    "export_path": export_path.as_posix(),
-                }
+            skip_detail(
+                market=market,
+                symbol=symbol,
+                reason="invalid_qfq_factor_base",
+                path=export_path,
             )
             continue
 
@@ -221,19 +233,31 @@ def build_export_adjustment_factor_result(
 
     for key, export_path in export_files.items():
         if key not in matched_keys and not any(
-            issue.get("reason") == "no_common_dates"
-            and issue.get("market") == key[0]
-            and issue.get("symbol") == key[1]
-            for issue in issues
+            detail.get("reason") == "no_common_dates"
+            and detail.get("market") == key[0]
+            and detail.get("symbol") == key[1]
+            for detail in skipped_details
         ):
-            issues.append(
-                {
-                    "market": key[0],
-                    "symbol": key[1],
-                    "reason": "missing_raw_file",
-                    "export_path": export_path.as_posix(),
-                }
+            skip_detail(
+                market=key[0],
+                symbol=key[1],
+                reason="missing_raw_file",
+                path=export_path,
             )
+
+    successful = len(matched_symbols)
+    skipped = len(skipped_details)
+    metrics = {
+        "total_scanned": raw_file_count,
+        "successful": successful,
+        "skipped": skipped,
+        "bad_rows_dropped": bad_rows_dropped,
+        "rows_generated": len(rows),
+        "date_range": {
+            "min": str(min_trade_date) if min_trade_date else None,
+            "max": str(max_trade_date) if max_trade_date else None,
+        },
+    }
 
     report = {
         "source": "export",
@@ -241,13 +265,15 @@ def build_export_adjustment_factor_result(
         "raw_vipdoc": raw_vipdoc.as_posix(),
         "export_files": len(export_files),
         "raw_files": raw_file_count,
-        "matched_symbols": len(matched_symbols),
+        "matched_symbols": successful,
         "rows_written": len(rows),
-        "skipped_issue_count": len(issues),
+        "skipped_issue_count": skipped,
+        "metrics": metrics,
+        "skipped_details": skipped_details,
         "matched_symbols_sample": matched_symbols[:50],
-        "issues_sample": issues[:100],
-        "min_trade_date": str(min_trade_date) if min_trade_date else None,
-        "max_trade_date": str(max_trade_date) if max_trade_date else None,
+        "issues_sample": skipped_details[:100],
+        "min_trade_date": metrics["date_range"]["min"],
+        "max_trade_date": metrics["date_range"]["max"],
     }
     return ExportAdjustmentFactorResult(rows=rows, report=report)
 

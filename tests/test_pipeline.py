@@ -230,6 +230,11 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(report["adjustment_factors_rows"], 2)
             self.assertEqual(report["adjustment_factors_state"], "dry-run")
             nested_report = report["adjustment_factors_report"]
+            self.assertIn("metrics", nested_report)
+            self.assertIn("skipped_details", nested_report)
+            self.assertEqual(nested_report["metrics"]["successful"], 1)
+            self.assertGreaterEqual(nested_report["metrics"]["skipped"], 1)
+            self.assertEqual(nested_report["metrics"]["bad_rows_dropped"], 0)
             self.assertEqual(nested_report["matched_symbols"], 1)
             self.assertGreaterEqual(nested_report["skipped_issue_count"], 1)
             self.assertTrue(
@@ -293,6 +298,14 @@ class PipelineTest(unittest.TestCase):
                   "generated_at": "2024-01-02T12:00:00",
                   "source": "export",
                   "dry_run": true,
+                  "metrics": {
+                    "total_scanned": 1,
+                    "successful": 1,
+                    "skipped": 0,
+                    "bad_rows_dropped": 0,
+                    "rows_generated": 1,
+                    "date_range": {"min": "2024-01-02", "max": "2024-01-02"}
+                  },
                   "adjustment_factors_state": "dry-run",
                   "corporate_actions_state": "unchanged",
                   "adjustment_factors_rows": 1,
@@ -318,6 +331,7 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("corporate_actions.rows=1", output)
             self.assertIn("adjustment_factors.rows=1", output)
             self.assertIn("action_update_report.dry_run=True", output)
+            self.assertIn("action_update_report.successful=1", output)
             self.assertIn("action_update_report.adjustment_factors_state=dry-run", output)
 
     def test_export_source_skips_nonpositive_export_rows(self) -> None:

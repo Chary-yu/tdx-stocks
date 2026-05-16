@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import load_config, write_default_config
+from .adjustment_verify import build_adjustment_verification_report
 from .help_summary import write_markdown
 from .pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
 from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
@@ -104,6 +105,23 @@ def build_parser() -> argparse.ArgumentParser:
     actions_status_parser.add_argument("--config", type=Path)
     actions_status_parser.add_argument("--json", action="store_true")
     actions_status_parser.set_defaults(func=cmd_actions_status)
+
+    verify_parser = subparsers.add_parser(
+        "verify-adjustment",
+        help="Compare adj_daily against TDX export front-adjusted text.",
+    )
+    verify_parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
+    verify_parser.add_argument("--config", type=Path)
+    verify_parser.add_argument(
+        "--input",
+        type=Path,
+        help="Optional export file or directory override.",
+    )
+    verify_parser.add_argument("--from-date", dest="from_date")
+    verify_parser.add_argument("--to-date", dest="to_date")
+    verify_parser.add_argument("--threshold", type=float, default=0.01)
+    verify_parser.add_argument("--json", action="store_true")
+    verify_parser.set_defaults(func=cmd_verify_adjustment)
 
     tables_parser = subparsers.add_parser("tables", help="Show latest table summaries.")
     tables_parser.add_argument("--config", type=Path)
@@ -315,6 +333,7 @@ def cmd_actions_status(args: argparse.Namespace) -> int:
     report_path = cache_root / "action_update_report.json"
     if report_path.exists():
         report["action_update_report"] = json.loads(report_path.read_text(encoding="utf-8"))
+        report["generated_at"] = report["action_update_report"].get("generated_at")
     if args.json:
         print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
         return 0
@@ -335,10 +354,61 @@ def cmd_actions_status(args: argparse.Namespace) -> int:
         print(f"action_update_report.source={update_report.get('source')}")
         print(f"action_update_report.generated_at={update_report.get('generated_at')}")
         print(f"action_update_report.dry_run={update_report.get('dry_run')}")
+        metrics = update_report.get("metrics", {})
+        if isinstance(metrics, dict):
+            print(f"action_update_report.total_scanned={metrics.get('total_scanned')}")
+            print(f"action_update_report.successful={metrics.get('successful')}")
+            print(f"action_update_report.skipped={metrics.get('skipped')}")
+            print(f"action_update_report.bad_rows_dropped={metrics.get('bad_rows_dropped')}")
+            date_range = metrics.get("date_range", {})
+            if isinstance(date_range, dict):
+                print(f"action_update_report.date_range.min={date_range.get('min')}")
+                print(f"action_update_report.date_range.max={date_range.get('max')}")
         print(f"action_update_report.adjustment_factors_state={update_report.get('adjustment_factors_state')}")
         print(f"action_update_report.corporate_actions_state={update_report.get('corporate_actions_state')}")
         print(f"action_update_report.adjustment_factors_rows={update_report.get('adjustment_factors_rows')}")
         print(f"action_update_report.corporate_actions_rows={update_report.get('corporate_actions_rows')}")
+    return 0
+
+
+def cmd_verify_adjustment(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    report = build_adjustment_verification_report(
+        config,
+        args.symbol,
+        input_path=args.input,
+        from_date=parse_iso_date(args.from_date),
+        to_date=parse_iso_date(args.to_date),
+        threshold=args.threshold,
+    )
+    if args.json:
+        print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"symbol={report['symbol']}")
+    print(f"export_path={report['export_path']}")
+    print(f"threshold={report['threshold']}")
+    print(f"export_rows={report['export_rows']}")
+    print(f"adj_rows={report['adj_rows']}")
+    print(f"common_rows={report['common_rows']}")
+    print(f"export_only_rows={report['export_only_rows']}")
+    print(f"adj_only_rows={report['adj_only_rows']}")
+    print(f"max_abs_error={report['max_abs_error']}")
+    print(f"max_abs_error_date={report['max_abs_error_date']}")
+    print(f"mean_abs_error={report['mean_abs_error']}")
+    print(f"mismatch_count={report['mismatch_count']}")
+    print(f"ok={report['ok']}")
+    if report["mismatch_samples"]:
+        print("mismatch_samples:")
+        for item in report["mismatch_samples"][:10]:
+            print(
+                f"- {item['trade_date']}: export={item['export_close']} adj={item['adj_close']} "
+                f"abs_error={item['abs_error']}"
+            )
+    if report["export_only_dates"]:
+        print(f"export_only_dates={', '.join(report['export_only_dates'][:10])}")
+    if report["adj_only_dates"]:
+        print(f"adj_only_dates={', '.join(report['adj_only_dates'][:10])}")
     return 0
 
 

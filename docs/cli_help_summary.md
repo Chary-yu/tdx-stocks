@@ -11,6 +11,7 @@
 | `update-actions` | Refresh cached corporate actions or adjustment factors. |
 | `status` | Show latest dataset status. |
 | `actions-status` | Show cached corporate actions and adjustment factor status. |
+| `verify-adjustment` | Compare adj_daily against TDX export front-adjusted text. |
 | `tables` | Show latest table summaries. |
 | `schema` | Show a table schema. |
 | `head` | Show rows from a latest table. |
@@ -73,6 +74,18 @@
 | 参数 | 说明 |
 | --- | --- |
 | `--config` |  |
+| `--json` |  |
+
+### `verify-adjustment`
+
+| 参数 | 说明 |
+| --- | --- |
+| `symbol` | Stock code such as 600519.SH or sh600519. |
+| `--config` |  |
+| `--input` | Optional export file or directory override. |
+| `--from-date` |  |
+| `--to-date` |  |
+| `--threshold` | (default: 0.01) |
 | `--json` |  |
 
 ### `tables`
