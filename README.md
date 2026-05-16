@@ -75,7 +75,12 @@ Refresh cached rights/dividend data separately:
 ```bash
 tdx-stocks update-actions --config tdx_stocks.toml --source file --input action_inputs/
 tdx-stocks update-actions --config tdx_stocks.toml --source export
+tdx-stocks update-actions --config tdx_stocks.toml --source export --dry-run
+tdx-stocks actions-status --config tdx_stocks.toml
 ```
+
+Use `actions-status --json` when you want to inspect the current cache and the
+latest update report from tooling or `jq`.
 
 `build` and `rebuild` print stage progress to stderr while they run.
 Internally the factor build now runs in staged DuckDB temp tables so the heavy

@@ -10,6 +10,7 @@
 | `rebuild` | Clear the current database and rebuild from local TDX data. |
 | `update-actions` | Refresh cached corporate actions or adjustment factors. |
 | `status` | Show latest dataset status. |
+| `actions-status` | Show cached corporate actions and adjustment factor status. |
 | `tables` | Show latest table summaries. |
 | `schema` | Show a table schema. |
 | `head` | Show rows from a latest table. |
@@ -59,12 +60,20 @@
 | `--config` |  |
 | `--source` | Update source label for the report. (default: local) |
 | `--input` | Optional CSV file or directory containing corporate_actions.csv and adjustment_factors.csv. |
+| `--dry-run` | Derive the update report without writing cache files. |
 
 ### `status`
 
 | 参数 | 说明 |
 | --- | --- |
 | `--config` |  |
+
+### `actions-status`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--json` |  |
 
 ### `tables`
 

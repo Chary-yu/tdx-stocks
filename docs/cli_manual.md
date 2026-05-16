@@ -18,6 +18,8 @@
 - `update-actions` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
 - `corporate_actions` 和 `adjustment_factors` 都可以来自本地缓存或外部输入文件。
 - `update-actions --source export` 可以直接读取 `T0002/export` 的前复权文本，反推 `adjustment_factors`。
+- `update-actions --dry-run` 只生成更新报告，不写入缓存。
+- `actions-status` 用来查看缓存状态、覆盖区间和最近一次更新报告。
 - `adj_daily` 默认是前复权行情，`hfq_daily` 默认是后复权行情；缓存不存在时会退回为 `adj_factor = 1.0` 的保守模式。
 - `factors` 已包含动量、波动率、回撤、布林带、RSI、KDJ、ADX、量价等派生指标。
 - `build` 和 `rebuild` 的 factors 阶段会在 DuckDB 内部分阶段物化为临时表，再合并导出，便于调试和降低单次查询压力。
@@ -94,12 +96,15 @@ tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
 tdx-stocks update-actions --config tdx_stocks.toml --source local --input action_inputs/
 tdx-stocks update-actions --config tdx_stocks.toml --source file --input corporate_actions.csv
 tdx-stocks update-actions --config tdx_stocks.toml --source export
+tdx-stocks update-actions --config tdx_stocks.toml --source export --dry-run
+tdx-stocks actions-status --config tdx_stocks.toml
 ```
 
 常用参数：
 
 - `--source`：`local` / `official` / `file` / `export`
 - `--input`：可选输入文件或目录
+- `--dry-run`：只生成报告，不写缓存
 
 参数与 `build` 相同。
 
@@ -118,6 +123,21 @@ tdx-stocks doctor --config tdx_stocks.toml
 - 目录是否存在
 - 检测到的 `.day` 文件数与样本
 - `duckdb`、`pyarrow` 版本
+
+### `actions-status`
+
+查看缓存里的 `corporate_actions`、`adjustment_factors`，以及最近一次 `update-actions` 报告。
+
+```bash
+tdx-stocks actions-status
+tdx-stocks actions-status --json
+```
+
+输出：
+
+- `corporate_actions` / `adjustment_factors` 是否存在
+- parquet 文件数、行数、覆盖股票数、日期范围
+- `action_update_report.json` 的最近一次更新摘要
 
 ## 5. 查询类命令
 
