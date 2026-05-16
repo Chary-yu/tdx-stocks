@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import statistics
 import tempfile
 import unittest
 from datetime import date
@@ -183,6 +184,8 @@ class QueryHelpersTest(unittest.TestCase):
                     trade_date DATE,
                     trade_year BIGINT,
                     pct_chg DOUBLE,
+                    ret_1 DOUBLE,
+                    ret_20 DOUBLE,
                     ma5 DOUBLE,
                     ma10 DOUBLE,
                     ma20 DOUBLE,
@@ -191,25 +194,158 @@ class QueryHelpersTest(unittest.TestCase):
                     ma250 DOUBLE,
                     vol_ma5 DOUBLE,
                     vol_ma20 DOUBLE,
+                    vol_20 DOUBLE,
                     high_20 DOUBLE,
                     low_20 DOUBLE,
                     range_20 DOUBLE,
+                    dd_20 DOUBLE,
+                    pos_20 DOUBLE,
+                    atr_pct_14 DOUBLE,
+                    bb_width_20 DOUBLE,
+                    rsi_14 DOUBLE,
+                    bias_20 DOUBLE,
+                    plus_di_14 DOUBLE,
+                    minus_di_14 DOUBLE,
+                    adx_14 DOUBLE,
+                    rsv_9 DOUBLE,
+                    k_9 DOUBLE,
+                    d_9 DOUBLE,
+                    j_9 DOUBLE,
+                    amount_ma20 DOUBLE,
+                    amount_ma60 DOUBLE,
+                    vol_ratio_20 DOUBLE,
                     macd_dif DOUBLE,
                     macd_dea DOUBLE,
                     macd_hist DOUBLE
                 )
                 """
             )
-            con.execute(
-                """
-                INSERT INTO factors VALUES
-                    ('sh', '600519', DATE '2024-01-03', 2024, NULL, 100.5, 100.5,
-                     100.5, 100.5, 100.5, 100.5, 1000.0, 1000.0, 101.0, 99.0,
-                     0.0202020202, 0.0, 0.0, 0.0),
-                    ('sh', '600519', DATE '2024-01-04', 2024, 0.0099502488, 101.0,
-                     101.0, 101.0, 101.0, 101.0, 101.0, 1100.0, 1100.0, 102.0, 100.0,
-                     0.02, 0.01, 0.01, 0.0)
-                """
+            factor_columns = [
+                "market",
+                "symbol",
+                "trade_date",
+                "trade_year",
+                "pct_chg",
+                "ret_1",
+                "ret_20",
+                "ma5",
+                "ma10",
+                "ma20",
+                "ma60",
+                "ma120",
+                "ma250",
+                "vol_ma5",
+                "vol_ma20",
+                "vol_20",
+                "high_20",
+                "low_20",
+                "range_20",
+                "dd_20",
+                "pos_20",
+                "atr_pct_14",
+                "bb_width_20",
+                "rsi_14",
+                "bias_20",
+                "plus_di_14",
+                "minus_di_14",
+                "adx_14",
+                "rsv_9",
+                "k_9",
+                "d_9",
+                "j_9",
+                "amount_ma20",
+                "amount_ma60",
+                "vol_ratio_20",
+                "macd_dif",
+                "macd_dea",
+                "macd_hist",
+            ]
+            factor_rows = [
+                {
+                    "market": "sh",
+                    "symbol": "600519",
+                    "trade_date": date(2024, 1, 3),
+                    "trade_year": 2024,
+                    "pct_chg": None,
+                    "ret_1": None,
+                    "ret_20": None,
+                    "ma5": 100.5,
+                    "ma10": 100.5,
+                    "ma20": 100.5,
+                    "ma60": 100.5,
+                    "ma120": 100.5,
+                    "ma250": 100.5,
+                    "vol_ma5": 1000.0,
+                    "vol_ma20": 1000.0,
+                    "vol_20": None,
+                    "high_20": 101.0,
+                    "low_20": 99.0,
+                    "range_20": 0.0202020202,
+                    "dd_20": None,
+                    "pos_20": None,
+                    "atr_pct_14": None,
+                    "bb_width_20": None,
+                    "rsi_14": None,
+                    "bias_20": None,
+                    "plus_di_14": None,
+                    "minus_di_14": None,
+                    "adx_14": None,
+                    "rsv_9": None,
+                    "k_9": None,
+                    "d_9": None,
+                    "j_9": None,
+                    "amount_ma20": None,
+                    "amount_ma60": None,
+                    "vol_ratio_20": None,
+                    "macd_dif": 0.0,
+                    "macd_dea": 0.0,
+                    "macd_hist": 0.0,
+                },
+                {
+                    "market": "sh",
+                    "symbol": "600519",
+                    "trade_date": date(2024, 1, 4),
+                    "trade_year": 2024,
+                    "pct_chg": 0.0099502488,
+                    "ret_1": 0.0099502488,
+                    "ret_20": 0.01,
+                    "ma5": 101.0,
+                    "ma10": 101.0,
+                    "ma20": 101.0,
+                    "ma60": 101.0,
+                    "ma120": 101.0,
+                    "ma250": 101.0,
+                    "vol_ma5": 1100.0,
+                    "vol_ma20": 1100.0,
+                    "vol_20": 0.02,
+                    "high_20": 102.0,
+                    "low_20": 100.0,
+                    "range_20": 0.02,
+                    "dd_20": -0.0001,
+                    "pos_20": 0.01,
+                    "atr_pct_14": 0.02,
+                    "bb_width_20": 55.0,
+                    "rsi_14": 0.01,
+                    "bias_20": 50.0,
+                    "plus_di_14": 48.0,
+                    "minus_di_14": 52.0,
+                    "adx_14": 54.0,
+                    "rsv_9": 54.0,
+                    "k_9": 55.0,
+                    "d_9": 56.0,
+                    "j_9": 57.0,
+                    "amount_ma20": 1100.0,
+                    "amount_ma60": 1100.0,
+                    "vol_ratio_20": 0.0,
+                    "macd_dif": 0.02,
+                    "macd_dea": 0.01,
+                    "macd_hist": 0.01,
+                },
+            ]
+            placeholders = ", ".join(["?"] * len(factor_columns))
+            con.executemany(
+                f"INSERT INTO factors VALUES ({placeholders})",
+                [tuple(row[column] for column in factor_columns) for row in factor_rows],
             )
             register_query_macros(con)
 
@@ -228,64 +364,66 @@ class QueryHelpersTest(unittest.TestCase):
             self.assertEqual(row_map["trade_date"], date(2024, 1, 4))
             self.assertEqual(row_map["adj_close"], 101.5)
             self.assertEqual(row_map["pct_chg"], 0.0099502488)
+            self.assertEqual(row_map["ret_1"], 0.0099502488)
+            self.assertEqual(row_map["ret_20"], 0.01)
             self.assertEqual(row_map["ma120"], 101.0)
-            self.assertEqual(row_map["macd_hist"], 0.0)
+            self.assertEqual(row_map["macd_hist"], 0.01)
         finally:
             con.close()
 
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
-    def test_build_factors_generates_ma120_ma250_macd(self) -> None:
+    def test_build_factors_generates_core_indicators_and_kdj(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             input_dir = tmp_path / "adj_daily"
             output_dir = tmp_path / "factors"
             con = duckdb.connect(":memory:")
             try:
+                input_rows = []
+                for offset in range(25):
+                    close = 10.0 + offset
+                    input_rows.append(
+                        (
+                            "sh",
+                            "600519",
+                            date(2024, 1, 2 + offset),
+                            2024,
+                            close,
+                            close + 1.0,
+                            close - 1.0,
+                            close,
+                            1000,
+                            1000.0 * close,
+                            1.0,
+                        )
+                    )
+                values_sql = ",\n".join(
+                    (
+                        f"    ('{market}', '{symbol}', DATE '{trade_date.isoformat()}', "
+                        f"{trade_year}, {adj_open}, {adj_high}, {adj_low}, {adj_close}, "
+                        f"{volume}, {amount}, {adj_factor})"
+                    )
+                    for (
+                        market,
+                        symbol,
+                        trade_date,
+                        trade_year,
+                        adj_open,
+                        adj_high,
+                        adj_low,
+                        adj_close,
+                        volume,
+                        amount,
+                        adj_factor,
+                    ) in input_rows
+                )
                 con.execute(
                     f"""
                     COPY (
                         SELECT *
                         FROM (
                             VALUES
-                                (
-                                    'sh',
-                                    '600519',
-                                    DATE '2024-01-02',
-                                    2024,
-                                    10.0,
-                                    10.5,
-                                    9.5,
-                                    10.0,
-                                    1000,
-                                    10000.0,
-                                    1.0
-                                ),
-                                (
-                                    'sh',
-                                    '600519',
-                                    DATE '2024-01-03',
-                                    2024,
-                                    12.0,
-                                    12.5,
-                                    11.5,
-                                    12.0,
-                                    1100,
-                                    13200.0,
-                                    1.0
-                                ),
-                                (
-                                    'sh',
-                                    '600519',
-                                    DATE '2024-01-04',
-                                    2024,
-                                    11.0,
-                                    11.5,
-                                    10.5,
-                                    11.0,
-                                    1200,
-                                    13200.0,
-                                    1.0
-                                )
+{values_sql}
                         ) AS t(
                             market, symbol, trade_date, trade_year, adj_open, adj_high,
                             adj_low, adj_close, volume, amount, adj_factor
@@ -298,9 +436,36 @@ class QueryHelpersTest(unittest.TestCase):
 
                 build_factors(con, input_dir, output_dir, "zstd")
 
-                rows = con.execute(
+                result_rows = con.execute(
                     f"""
-                    SELECT trade_date, ma120, ma250, macd_dif, macd_dea, macd_hist
+                    SELECT
+                        trade_date,
+                        pct_chg,
+                        ret_1,
+                        ret_20,
+                        ma20,
+                        ma120,
+                        vol_20,
+                        vol_ma20,
+                        range_20,
+                        dd_20,
+                        pos_20,
+                        atr_14,
+                        atr_pct_14,
+                        bb_width_20,
+                        rsi_14,
+                        bias_20,
+                        plus_di_14,
+                        minus_di_14,
+                        adx_14,
+                        rsv_9,
+                        k_9,
+                        d_9,
+                        j_9,
+                        vol_ratio_20,
+                        macd_dif,
+                        macd_dea,
+                        macd_hist
                     FROM read_parquet(
                         '{output_dir.as_posix()}/**/*.parquet',
                         hive_partitioning=true
@@ -309,37 +474,98 @@ class QueryHelpersTest(unittest.TestCase):
                     """
                 ).fetchall()
 
-                closes = [10.0, 12.0, 11.0]
+                columns = [
+                    "trade_date",
+                    "pct_chg",
+                    "ret_1",
+                    "ret_20",
+                    "ma20",
+                    "ma120",
+                    "vol_20",
+                    "vol_ma20",
+                    "range_20",
+                    "dd_20",
+                    "pos_20",
+                    "atr_14",
+                    "atr_pct_14",
+                    "bb_width_20",
+                    "rsi_14",
+                    "bias_20",
+                    "plus_di_14",
+                    "minus_di_14",
+                    "adx_14",
+                    "rsv_9",
+                    "k_9",
+                    "d_9",
+                    "j_9",
+                    "vol_ratio_20",
+                    "macd_dif",
+                    "macd_dea",
+                    "macd_hist",
+                ]
+                row = dict(zip(columns, result_rows[-1], strict=True))
+                closes = [10.0 + i for i in range(25)]
+                pct_chgs = [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
+                self.assertAlmostEqual(row["pct_chg"], closes[-1] / closes[-2] - 1, places=12)
+                self.assertAlmostEqual(row["ret_1"], closes[-1] / closes[-2] - 1, places=12)
+                self.assertAlmostEqual(row["ret_20"], closes[-1] / closes[-21] - 1, places=12)
+                self.assertEqual(row["ma20"], sum(closes[-20:]) / 20)
+                self.assertEqual(row["ma120"], sum(closes) / 25)
+                self.assertAlmostEqual(row["vol_20"], statistics.stdev(pct_chgs[-20:]), places=12)
+                self.assertEqual(row["vol_ma20"], 1000.0)
+                self.assertAlmostEqual(
+                    row["range_20"],
+                    (closes[-1] + 1.0) / (closes[-20] - 1.0) - 1,
+                    places=12,
+                )
+                self.assertAlmostEqual(row["dd_20"], closes[-1] / (closes[-1] + 1.0) - 1, places=12)
+                self.assertAlmostEqual(
+                    row["pos_20"],
+                    (closes[-1] - (closes[-20] - 1.0))
+                    / ((closes[-1] + 1.0) - (closes[-20] - 1.0)),
+                    places=12,
+                )
+                self.assertEqual(row["atr_14"], 2.0)
+                self.assertAlmostEqual(row["atr_pct_14"], 2.0 / closes[-1], places=12)
+
+                window_closes = closes[-20:]
+                ma20 = sum(window_closes) / 20
+                std20 = statistics.stdev(window_closes)
+                self.assertAlmostEqual(row["bb_width_20"], 4.0 * std20 / ma20, places=12)
+                self.assertEqual(row["rsi_14"], 100.0)
+                self.assertAlmostEqual(row["bias_20"], closes[-1] / ma20 - 1, places=12)
+                self.assertEqual(row["plus_di_14"], 50.0)
+                self.assertEqual(row["minus_di_14"], 0.0)
+                self.assertEqual(row["adx_14"], 100.0)
+                self.assertAlmostEqual(row["rsv_9"], 90.0, places=12)
+
+                k = 50.0
+                d = 50.0
+                for _ in range(17):
+                    k = (2.0 / 3.0) * k + (1.0 / 3.0) * 90.0
+                    d = (2.0 / 3.0) * d + (1.0 / 3.0) * k
+                j = 3.0 * k - 2.0 * d
+                self.assertAlmostEqual(row["k_9"], k, places=12)
+                self.assertAlmostEqual(row["d_9"], d, places=12)
+                self.assertAlmostEqual(row["j_9"], j, places=12)
+                self.assertEqual(row["vol_ratio_20"], 0.0)
                 alpha12 = 2.0 / 13.0
                 alpha26 = 2.0 / 27.0
                 alpha9 = 2.0 / 10.0
                 ema12 = closes[0]
                 ema26 = closes[0]
                 dea = 0.0
-                expected = []
+                dif = 0.0
+                hist = 0.0
                 for close in closes:
                     ema12 = alpha12 * close + (1.0 - alpha12) * ema12
                     ema26 = alpha26 * close + (1.0 - alpha26) * ema26
                     dif = ema12 - ema26
                     dea = alpha9 * dif + (1.0 - alpha9) * dea
                     hist = 2.0 * (dif - dea)
-                    expected.append((dif, dea, hist))
-
-                self.assertEqual(rows[0][1], 10.0)
-                self.assertEqual(rows[0][2], 10.0)
-                self.assertAlmostEqual(rows[0][3], 0.0, places=10)
-                self.assertAlmostEqual(rows[0][4], 0.0, places=10)
-                self.assertAlmostEqual(rows[0][5], 0.0, places=10)
-                self.assertEqual(rows[1][1], 11.0)
-                self.assertEqual(rows[1][2], 11.0)
-                self.assertAlmostEqual(rows[1][3], expected[1][0], places=10)
-                self.assertAlmostEqual(rows[1][4], expected[1][1], places=10)
-                self.assertAlmostEqual(rows[1][5], expected[1][2], places=10)
-                self.assertEqual(rows[2][1], 11.0)
-                self.assertEqual(rows[2][2], 11.0)
-                self.assertAlmostEqual(rows[2][3], expected[2][0], places=10)
-                self.assertAlmostEqual(rows[2][4], expected[2][1], places=10)
-                self.assertAlmostEqual(rows[2][5], expected[2][2], places=10)
+                self.assertAlmostEqual(row["macd_dif"], dif, places=12)
+                self.assertAlmostEqual(row["macd_dea"], dea, places=12)
+                self.assertAlmostEqual(row["macd_hist"], hist, places=12)
             finally:
                 con.close()
 

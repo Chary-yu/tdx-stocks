@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-import tomllib
-
 
 DEFAULT_TDX_VIPDOC = Path("/mnt/d/ProgramFiles/Tdx/vipdoc")
 DEFAULT_DATA_ROOT = Path("/mnt/d/Zcyu/Chary-codex/tdx-stocks/Database")

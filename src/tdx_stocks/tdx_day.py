@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import struct
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-import struct
-from typing import Iterable, Iterator
-
 
 DAY_RECORD_SIZE = 32
 DAY_RECORD = struct.Struct("<IIIIIfII")

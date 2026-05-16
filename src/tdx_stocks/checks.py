@@ -31,8 +31,19 @@ def check_raw_daily(con, raw_daily_dir: Path) -> CheckResult:
             count(DISTINCT market || ':' || symbol) AS symbols,
             min(trade_date) AS min_date,
             max(trade_date) AS max_date,
-            sum(CASE WHEN open <= 0 OR high <= 0 OR low <= 0 OR close <= 0 THEN 1 ELSE 0 END) AS non_positive_price_rows,
-            sum(CASE WHEN low > high OR open > high OR close > high OR open < low OR close < low THEN 1 ELSE 0 END) AS invalid_ohlc_rows,
+            sum(
+                CASE
+                    WHEN open <= 0 OR high <= 0 OR low <= 0 OR close <= 0 THEN 1
+                    ELSE 0
+                END
+            ) AS non_positive_price_rows,
+            sum(
+                CASE
+                    WHEN low > high OR open > high OR close > high OR open < low OR close < low
+                        THEN 1
+                    ELSE 0
+                END
+            ) AS invalid_ohlc_rows,
             sum(CASE WHEN volume < 0 OR amount < 0 THEN 1 ELSE 0 END) AS negative_volume_amount_rows
         FROM {source}
         """
@@ -87,8 +98,21 @@ def check_adj_daily(con, adj_daily_dir: Path) -> CheckResult:
             count(*) AS rows,
             count(DISTINCT market || ':' || symbol) AS symbols,
             sum(CASE WHEN adj_factor <= 0 THEN 1 ELSE 0 END) AS invalid_factor_rows,
-            sum(CASE WHEN adj_open <= 0 OR adj_high <= 0 OR adj_low <= 0 OR adj_close <= 0 THEN 1 ELSE 0 END) AS non_positive_price_rows,
-            sum(CASE WHEN adj_low > adj_high OR adj_open > adj_high OR adj_close > adj_high OR adj_open < adj_low OR adj_close < adj_low THEN 1 ELSE 0 END) AS invalid_ohlc_rows
+            sum(
+                CASE
+                    WHEN adj_open <= 0 OR adj_high <= 0 OR adj_low <= 0 OR adj_close <= 0
+                        THEN 1
+                    ELSE 0
+                END
+            ) AS non_positive_price_rows,
+            sum(
+                CASE
+                    WHEN adj_low > adj_high OR adj_open > adj_high OR adj_close > adj_high
+                        OR adj_open < adj_low OR adj_close < adj_low
+                        THEN 1
+                    ELSE 0
+                END
+            ) AS invalid_ohlc_rows
         FROM {source}
         """
     ).fetchone()
@@ -121,7 +145,34 @@ def check_factors(con, factors_dir: Path) -> CheckResult:
             count(*) AS rows,
             count(DISTINCT market || ':' || symbol) AS symbols,
             avg(CASE WHEN pct_chg IS NULL THEN 1.0 ELSE 0.0 END) AS pct_chg_null_ratio,
-            sum(CASE WHEN abs(pct_chg) > 0.5 THEN 1 ELSE 0 END) AS extreme_pct_chg_rows
+            sum(CASE WHEN abs(pct_chg) > 0.5 THEN 1 ELSE 0 END) AS extreme_pct_chg_rows,
+            sum(CASE WHEN vol_20 IS NOT NULL AND vol_20 < 0 THEN 1 ELSE 0 END) AS invalid_vol_rows,
+            sum(CASE WHEN atr_14 IS NOT NULL AND atr_14 < 0 THEN 1 ELSE 0 END) AS invalid_atr_rows,
+            sum(
+                CASE
+                    WHEN rsi_14 IS NOT NULL AND (rsi_14 < 0 OR rsi_14 > 100) THEN 1
+                    ELSE 0
+                END
+            ) AS invalid_rsi_rows,
+            sum(
+                CASE
+                    WHEN k_9 IS NOT NULL AND (k_9 < 0 OR k_9 > 100) THEN 1
+                    WHEN d_9 IS NOT NULL AND (d_9 < 0 OR d_9 > 100) THEN 1
+                    ELSE 0
+                END
+            ) AS invalid_kdj_rows,
+            sum(
+                CASE
+                    WHEN adx_14 IS NOT NULL AND (adx_14 < 0 OR adx_14 > 100) THEN 1
+                    ELSE 0
+                END
+            ) AS invalid_adx_rows,
+            sum(
+                CASE
+                    WHEN bb_width_20 IS NOT NULL AND bb_width_20 < 0 THEN 1
+                    ELSE 0
+                END
+            ) AS invalid_bb_rows
         FROM {source}
         """
     ).fetchone()
@@ -131,6 +182,12 @@ def check_factors(con, factors_dir: Path) -> CheckResult:
             "symbols": row[1],
             "pct_chg_null_ratio": row[2],
             "extreme_pct_chg_rows": row[3],
+            "invalid_vol_rows": row[4],
+            "invalid_atr_rows": row[5],
+            "invalid_rsi_rows": row[6],
+            "invalid_kdj_rows": row[7],
+            "invalid_adx_rows": row[8],
+            "invalid_bb_rows": row[9],
         }
     )
     if row[0] == 0:
@@ -139,4 +196,14 @@ def check_factors(con, factors_dir: Path) -> CheckResult:
         result.warnings.append(f"pct_chg null ratio is high: {row[2]:.4f}")
     if row[3]:
         result.warnings.append(f"factors has extreme pct_chg rows: {row[3]}")
+    for label, count in (
+        ("vol_20", row[4]),
+        ("atr_14", row[5]),
+        ("rsi_14", row[6]),
+        ("kdj", row[7]),
+        ("adx_14", row[8]),
+        ("bb_width_20", row[9]),
+    ):
+        if count:
+            result.errors.append(f"factors has invalid {label} rows: {count}")
     return result

@@ -70,6 +70,9 @@ tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
 ```
 
 `build` and `rebuild` print stage progress to stderr while they run.
+Internally the factor build now runs in staged DuckDB temp tables so the heavy
+rolling-window and recursive calculations stay easier to debug and less memory
+hungry than one giant query.
 
 The committed dataset is written under:
 
@@ -112,7 +115,7 @@ Show filtered rows:
 
 ```bash
 tdx-stocks head raw_daily --symbol 600000 --from-date 2024-01-01 --desc --limit 20
-tdx-stocks head factors --columns symbol,trade_date,pct_chg,ma20,range_20 --limit 30
+tdx-stocks head factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14,adx_14 --limit 30
 ```
 
 Show one stock's merged daily rows and factors:
@@ -150,6 +153,15 @@ tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Databas
 - `raw_daily` stores unadjusted OHLCV parsed from TDX `.day` files.
 - `corporate_actions` is present but empty in version 0.1.
 - `adj_daily` stores adjusted OHLCV. In version 0.1 values equal raw prices.
-- `factors` stores derived indicators based on adjusted close, including `ma5`,
-  `ma10`, `ma20`, `ma60`, `ma120`, `ma250`, `range_20`, and MACD.
+- `factors` stores derived indicators based on adjusted close, including
+  `ret_1`, `ret_5`, `ret_10`, `ret_20`, `ret_60`, `ret_120`, `ret_250`,
+  `ma5`, `ma10`, `ma20`, `ma60`, `ma120`, `ma250`, `vol_5`, `vol_10`,
+  `vol_20`, `vol_60`, `range_20`, `dd_20`, `dd_60`, `pos_20`, `pos_60`,
+  `atr_14`, `atr_pct_14`, `bb_width_20`, `rsi_6`, `rsi_14`, `bias_5`,
+  `bias_10`, `bias_20`, `bias_60`, `rsv_9`, `k_9`, `d_9`, `j_9`,
+  `plus_di_14`, `minus_di_14`, `adx_14`, `amount_ma20`, `amount_ma60`,
+  `vol_ratio_20`, `amp_1`, and MACD.
+- `stock` shows a compact subset of the merged daily data and highlights core
+  factor columns such as `ret_20`, `vol_20`, `rsi_14`, `atr_pct_14`, `adx_14`,
+  and KDJ.
 - `latest.json` is replaced only after all stages and checks complete.

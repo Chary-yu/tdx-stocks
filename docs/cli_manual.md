@@ -17,7 +17,8 @@
 
 - `corporate_actions` 为空表占位。
 - `adj_daily` 暂时直接复制 raw 行情，`adj_factor = 1.0`。
-- `factors` 已包含 `ma5`、`ma10`、`ma20`、`ma60`、`ma120`、`ma250`、`MACD` 等派生指标。
+- `factors` 已包含动量、波动率、回撤、布林带、RSI、KDJ、ADX、量价等派生指标。
+- `build` 和 `rebuild` 的 factors 阶段会在 DuckDB 内部分阶段物化为临时表，再合并导出，便于调试和降低单次查询压力。
 - `build` 和 `rebuild` 会把阶段进度打印到 `stderr`。
 
 ## 2. 快速开始
@@ -148,7 +149,7 @@ tdx-stocks schema factors
 
 ```bash
 tdx-stocks head raw_daily --symbol 600000 --from-date 2024-01-01 --desc --limit 20
-tdx-stocks head factors --columns symbol,trade_date,pct_chg,ma20,range_20 --limit 30
+tdx-stocks head factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14,adx_14 --limit 30
 ```
 
 常用参数：
@@ -166,7 +167,7 @@ tdx-stocks head factors --columns symbol,trade_date,pct_chg,ma20,range_20 --limi
 
 ### `stock`
 
-按股票代码查看一只股票的合并日线信息，包括 `raw_daily`、`adj_daily` 和 `factors`。
+按股票代码查看一只股票的合并日线信息，包括 `raw_daily`、`adj_daily` 和 `factors`。默认会展示一组精简因子列，例如 `ret_20`、`vol_20`、`rsi_14`、`atr_pct_14`、`adx_14` 以及 `k_9`、`d_9`、`j_9`。
 
 ```bash
 tdx-stocks stock 600519.SH --limit 20
@@ -232,7 +233,7 @@ tdx-stocks help-summary --output -
 ## 6. 输出规则
 
 - 命令行表格输出的数值默认最多两位小数。
-- `volume`、`amount`、`vol_ma*` 会缩写成 `K` / `M` / `B` / `T`。
+- `volume`、`amount`、`vol_ma*`、`amount_ma*` 会缩写成 `K` / `M` / `B` / `T`。
 - `--json` 输出也会做相同的数值归一化。
 
 ## 7. 便捷 SQL 宏
