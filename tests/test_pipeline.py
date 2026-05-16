@@ -14,12 +14,20 @@ from tdx_stocks.tdx_day import DAY_RECORD
 
 
 class PipelineTest(unittest.TestCase):
-    def test_rebuild_dataset_clears_database_before_build(self) -> None:
+    def test_rebuild_dataset_preserves_cache_and_clears_staging(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp) / "Database"
+            cache_file = data_root / "cache" / "adjustment_factors" / "test.parquet"
             nested_file = data_root / "versions" / "old" / "marker.txt"
+            staging_file = data_root / "_staging" / "old" / "marker.txt"
+            latest_file = data_root / "latest.json"
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_bytes(b"fake parquet marker")
             nested_file.parent.mkdir(parents=True, exist_ok=True)
             nested_file.write_text("old", encoding="utf-8")
+            staging_file.parent.mkdir(parents=True, exist_ok=True)
+            staging_file.write_text("old", encoding="utf-8")
+            latest_file.write_text("old", encoding="utf-8")
 
             config = AppConfig(
                 paths=PathsConfig(
@@ -39,7 +47,11 @@ class PipelineTest(unittest.TestCase):
                 )
 
             self.assertEqual(report, {"ok": True})
-            self.assertFalse(data_root.exists())
+            self.assertTrue(cache_file.exists())
+            self.assertFalse(nested_file.exists())
+            self.assertFalse(latest_file.exists())
+            staging_dir = data_root / "_staging"
+            self.assertTrue(not staging_dir.exists() or not any(staging_dir.iterdir()))
             mocked.assert_called_once_with(
                 config,
                 from_date=None,

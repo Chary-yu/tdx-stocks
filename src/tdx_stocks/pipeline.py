@@ -143,7 +143,7 @@ def build_dataset(
             run_paths.raw_daily_dir,
             run_paths.adj_daily_dir,
             config.build.compression,
-            cache_adjustment_factors_dir,
+            run_paths.adjustment_factors_dir,
             factor_column="qfq_factor",
         )
         _progress(progress, "Checking adj_daily")
@@ -156,7 +156,7 @@ def build_dataset(
             run_paths.raw_daily_dir,
             run_paths.hfq_daily_dir,
             config.build.compression,
-            cache_adjustment_factors_dir,
+            run_paths.adjustment_factors_dir,
             factor_column="hfq_factor",
         )
         _progress(progress, "Checking hfq_daily")
@@ -212,8 +212,8 @@ def rebuild_dataset(
     progress: ProgressCallback | None = None,
 ) -> dict:
     if config.paths.data_root.exists():
-        _progress(progress, f"Clearing database root: {config.paths.data_root}")
-        shutil.rmtree(config.paths.data_root)
+        _progress(progress, f"Clearing database root except cache: {config.paths.data_root}")
+        clear_database_root_preserving_cache(config.paths.data_root)
     return build_dataset(
         config,
         from_date=from_date,
@@ -222,6 +222,16 @@ def rebuild_dataset(
         overwrite_staging=overwrite_staging,
         progress=progress,
     )
+
+
+def clear_database_root_preserving_cache(data_root: Path) -> None:
+    for child in data_root.iterdir():
+        if child.name == "cache":
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
 
 
 def _progress(progress: ProgressCallback | None, message: str) -> None:

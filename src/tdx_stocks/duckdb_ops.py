@@ -92,19 +92,20 @@ def copy_adj_daily(
                 SELECT
                     market,
                     symbol,
-                    trade_date,
+                    COALESCE(start_date, trade_date) AS start_date,
                     COALESCE({factor_column}, 1.0) AS factor
                 FROM {factor_source}
+                WHERE COALESCE(start_date, trade_date) IS NOT NULL
             )
             SELECT
                 raw_daily.market,
                 raw_daily.symbol,
                 raw_daily.trade_date,
                 raw_daily.trade_year,
-                raw_daily.open * factor AS adj_open,
-                raw_daily.high * factor AS adj_high,
-                raw_daily.low * factor AS adj_low,
-                raw_daily.close * factor AS adj_close,
+                raw_daily.open * COALESCE(factor, 1.0) AS adj_open,
+                raw_daily.high * COALESCE(factor, 1.0) AS adj_high,
+                raw_daily.low * COALESCE(factor, 1.0) AS adj_low,
+                raw_daily.close * COALESCE(factor, 1.0) AS adj_close,
                 CASE
                     WHEN factor IS NULL OR factor = 0 THEN raw_daily.volume
                     ELSE CAST(ROUND(raw_daily.volume / factor, 0) AS BIGINT)
@@ -112,7 +113,10 @@ def copy_adj_daily(
                 raw_daily.amount AS amount,
                 COALESCE(factor, 1.0) AS adj_factor
             FROM raw_daily
-            LEFT JOIN adjustment_factors USING (market, symbol, trade_date)
+            ASOF LEFT JOIN adjustment_factors
+                ON raw_daily.market = adjustment_factors.market
+                AND raw_daily.symbol = adjustment_factors.symbol
+                AND raw_daily.trade_date >= adjustment_factors.start_date
         )
         TO '{sql_literal(output_dir.as_posix())}'
         (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()})
