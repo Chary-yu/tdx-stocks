@@ -18,6 +18,7 @@ from tdx_stocks.parquet_io import (
     write_records_table,
 )
 from tdx_stocks.pipeline import rebuild_dataset, update_actions
+from tdx_stocks.sync import execute_sync
 from tdx_stocks.tdx_day import DAY_RECORD
 
 
@@ -181,6 +182,53 @@ class PipelineTest(unittest.TestCase):
             mocked_lock.assert_not_called()
             mocked_update.assert_not_called()
             mocked_rebuild.assert_not_called()
+
+    def test_execute_sync_calls_update_and_rebuild(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "Database"
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=Path("/tmp/tdx_vipdoc"),
+                    tdx_export=Path("/tmp/tdx_export"),
+                    data_root=data_root,
+                ),
+                build=BuildConfig(),
+            )
+            from types import SimpleNamespace
+
+            plan = SimpleNamespace(to_dict=lambda: {"steps": []})
+            with patch("tdx_stocks.sync.update_actions", return_value={"ok": True}) as mocked_update, patch(
+                "tdx_stocks.sync.rebuild_dataset",
+                return_value={"ok": True},
+            ) as mocked_rebuild:
+                result = execute_sync(
+                    config,
+                    plan,
+                    from_date=None,
+                    to_date=None,
+                    limit_symbols=3,
+                    overwrite_staging=True,
+                    progress=None,
+                )
+
+            mocked_update.assert_called_once_with(
+                config,
+                source="export",
+                input_path=config.paths.tdx_export,
+                dry_run=False,
+                progress=None,
+                write_report=True,
+            )
+            mocked_rebuild.assert_called_once_with(
+                config,
+                from_date=None,
+                to_date=None,
+                limit_symbols=3,
+                overwrite_staging=True,
+                progress=None,
+            )
+            self.assertEqual(result.update_report, {"ok": True})
+            self.assertEqual(result.build_report, {"ok": True})
 
     def test_export_source_derives_adjustment_factors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

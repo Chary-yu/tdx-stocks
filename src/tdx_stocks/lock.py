@@ -15,6 +15,9 @@ from typing import Any
 from .exit_codes import LockedError
 
 
+_CORRUPT_LOCK_STALE_SECONDS = 600
+
+
 @dataclass(frozen=True)
 class LockMetadata:
     pid: int
@@ -64,6 +67,14 @@ class AcquireLock(AbstractContextManager["AcquireLock"]):
                 raise LockedError(
                     f"detected another write task running (PID: {existing.pid})"
                 )
+            if self.lock_path.exists():
+                if _is_old_corrupt_lock(self.lock_path):
+                    try:
+                        self.lock_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    continue
+                raise LockedError(f"detected invalid lock file: {self.lock_path}")
 
             metadata = LockMetadata(
                 pid=os.getpid(),
@@ -169,6 +180,14 @@ def _remove_if_stale(path: Path, metadata: LockMetadata) -> None:
             path.unlink()
         except FileNotFoundError:
             pass
+
+
+def _is_old_corrupt_lock(path: Path) -> bool:
+    try:
+        age_seconds = datetime.now().timestamp() - path.stat().st_mtime
+    except OSError:
+        return False
+    return age_seconds >= _CORRUPT_LOCK_STALE_SECONDS
 
 
 def _is_stale_lock(metadata: LockMetadata) -> bool:

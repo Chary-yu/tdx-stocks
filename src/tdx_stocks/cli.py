@@ -34,7 +34,7 @@ from .query import (
     table_columns,
     table_summary,
 )
-from .sync import build_sync_plan
+from .sync import build_sync_plan, execute_sync
 from .tdx_day import iter_day_files
 
 
@@ -519,17 +519,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
         return 0
 
     with _write_lock(config, "sync"):
-        update_report = update_actions(
-            config,
-            source="export",
-            input_path=config.paths.tdx_export,
-            dry_run=False,
-            progress=stderr_progress,
-            write_report=True,
-        )
         try:
-            build_report = rebuild_dataset(
+            execution = execute_sync(
                 config,
+                plan,
                 from_date=parse_iso_date(args.from_date),
                 to_date=parse_iso_date(args.to_date),
                 limit_symbols=args.limit_symbols,
@@ -540,8 +533,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
             raise _map_pipeline_error(exc) from exc
 
     report = _build_sync_report(plan, status="updated")
-    report["update_report"] = normalize_output_data(update_report)
-    report["build_report"] = normalize_output_data(build_report)
+    report["update_report"] = normalize_output_data(execution.update_report)
+    report["build_report"] = normalize_output_data(execution.build_report)
     print_json(report)
     return 0
 

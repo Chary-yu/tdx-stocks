@@ -58,10 +58,22 @@ Create a config file:
 tdx-stocks init-config --path tdx_stocks.toml
 ```
 
+Preview the recommended sync plan:
+
+```bash
+tdx-stocks sync --config tdx_stocks.toml --dry-run
+```
+
 Inspect the local TDX directory:
 
 ```bash
 tdx-stocks audit doctor --config tdx_stocks.toml
+```
+
+Inspect a stock in read-only mode:
+
+```bash
+tdx-stocks query price 600519.SH --config tdx_stocks.toml
 ```
 
 Run a small smoke build:
@@ -93,13 +105,13 @@ tdx-stocks audit verify 600519.SH --config tdx_stocks.toml
 tdx-stocks sync --config tdx_stocks.toml --dry-run
 ```
 
-Use `actions-status --json` when you want to inspect the current cache and the
+Use `data status --json` when you want to inspect the current cache and the
 latest update report from tooling or `jq`.
 
-Use `verify-adjustment --json` when you want to compare `adj_daily` against a
+Use `audit verify --json` when you want to compare `adj_daily` against a
 specific TDX export file from tooling or `jq`.
 
-`build` and `rebuild` print stage progress to stderr while they run.
+`data build` and `data rebuild` print stage progress to stderr while they run.
 Internally the factor build now runs in staged DuckDB temp tables so the heavy
 rolling-window and recursive calculations stay easier to debug and less memory
 hungry than one giant query.

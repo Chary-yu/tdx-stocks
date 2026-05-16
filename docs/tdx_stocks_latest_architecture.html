@@ -168,7 +168,7 @@
   <div class="container" id="report-container">
     <div class="header">
       <div class="title-block">
-        <div class="header-row">
+          <div class="header-row">
           <div class="pulse-dot"></div>
           <h1>tdx-stocks Latest Architecture</h1>
           <div class="toolbar">
@@ -181,7 +181,7 @@
           </div>
         </div>
         <p class="subtitle">
-          最新代码把权息数据更新和日线构建彻底解耦：`update-actions` 负责慢变缓存与报告，`actions-status` 负责缓存审计，`build` / `rebuild` 只消费本地缓存；`T0002/export` 前复权文本可反推 `adjustment_factors`，`rebuild` 现在会保留 `Database/cache`。
+          现在的主架构把命令行入口收束为领域路由：`sync` 是宏命令，`data` / `audit` / `query` 是主分组；写操作通过 `Database/.lock` 串行化，`--dry-run` 走纯只读计划，旧命令仍保留为兼容别名。
         </p>
       </div>
     </div>
@@ -244,73 +244,73 @@
         <text x="170" y="334" fill="#94a3b8" font-size="8" text-anchor="middle">action_inputs/, corporate_actions.csv, factors.csv</text>
 
         <rect x="40" y="395" width="260" height="90" rx="10" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
-        <text x="170" y="420" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Slow-changing data update</text>
-        <text x="170" y="440" fill="#cbd5e1" font-size="9" text-anchor="middle">No auto-refresh in build/rebuild</text>
-        <text x="170" y="456" fill="#cbd5e1" font-size="9" text-anchor="middle">`tdx-stocks update-actions` only</text>
+        <text x="170" y="420" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">External triggers / cron</text>
+        <text x="170" y="440" fill="#cbd5e1" font-size="9" text-anchor="middle">sync can inspect without writing</text>
+        <text x="170" y="456" fill="#cbd5e1" font-size="9" text-anchor="middle">data update remains the write entrypoint</text>
 
-        <!-- middle: update layer -->
-        <text x="460" y="70" fill="#fbbf24" font-size="10" font-weight="600">UPDATE LAYER</text>
+        <!-- middle: control plane -->
+        <text x="460" y="70" fill="#fbbf24" font-size="10" font-weight="600">CONTROL PLANE</text>
 
         <rect x="470" y="120" width="290" height="92" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
         <rect x="470" y="120" width="290" height="92" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
-        <text x="615" y="143" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">update-actions CLI</text>
-        <text x="615" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">cli.py → pipeline.update_actions()</text>
-        <text x="615" y="174" fill="#94a3b8" font-size="8" text-anchor="middle">source = local | official | file | export</text>
-        <text x="615" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">--dry-run writes only action_update_report.json</text>
-        <text x="615" y="201" fill="#94a3b8" font-size="8" text-anchor="middle">build / rebuild remain offline and deterministic</text>
+        <text x="615" y="143" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">sync macro</text>
+        <text x="615" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">sync.py → planner / runner</text>
+        <text x="615" y="174" fill="#94a3b8" font-size="8" text-anchor="middle">inspect latest.json + export mtime</text>
+        <text x="615" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">--dry-run is read-only and lock-free</text>
+        <text x="615" y="201" fill="#94a3b8" font-size="8" text-anchor="middle">queues data update + data rebuild when needed</text>
 
         <rect x="470" y="235" width="290" height="92" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
         <rect x="470" y="235" width="290" height="92" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
-        <text x="615" y="259" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Export parser</text>
-        <text x="615" y="277" fill="#94a3b8" font-size="9" text-anchor="middle">export_io.py</text>
-        <text x="615" y="291" fill="#94a3b8" font-size="8" text-anchor="middle">reads front-adjusted daily text</text>
-        <text x="615" y="305" fill="#94a3b8" font-size="8" text-anchor="middle">aligns export rows with raw .day rows</text>
-        <text x="615" y="319" fill="#94a3b8" font-size="8" text-anchor="middle">skips invalid rows, emits report samples</text>
+        <text x="615" y="259" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">domain router</text>
+        <text x="615" y="277" fill="#94a3b8" font-size="9" text-anchor="middle">data | audit | query</text>
+        <text x="615" y="291" fill="#94a3b8" font-size="8" text-anchor="middle">legacy aliases stay compatible</text>
+        <text x="615" y="305" fill="#94a3b8" font-size="8" text-anchor="middle">help-summary renders the tree</text>
+        <text x="615" y="319" fill="#94a3b8" font-size="8" text-anchor="middle">single parser, shared handlers</text>
 
         <rect x="470" y="350" width="290" height="92" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
         <rect x="470" y="350" width="290" height="92" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
-        <text x="615" y="374" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Cache writers</text>
-        <text x="615" y="392" fill="#94a3b8" font-size="9" text-anchor="middle">cache/corporate_actions</text>
-        <text x="615" y="406" fill="#94a3b8" font-size="9" text-anchor="middle">cache/adjustment_factors</text>
-        <text x="615" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">parquet_io.py + write_records_table()</text>
-        <text x="615" y="434" fill="#94a3b8" font-size="8" text-anchor="middle">action_update_report.json written every run</text>
+        <text x="615" y="374" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">lock manager</text>
+        <text x="615" y="392" fill="#94a3b8" font-size="9" text-anchor="middle">Database/.lock</text>
+        <text x="615" y="406" fill="#94a3b8" font-size="9" text-anchor="middle">pid + token + started_at</text>
+        <text x="615" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">SIGINT / SIGTERM / atexit cleanup</text>
+        <text x="615" y="434" fill="#94a3b8" font-size="8" text-anchor="middle">PID reuse guarded by cmdline check</text>
 
         <rect x="470" y="475" width="290" height="82" rx="8" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
-        <text x="615" y="499" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Cache contract</text>
-        <text x="615" y="517" fill="#cbd5e1" font-size="8" text-anchor="middle">`build` reads cache; no live network fetch</text>
-        <text x="615" y="531" fill="#cbd5e1" font-size="8" text-anchor="middle">`update-actions` refreshes, `actions-status` audits</text>
+        <text x="615" y="499" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">output policy</text>
+        <text x="615" y="517" fill="#cbd5e1" font-size="8" text-anchor="middle">console.py chooses Rich or plain text</text>
+        <text x="615" y="531" fill="#cbd5e1" font-size="8" text-anchor="middle">exit codes stay stable for scripts</text>
 
-        <!-- right middle: build pipeline -->
-        <text x="860" y="70" fill="#fbbf24" font-size="10" font-weight="600">BUILD PIPELINE</text>
+        <!-- right middle: data pipeline -->
+        <text x="860" y="70" fill="#fbbf24" font-size="10" font-weight="600">DATA PIPELINE</text>
 
         <rect x="860" y="120" width="250" height="90" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
         <rect x="860" y="120" width="250" height="90" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
-        <text x="985" y="143" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">build / rebuild</text>
-        <text x="985" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">pipeline.build_dataset()</text>
-        <text x="985" y="174" fill="#94a3b8" font-size="8" text-anchor="middle">scans .day files and writes raw_daily</text>
-        <text x="985" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">rebuild preserves Database/cache</text>
-        <text x="985" y="201" fill="#94a3b8" font-size="8" text-anchor="middle">consumes cached actions / factors only</text>
+        <text x="985" y="143" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">update-actions</text>
+        <text x="985" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">pipeline.update_actions()</text>
+        <text x="985" y="174" fill="#94a3b8" font-size="8" text-anchor="middle">export parser + manual CSV / Parquet</text>
+        <text x="985" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">corporate_actions / adjustment_factors</text>
+        <text x="985" y="201" fill="#94a3b8" font-size="8" text-anchor="middle">report written for non-dry runs</text>
 
         <rect x="860" y="235" width="250" height="90" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
         <rect x="860" y="235" width="250" height="90" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
-        <text x="985" y="259" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">DuckDB staged transforms</text>
-        <text x="985" y="277" fill="#94a3b8" font-size="9" text-anchor="middle">checks.py + duckdb_ops.py</text>
-        <text x="985" y="291" fill="#94a3b8" font-size="8" text-anchor="middle">ASOF join on start_date / factor cache</text>
-        <text x="985" y="305" fill="#94a3b8" font-size="8" text-anchor="middle">copy_adj_daily() / build_factors()</text>
-        <text x="985" y="319" fill="#94a3b8" font-size="8" text-anchor="middle">qfq_factor / hfq_factor / adjusted volume</text>
+        <text x="985" y="259" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">build / rebuild</text>
+        <text x="985" y="277" fill="#94a3b8" font-size="9" text-anchor="middle">staged DuckDB transforms</text>
+        <text x="985" y="291" fill="#94a3b8" font-size="8" text-anchor="middle">checks + ASOF joins + factors</text>
+        <text x="985" y="305" fill="#94a3b8" font-size="8" text-anchor="middle">rebuild preserves Database/cache</text>
+        <text x="985" y="319" fill="#94a3b8" font-size="8" text-anchor="middle">offline and deterministic by design</text>
 
         <rect x="860" y="350" width="250" height="92" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
         <rect x="860" y="350" width="250" height="92" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
-        <text x="985" y="374" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Versioned outputs</text>
+        <text x="985" y="374" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">versioned outputs</text>
         <text x="985" y="392" fill="#94a3b8" font-size="9" text-anchor="middle">Database/versions/&lt;run_id&gt;/parquet</text>
-        <text x="985" y="406" fill="#94a3b8" font-size="8" text-anchor="middle">raw_daily / corporate_actions / adjustment_factors</text>
-        <text x="985" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">adj_daily / hfq_daily / factors</text>
-        <text x="985" y="434" fill="#94a3b8" font-size="8" text-anchor="middle">build_report.json + manifest</text>
+        <text x="985" y="406" fill="#94a3b8" font-size="8" text-anchor="middle">raw_daily / adj_daily / hfq_daily</text>
+        <text x="985" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">factors + build_report.json</text>
+        <text x="985" y="434" fill="#94a3b8" font-size="8" text-anchor="middle">latest.json points to one run</text>
 
         <rect x="860" y="475" width="250" height="82" rx="8" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
-        <text x="985" y="499" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Atomic commit</text>
+        <text x="985" y="499" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">atomic commit</text>
         <text x="985" y="517" fill="#cbd5e1" font-size="8" text-anchor="middle">staging -> version_dir -> latest.json</text>
-        <text x="985" y="531" fill="#cbd5e1" font-size="8" text-anchor="middle">latest manifest points all readers to one run</text>
+        <text x="985" y="531" fill="#cbd5e1" font-size="8" text-anchor="middle">single immutable run for all readers</text>
 
         <!-- far right: query / inspection -->
         <text x="1090" y="70" fill="#fbbf24" font-size="10" font-weight="600">QUERY LAYER</text>
@@ -318,15 +318,15 @@
         <rect x="1110" y="120" width="150" height="90" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
         <rect x="1110" y="120" width="150" height="90" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
         <text x="1185" y="143" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">query.py</text>
-        <text x="1185" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">DuckDB views</text>
+        <text x="1185" y="160" fill="#94a3b8" font-size="9" text-anchor="middle">latest.json + DuckDB views</text>
         <text x="1185" y="174" fill="#94a3b8" font-size="8" text-anchor="middle">register_latest_views()</text>
-        <text x="1185" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">table routing & SQL helpers</text>
+        <text x="1185" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">macros + table routing</text>
 
         <rect x="1110" y="235" width="150" height="90" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
         <rect x="1110" y="235" width="150" height="90" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
         <text x="1185" y="259" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">stock / sql</text>
-        <text x="1185" y="277" fill="#94a3b8" font-size="9" text-anchor="middle">stock --adjust raw|qfq|hfq</text>
-        <text x="1185" y="291" fill="#94a3b8" font-size="8" text-anchor="middle">uses adj_daily or hfq_daily</text>
+        <text x="1185" y="277" fill="#94a3b8" font-size="9" text-anchor="middle">price bases raw | qfq | hfq</text>
+        <text x="1185" y="291" fill="#94a3b8" font-size="8" text-anchor="middle">stock / query table / export</text>
         <text x="1185" y="305" fill="#94a3b8" font-size="8" text-anchor="middle">technical factors from qfq series</text>
 
         <rect x="1110" y="350" width="150" height="92" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
@@ -334,10 +334,10 @@
         <text x="1185" y="374" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Inspector CLI</text>
         <text x="1185" y="392" fill="#94a3b8" font-size="9" text-anchor="middle">status / tables / schema</text>
         <text x="1185" y="406" fill="#94a3b8" font-size="8" text-anchor="middle">head / export / help-summary</text>
-        <text x="1185" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">actions-status / latest.json only</text>
+        <text x="1185" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">actions-status / legacy aliases</text>
 
         <rect x="1110" y="475" width="150" height="82" rx="8" fill="rgba(136, 19, 55, 0.25)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"></rect>
-        <text x="1185" y="499" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">Query contract</text>
+        <text x="1185" y="499" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">offline contract</text>
         <text x="1185" y="517" fill="#cbd5e1" font-size="8" text-anchor="middle">latest.json + versioned parquet</text>
         <text x="1185" y="531" fill="#cbd5e1" font-size="8" text-anchor="middle">all readers stay offline</text>
 
@@ -347,29 +347,29 @@
         <rect x="40" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
         <rect x="40" y="635" width="250" height="84" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
         <text x="165" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Cache directories</text>
-        <text x="165" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">cache/corporate_actions</text>
-        <text x="165" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">cache/adjustment_factors</text>
-        <text x="165" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">cache/action_update_report.json</text>
+        <text x="165" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">Database/cache</text>
+        <text x="165" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">corporate_actions / adjustment_factors</text>
+        <text x="165" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">action_update_report.json</text>
 
         <rect x="330" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
         <rect x="330" y="635" width="250" height="84" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"></rect>
         <text x="455" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Build outputs</text>
-        <text x="455" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">adj_daily / hfq_daily</text>
-        <text x="455" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">factors, checks, build_report</text>
-        <text x="455" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">OHLCV, adjusted volume, indicators</text>
+        <text x="455" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">Database/_staging</text>
+        <text x="455" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">adj_daily / hfq_daily / factors</text>
+        <text x="455" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">build_report.json</text>
 
         <rect x="620" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
         <rect x="620" y="635" width="250" height="84" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"></rect>
         <text x="745" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Version manifest</text>
         <text x="745" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">Database/latest.json</text>
-        <text x="745" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">points to one immutable run</text>
-        <text x="745" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">query layer resolves tables from here</text>
+        <text x="745" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">single immutable run pointer</text>
+        <text x="745" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">query layer resolves views here</text>
 
         <rect x="910" y="635" width="250" height="84" rx="8" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
         <rect x="910" y="635" width="250" height="84" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"></rect>
         <text x="1035" y="659" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Inspection commands</text>
-        <text x="1035" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">status / tables / schema / head</text>
-        <text x="1035" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">stock / sql / export / actions-status</text>
+        <text x="1035" y="677" fill="#94a3b8" font-size="9" text-anchor="middle">sync / data / audit / query</text>
+        <text x="1035" y="691" fill="#94a3b8" font-size="9" text-anchor="middle">legacy aliases / help-summary</text>
         <text x="1035" y="705" fill="#94a3b8" font-size="8" text-anchor="middle">all read from latest views</text>
 
         <!-- legend -->
@@ -390,41 +390,41 @@
     <div class="cards">
       <div class="card">
         <div class="card-header">
-          <div class="card-dot emerald"></div>
-          <h3>Update Path</h3>
+          <div class="card-dot cyan"></div>
+          <h3>Control Plane</h3>
         </div>
         <ul>
-          <li>• `update-actions` refreshes cache, `actions-status` audits it.</li>
-          <li>• `source=export` reads `T0002/export` front-adjusted daily text.</li>
-          <li>• Local `vipdoc` + optional CSV/Parquet still supported.</li>
+          <li>• `sync` decides whether update + rebuild are needed.</li>
+          <li>• `data update` refreshes caches; `data status` audits them.</li>
+          <li>• `--dry-run` and query commands stay lock-free.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Write Path</h3>
+        </div>
+        <ul>
+          <li>• `build` / `rebuild` stay offline and reuse local cache only.</li>
+          <li>• Generates `adj_daily`, `hfq_daily`, `factors`.</li>
+          <li>• `Database/.lock` serializes all write paths.</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>Build Path</h3>
-        </div>
-        <ul>
-          <li>• `build` / `rebuild` consume cached `adjustment_factors`.</li>
-          <li>• Generates `adj_daily`, `hfq_daily`, `factors`.</li>
-          <li>• Keeps technical indicators on continuous qfq prices.</li>
-        </ul>
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot cyan"></div>
-          <h3>Query Path</h3>
+          <h3>Read Path</h3>
         </div>
         <ul>
           <li>• `latest.json` resolves a single immutable version.</li>
-          <li>• `stock --adjust raw|qfq|hfq` selects the price basis.</li>
+          <li>• `query price` selects raw / qfq / hfq bases.</li>
           <li>• `status`, `tables`, `schema`, `head`, `sql`, `export`, `actions-status` stay offline.</li>
         </ul>
       </div>
     </div>
 
     <p class="footer">
-      tdx-stocks architecture snapshot • update-actions + actions-status + export-derived adjustment factors • current codebase
+      tdx-stocks architecture snapshot • sync + data/audit/query + lock-driven write paths • current codebase
     </p>
   </div>
 

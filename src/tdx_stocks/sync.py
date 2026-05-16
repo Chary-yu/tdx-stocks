@@ -7,6 +7,7 @@ from pathlib import Path
 from .config import AppConfig
 from .duckdb_ops import has_parquet_files
 from .export_io import iter_export_files
+from .pipeline import rebuild_dataset, update_actions
 from .query import load_latest_manifest
 
 
@@ -45,6 +46,20 @@ class SyncPlan:
             "cache_adjustment_factors": self.cache_adjustment_factors,
             "needs_write": self.needs_write,
             "steps": [step.to_dict() for step in self.steps],
+        }
+
+
+@dataclass(frozen=True)
+class SyncExecutionResult:
+    plan: SyncPlan
+    update_report: object
+    build_report: object
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "plan": self.plan.to_dict(),
+            "update_report": self.update_report,
+            "build_report": self.build_report,
         }
 
 
@@ -94,6 +109,35 @@ def build_sync_plan(config: AppConfig) -> SyncPlan:
         cache_adjustment_factors=cache_adjustment_factors,
         steps=steps,
     )
+
+
+def execute_sync(
+    config: AppConfig,
+    plan: SyncPlan,
+    *,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    limit_symbols: int | None = None,
+    overwrite_staging: bool | None = None,
+    progress=None,
+) -> SyncExecutionResult:
+    update_report = update_actions(
+        config,
+        source="export",
+        input_path=config.paths.tdx_export,
+        dry_run=False,
+        progress=progress,
+        write_report=True,
+    )
+    build_report = rebuild_dataset(
+        config,
+        from_date=from_date,
+        to_date=to_date,
+        limit_symbols=limit_symbols,
+        overwrite_staging=overwrite_staging,
+        progress=progress,
+    )
+    return SyncExecutionResult(plan=plan, update_report=update_report, build_report=build_report)
 
 
 def _latest_export_mtime(export_dir: Path) -> datetime | None:

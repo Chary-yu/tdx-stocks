@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tdx-stocks CLI 使用说明图</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', 'Microsoft YaHei', 'Noto Sans CJK SC', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: #f8fafc;
+    }
+
+    .container {
+      max-width: 1380px;
+      margin: 0 auto;
+    }
+
+    .header {
+      margin-bottom: 1.5rem;
+    }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+      box-shadow: 0 0 18px rgba(34, 211, 238, 0.75);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.55; transform: scale(0.82); }
+    }
+
+    h1 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.875rem;
+      margin-left: 1.75rem;
+      line-height: 1.6;
+      max-width: 1180px;
+    }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+      overflow-x: auto;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+    }
+
+    svg {
+      width: 100%;
+      min-width: 1120px;
+      display: block;
+    }
+
+    svg text {
+      font-family: 'JetBrains Mono', 'Microsoft YaHei', 'Noto Sans CJK SC', monospace;
+      letter-spacing: 0;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.1rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+
+    .card h3 {
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+
+    .card ul {
+      list-style: none;
+      color: #94a3b8;
+      font-size: 0.75rem;
+      line-height: 1.65;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 1.4rem;
+      color: #475569;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 0.5rem;
+      margin-left: auto;
+      flex-shrink: 0;
+      align-items: center;
+    }
+
+    .toolbar-toggle {
+      background: transparent;
+      border: none;
+      color: #475569;
+      cursor: pointer;
+      font-size: 1.25rem;
+      line-height: 1;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      transition: color 0.2s, background 0.2s;
+    }
+
+    .toolbar-toggle:hover {
+      color: #94a3b8;
+      background: rgba(30, 41, 59, 0.5);
+    }
+
+    .toolbar-actions {
+      display: none;
+      gap: 0.5rem;
+    }
+
+    .toolbar.expanded .toolbar-actions {
+      display: flex;
+    }
+
+    .toolbar-actions button {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 0.375rem 0.75rem;
+      border-radius: 0.375rem;
+      font-family: inherit;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .toolbar-actions button:hover {
+      background: rgba(51, 65, 85, 0.8);
+      color: #f8fafc;
+      border-color: #475569;
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 1rem;
+      }
+
+      h1 {
+        font-size: 1.05rem;
+      }
+
+      .subtitle {
+        margin-left: 0;
+      }
+    }
+
+    @media print {
+      body {
+        background: #020617;
+        padding: 1rem;
+      }
+
+      .toolbar {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>tdx-stocks CLI 使用说明图</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">推荐入口是 `sync`、`data`、`audit`、`query`；`--dry-run` 只看不改，`--json` 适合脚本，旧命令保留为兼容别名。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1200 900" role="img" aria-label="tdx-stocks CLI 使用说明图">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrowheadCyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+          </marker>
+          <marker id="arrowheadEmerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+          </marker>
+          <marker id="arrowheadRose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
+          </marker>
+          <marker id="arrowheadViolet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <rect width="1200" height="900" fill="#020617"/>
+        <rect width="1200" height="900" fill="url(#grid)"/>
+
+        <rect x="30" y="36" width="1140" height="690" rx="12" fill="rgba(251, 191, 36, 0.03)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="48" y="60" fill="#fbbf24" font-size="10" font-weight="600">Command Line Usage</text>
+        <text x="980" y="60" fill="#fbbf24" font-size="9" text-anchor="middle">help / sync / data / audit / query</text>
+
+        <rect x="56" y="82" width="1088" height="128" rx="10" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="70" y="101" fill="#22d3ee" font-size="9" font-weight="600">1. 先选入口</text>
+
+        <rect x="56" y="236" width="1088" height="214" rx="10" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="70" y="255" fill="#34d399" font-size="9" font-weight="600">2. 按任务进入对应命令域</text>
+
+        <rect x="56" y="474" width="1088" height="180" rx="10" fill="rgba(30, 41, 59, 0.22)" stroke="#475569" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="70" y="494" fill="#94a3b8" font-size="9" font-weight="600">3. 用法示例</text>
+
+        <rect x="70" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="70" y="116" width="150" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="145" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`tdx-stocks --help`</text>
+        <text x="145" y="156" fill="#94a3b8" font-size="8" text-anchor="middle">看所有命令</text>
+
+        <rect x="244" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="244" y="116" width="150" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="319" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`help-summary`</text>
+        <text x="319" y="156" fill="#94a3b8" font-size="8" text-anchor="middle">生成 Markdown 摘要</text>
+
+        <rect x="418" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="418" y="116" width="150" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="493" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`sync --dry-run`</text>
+        <text x="493" y="156" fill="#94a3b8" font-size="8" text-anchor="middle">先看计划，不改数据</text>
+
+        <rect x="592" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="592" y="116" width="150" height="60" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="667" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">legacy aliases</text>
+        <text x="667" y="156" fill="#94a3b8" font-size="8" text-anchor="middle">旧命令仍能执行</text>
+
+        <rect x="766" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="766" y="116" width="150" height="60" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="841" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`--json`</text>
+        <text x="841" y="156" fill="#94a3b8" font-size="8" text-anchor="middle">脚本友好输出</text>
+
+        <rect x="940" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="940" y="116" width="150" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1015" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`status` / `tables`</text>
+        <text x="1015" y="156" fill="#94a3b8" font-size="8" text-anchor="middle">只读查看当前数据</text>
+
+        <path d="M 220 146 L 238 146" fill="none" stroke="#22d3ee" stroke-width="1.4" marker-end="url(#arrowheadCyan)"/>
+        <path d="M 394 146 L 412 146" fill="none" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path d="M 568 146 L 586 146" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#arrowheadEmerald)"/>
+        <path d="M 742 146 L 760 146" fill="none" stroke="#fb7185" stroke-width="1.4" marker-end="url(#arrowheadRose)"/>
+        <path d="M 916 146 L 934 146" fill="none" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#arrowheadViolet)"/>
+
+        <path d="M 145 176 L 145 210 L 316 210 L 316 236" fill="none" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <path d="M 319 176 L 319 210 L 566 210 L 566 236" fill="none" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <path d="M 493 176 L 493 210 L 817 210 L 817 236" fill="none" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <path d="M 667 176 L 667 210 L 1046 210 L 1046 236" fill="none" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+
+        <rect x="82" y="270" width="230" height="150" rx="6" fill="#0f172a"/>
+        <rect x="82" y="270" width="230" height="150" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="197" y="294" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`sync`</text>
+        <text x="197" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">一键同步与重建</text>
+        <text x="197" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks sync`</text>
+        <text x="197" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks sync --dry-run`</text>
+        <text x="197" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">自动判断是否需要 update + rebuild</text>
+        <text x="197" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">cron / 手工都能直接用</text>
+
+        <rect x="348" y="270" width="230" height="150" rx="6" fill="#0f172a"/>
+        <rect x="348" y="270" width="230" height="150" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="463" y="294" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`data`</text>
+        <text x="463" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">数据刷新与构建</text>
+        <text x="463" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data update --source export`</text>
+        <text x="463" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data status`</text>
+        <text x="463" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data build --overwrite-staging`</text>
+        <text x="463" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">写操作会加锁，避免并发破坏缓存</text>
+
+        <rect x="614" y="270" width="230" height="150" rx="6" fill="#0f172a"/>
+        <rect x="614" y="270" width="230" height="150" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="729" y="294" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`audit`</text>
+        <text x="729" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">检查与对账</text>
+        <text x="729" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit doctor --config tdx_stocks.toml`</text>
+        <text x="729" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit verify 600519.SH`</text>
+        <text x="729" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">适合排查复权误差和环境问题</text>
+        <text x="729" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">`verify` 失败可直接接入脚本熔断</text>
+
+        <rect x="880" y="270" width="230" height="150" rx="6" fill="#0f172a"/>
+        <rect x="880" y="270" width="230" height="150" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="995" y="294" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`query`</text>
+        <text x="995" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">只读查询与导出</text>
+        <text x="995" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query price 600519.SH --limit 20`</text>
+        <text x="995" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query table raw_daily --limit 20`</text>
+        <text x="995" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query sql &quot;select count(*) from raw_daily&quot;`</text>
+        <text x="995" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">默认不加锁，适合终端和脚本读取</text>
+
+        <path d="M 197 422 L 197 450 L 463 450 L 463 470" fill="none" stroke="#fbbf24" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <text x="338" y="442" fill="#fbbf24" font-size="8" text-anchor="middle">最常见的日常入口</text>
+
+        <path d="M 463 422 L 463 450 L 729 450 L 729 470" fill="none" stroke="#34d399" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <text x="596" y="442" fill="#34d399" font-size="8" text-anchor="middle">修改数据时先锁定</text>
+
+        <path d="M 729 422 L 729 450 L 995 450 L 995 470" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <text x="860" y="442" fill="#a78bfa" font-size="8" text-anchor="middle">适合只读探索</text>
+
+        <rect x="92" y="508" width="200" height="112" rx="6" fill="#0f172a"/>
+        <rect x="92" y="508" width="200" height="112" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="192" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">日常同步</text>
+        <text x="192" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks sync`</text>
+        <text x="192" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">自动检测导出更新</text>
+        <text x="192" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">必要时执行 update + rebuild</text>
+        <text x="192" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">适合每天手动敲一次</text>
+
+        <rect x="318" y="508" width="200" height="112" rx="6" fill="#0f172a"/>
+        <rect x="318" y="508" width="200" height="112" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="418" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">只看状态</text>
+        <text x="418" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data status`</text>
+        <text x="418" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks sync --dry-run`</text>
+        <text x="418" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">不会写缓存，不获取写锁</text>
+        <text x="418" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">适合 cron 预演和排查</text>
+
+        <rect x="544" y="508" width="200" height="112" rx="6" fill="#0f172a"/>
+        <rect x="544" y="508" width="200" height="112" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="644" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">检查环境 / 对账</text>
+        <text x="644" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit doctor`</text>
+        <text x="644" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit verify 600519.SH`</text>
+        <text x="644" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">适合提交前和异常排查</text>
+        <text x="644" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">误差超限时可返回非零退出码</text>
+
+        <rect x="770" y="508" width="200" height="112" rx="6" fill="#0f172a"/>
+        <rect x="770" y="508" width="200" height="112" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="870" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">查询和导出</text>
+        <text x="870" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query price 600519.SH`</text>
+        <text x="870" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query sql &quot;select * from ...&quot;`</text>
+        <text x="870" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">默认只读，终端和脚本都适用</text>
+        <text x="870" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">`--json` 时便于下游解析</text>
+
+        <rect x="996" y="508" width="90" height="112" rx="6" fill="#0f172a"/>
+        <rect x="996" y="508" width="90" height="112" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1041" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">兼容</text>
+        <text x="1041" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">旧命令仍能跑</text>
+        <text x="1041" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`update-actions`</text>
+        <text x="1041" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">`stock` / `doctor`</text>
+        <text x="1041" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">会提示迁移到新入口</text>
+
+        <text x="600" y="668" fill="#94a3b8" font-size="10" text-anchor="middle">
+          记忆顺序：先看 `sync`，再分流到 `data`（改数据）、`audit`（查问题）、`query`（读数据）；脚本用 `--json`，旧命令短期仍可用。
+        </text>
+
+        <text x="600" y="828" fill="#475569" font-size="9" text-anchor="middle">
+          典型执行顺序：`sync` / `data update` / `data rebuild` -&gt; `audit verify` -&gt; `query price` / `query sql` -&gt; `help-summary`
+        </text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>怎么开始</h3>
+        </div>
+        <ul>
+          <li>• 先跑 `tdx-stocks --help` 看完整入口。</li>
+          <li>• 想快速了解命令结构，用 `tdx-stocks help-summary`。</li>
+          <li>• 不确定是否要改数据时，先用 `tdx-stocks sync --dry-run`。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>最常用的三类动作</h3>
+        </div>
+        <ul>
+          <li>• `sync`：一键同步和重建。</li>
+          <li>• `audit verify`：检查复权一致性。</li>
+          <li>• `query price` / `query sql`：只读查看行情和自定义查询。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>脚本与兼容性</h3>
+        </div>
+        <ul>
+          <li>• `--json` 适合自动化脚本和 CI。</li>
+          <li>• 写操作会加锁，防止并发破坏缓存。</li>
+          <li>• 旧命令仍可执行，但会提示迁移到新入口。</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">
+      tdx-stocks CLI usage diagram • HTML + inline SVG • current command set: sync / data / audit / query + legacy aliases
+    </p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, {
+          backgroundColor: '#020617',
+          scale: 2,
+          useCORS: true,
+          ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+          x: r.left + window.scrollX - pad,
+          y: r.top + window.scrollY - pad,
+          width: r.width + pad * 2,
+          height: r.height + pad * 2,
+        });
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPNG(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, {
+          backgroundColor: '#020617',
+          scale: 2,
+          useCORS: true,
+          ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+          x: r.left + window.scrollX - pad,
+          y: r.top + window.scrollY - pad,
+          width: r.width + pad * 2,
+          height: r.height + pad * 2,
+        });
+        const link = document.createElement('a');
+        link.download = 'tdx-stocks-cli-usage.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+
+    async function downloadPDF(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, {
+          backgroundColor: '#020617',
+          scale: 2,
+          useCORS: true,
+          ignoreElements: (e) => e.classList && e.classList.contains('toolbar'),
+          x: r.left + window.scrollX - pad,
+          y: r.top + window.scrollY - pad,
+          width: r.width + pad * 2,
+          height: r.height + pad * 2,
+        });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('tdx-stocks-cli-usage.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>

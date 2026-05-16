@@ -15,12 +15,13 @@
 
 当前版本特性：
 
-- `update-actions` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
+- `sync` 是推荐的一键入口，用来判断是否需要刷新导出源并重建数据。
+- `data update` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
 - `corporate_actions` 和 `adjustment_factors` 都可以来自本地缓存或外部输入文件。
-- `update-actions --source export` 可以直接读取 `T0002/export` 的前复权文本，反推 `adjustment_factors`。
-- `update-actions --dry-run` 只生成更新报告，不写入缓存。
-- `actions-status` 用来查看缓存状态、覆盖区间和最近一次更新报告。
-- `verify-adjustment` 用来将 `adj_daily` 与通达信导出的前复权文本做对账。
+- `data update --source export` 可以直接读取 `T0002/export` 的前复权文本，反推 `adjustment_factors`。
+- `data update --dry-run` 只生成更新报告，不写入缓存。
+- `data status` 用来查看缓存状态、覆盖区间和最近一次更新报告。
+- `audit verify` 用来将 `adj_daily` 与通达信导出的前复权文本做对账。
 - `adj_daily` 默认是前复权行情，`hfq_daily` 默认是后复权行情；缓存不存在时会退回为 `adj_factor = 1.0` 的保守模式。
 - `factors` 已包含动量、波动率、回撤、布林带、RSI、KDJ、ADX、量价等派生指标。
 - `build` 和 `rebuild` 的 factors 阶段会在 DuckDB 内部分阶段物化为临时表，再合并导出，便于调试和降低单次查询压力。
@@ -43,8 +44,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 tdx-stocks init-config --path tdx_stocks.toml
-tdx-stocks doctor --config tdx_stocks.toml
-tdx-stocks build --config tdx_stocks.toml --overwrite-staging
+tdx-stocks audit doctor --config tdx_stocks.toml
+tdx-stocks sync --config tdx_stocks.toml --dry-run
 ```
 
 ## 3. 配置文件
@@ -67,14 +68,14 @@ tdx-stocks init-config --path tdx_stocks.toml
 - `build.duckdb_memory_limit`：DuckDB 内存上限
 - `build.overwrite_staging`：是否允许覆盖已有 staging
 
-## 4. 构建类命令
+## 4. 数据类命令
 
-### `build`
+### `data build`
 
 构建版本化本地数据集。
 
 ```bash
-tdx-stocks build --config tdx_stocks.toml --overwrite-staging
+tdx-stocks data build --config tdx_stocks.toml --overwrite-staging
 ```
 
 常用参数：
@@ -90,25 +91,25 @@ tdx-stocks build --config tdx_stocks.toml --overwrite-staging
 - 标准输出：build report JSON
 - 标准错误：阶段进度信息
 
-### `rebuild`
+### `data rebuild`
 
 清空当前 `Database/`，然后重新解析本地数据并重建。
 
 ```bash
-tdx-stocks rebuild --config tdx_stocks.toml --overwrite-staging
+tdx-stocks data rebuild --config tdx_stocks.toml --overwrite-staging
 ```
 
 ### `update-actions`
 
-刷新缓存中的权息数据或复权因子，不会自动进入 `build`。
+旧命令别名，等价于 `data update`。刷新缓存中的权息数据或复权因子，不会自动进入 `build`。
 
 ```bash
 tdx-stocks update-actions --config tdx_stocks.toml --source local --input action_inputs/
 tdx-stocks update-actions --config tdx_stocks.toml --source file --input corporate_actions.csv
 tdx-stocks update-actions --config tdx_stocks.toml --source export
 tdx-stocks update-actions --config tdx_stocks.toml --source export --dry-run
-tdx-stocks actions-status --config tdx_stocks.toml
-tdx-stocks verify-adjustment 600519.SH --config tdx_stocks.toml
+tdx-stocks data status --config tdx_stocks.toml
+tdx-stocks audit verify 600519.SH --config tdx_stocks.toml
 ```
 
 常用参数：
@@ -119,12 +120,12 @@ tdx-stocks verify-adjustment 600519.SH --config tdx_stocks.toml
 
 参数与 `build` 相同。
 
-### `doctor`
+### `audit doctor`
 
 检查 TDX 路径和依赖。
 
 ```bash
-tdx-stocks doctor --config tdx_stocks.toml
+tdx-stocks audit doctor --config tdx_stocks.toml
 ```
 
 输出：
@@ -135,13 +136,13 @@ tdx-stocks doctor --config tdx_stocks.toml
 - 检测到的 `.day` 文件数与样本
 - `duckdb`、`pyarrow` 版本
 
-### `actions-status`
+### `data status`
 
-查看缓存里的 `corporate_actions`、`adjustment_factors`，以及最近一次 `update-actions` 报告。
+旧命令别名，等价于 `data status`。查看缓存里的 `corporate_actions`、`adjustment_factors`，以及最近一次更新报告。
 
 ```bash
-tdx-stocks actions-status
-tdx-stocks actions-status --json
+tdx-stocks data status
+tdx-stocks data status --json
 ```
 
 输出：
@@ -150,13 +151,13 @@ tdx-stocks actions-status --json
 - parquet 文件数、行数、覆盖股票数、日期范围
 - `action_update_report.json` 的最近一次更新摘要
 
-### `verify-adjustment`
+### `audit verify`
 
-将 DuckDB 生成的 `adj_daily` 与通达信导出的前复权文本做对账。
+旧命令别名，等价于 `audit verify`。将 DuckDB 生成的 `adj_daily` 与通达信导出的前复权文本做对账。
 
 ```bash
-tdx-stocks verify-adjustment 600519.SH
-tdx-stocks verify-adjustment 600519.SH --json
+tdx-stocks audit verify 600519.SH
+tdx-stocks audit verify 600519.SH --json
 ```
 
 常用参数：
@@ -186,12 +187,12 @@ tdx-stocks verify-adjustment 600519.SH --json
 - `hfq_daily`
 - `factors`
 
-### `status`
+### `query status`
 
 查看最新版本状态。
 
 ```bash
-tdx-stocks status
+tdx-stocks query status
 ```
 
 显示：
@@ -203,30 +204,30 @@ tdx-stocks status
 - `disk_usage`
 - 各项检查结果
 
-### `tables`
+### `query tables`
 
 查看最新表摘要。
 
 ```bash
-tdx-stocks tables
+tdx-stocks query tables
 ```
 
-### `schema`
+### `query schema`
 
 查看某张表的字段定义。
 
 ```bash
-tdx-stocks schema raw_daily
-tdx-stocks schema factors
+tdx-stocks query schema raw_daily
+tdx-stocks query schema factors
 ```
 
-### `head`
+### `query table`
 
 查看筛选后的表数据。
 
 ```bash
-tdx-stocks head raw_daily --symbol 600000 --from-date 2024-01-01 --desc --limit 20
-tdx-stocks head factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14,adx_14 --limit 30
+tdx-stocks query table raw_daily --symbol 600000 --from-date 2024-01-01 --desc --limit 20
+tdx-stocks query table factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14,adx_14 --limit 30
 ```
 
 常用参数：
@@ -242,14 +243,14 @@ tdx-stocks head factors --columns symbol,trade_date,pct_chg,ret_20,vol_20,rsi_14
 - `--limit`
 - `--json`
 
-### `stock`
+### `query price`
 
 按股票代码查看一只股票的合并日线信息，包括 `raw_daily`、`adj_daily`、`hfq_daily` 和 `factors`。默认会展示一组精简因子列，例如 `ret_20`、`vol_20`、`rsi_14`、`atr_pct_14`、`adx_14` 以及 `k_9`、`d_9`、`j_9`。
 
 ```bash
-tdx-stocks stock 600519.SH --limit 20
-tdx-stocks stock 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
-tdx-stocks stock 600519.SH --no-limit
+tdx-stocks query price 600519.SH --limit 20
+tdx-stocks query price 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
+tdx-stocks query price 600519.SH --no-limit
 ```
 
 参数：
@@ -261,14 +262,14 @@ tdx-stocks stock 600519.SH --no-limit
 - `--asc`：正序输出，默认是倒序
 - `--json`
 
-### `sql`
+### `query sql`
 
 执行自定义 DuckDB SQL。
 
 ```bash
-tdx-stocks sql "select symbol, count(*) as row_count, max(trade_date) as last_date from raw_daily group by symbol order by symbol"
-tdx-stocks sql "select * from last_n_days('600519.SH', 10)"
-tdx-stocks sql "select * from last_n_factors('600519.SH', 10)"
+tdx-stocks query sql "select symbol, count(*) as row_count, max(trade_date) as last_date from raw_daily group by symbol order by symbol"
+tdx-stocks query sql "select * from last_n_days('600519.SH', 10)"
+tdx-stocks query sql "select * from last_n_factors('600519.SH', 10)"
 ```
 
 参数：
@@ -277,12 +278,12 @@ tdx-stocks sql "select * from last_n_factors('600519.SH', 10)"
 - `--limit N`：如果 SQL 看起来是 `SELECT` / `WITH` 且没有写 `LIMIT`，自动追加
 - `--json`
 
-### `export`
+### `query export`
 
 导出筛选后的查询结果到 CSV。
 
 ```bash
-tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Database/exports/factors_600000.csv --limit 1000
+tdx-stocks query export factors --symbol 600000 --from-date 2024-01-01 --to ../Database/exports/factors_600000.csv --limit 1000
 ```
 
 参数与 `head` 相同，另加：
@@ -378,15 +379,15 @@ tdx-stocks help-summary --output -
 示例：
 
 ```bash
-tdx-stocks sql "select * from last_n_days('600519.SH', 10)"
+tdx-stocks query sql "select * from last_n_days('600519.SH', 10)"
 ```
 
 ## 9. 运行建议
 
-- 先执行 `doctor`，确认路径和依赖正确。
+- 先执行 `audit doctor`，确认路径和依赖正确。
 - 初次全量构建建议先用 `--limit-symbols 20` 做 smoke test。
-- `build` / `rebuild` 出现 `error > 0` 时，`latest.json` 不会更新。
-- `rebuild` 会先删除整个 `Database/`，请谨慎使用。
+- `data build` / `data rebuild` 出现 `error > 0` 时，`latest.json` 不会更新。
+- `data rebuild` 会先删除整个 `Database/`，请谨慎使用。
 
 ## 10. 维护规则
 
