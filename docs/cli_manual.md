@@ -278,6 +278,24 @@ tdx-stocks export factors --symbol 600000 --from-date 2024-01-01 --to ../Databas
 | 核心指标与 KDJ 计算 | `tests.test_query.QueryHelpersTest.test_build_factors_generates_core_indicators_and_kdj` |
 | ADX 边界收敛 | `tests.test_query.QueryHelpersTest.test_render_build_factors_sql_clamps_adx` |
 
+常用回归命令：
+
+```bash
+./.venv/bin/python -m unittest discover -s tests -q
+./.venv/bin/python -m unittest tests.test_pipeline -q
+./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+./.venv/bin/python -m unittest tests.test_query -q
+./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_actions_status_reports_cache_and_update_report -q
+./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols -q
+```
+
+推荐顺序：
+
+1. 先跑 `tests.test_pipeline`，看更新、缓存、构建主链路。
+2. 再跑 `tests.test_duckdb_ops`，看 ASOF JOIN 和因子套用。
+3. 再跑 `tests.test_query`，看 SQL 生成和指标逻辑。
+4. 提交前补一轮全量 `discover`。
+
 ```bash
 tdx-stocks help-summary --output docs/cli_help_summary.md
 tdx-stocks help-summary --output -
@@ -291,13 +309,13 @@ tdx-stocks help-summary --output -
 
 - `docs/cli_help_summary.md`
 
-## 6. 输出规则
+## 7. 输出规则
 
 - 命令行表格输出的数值默认最多两位小数。
 - `volume`、`amount`、`vol_ma*`、`amount_ma*` 会缩写成 `K` / `M` / `B` / `T`。
 - `--json` 输出也会做相同的数值归一化。
 
-## 7. 便捷 SQL 宏
+## 8. 便捷 SQL 宏
 
 查询会自动注册 DuckDB 宏：
 
@@ -312,14 +330,14 @@ tdx-stocks help-summary --output -
 tdx-stocks sql "select * from last_n_days('600519.SH', 10)"
 ```
 
-## 8. 运行建议
+## 9. 运行建议
 
 - 先执行 `doctor`，确认路径和依赖正确。
 - 初次全量构建建议先用 `--limit-symbols 20` 做 smoke test。
 - `build` / `rebuild` 出现 `error > 0` 时，`latest.json` 不会更新。
 - `rebuild` 会先删除整个 `Database/`，请谨慎使用。
 
-## 9. 维护规则
+## 10. 维护规则
 
 - 命令、参数或默认值变化时，先更新 `src/tdx_stocks/cli.py`，再同步本手册。
 - 新增命令后，需要补一条使用示例和参数说明。

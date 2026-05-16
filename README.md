@@ -107,6 +107,24 @@ If you want to verify a specific feature, run the matching test case below:
 | 核心指标与 KDJ 计算 | `tests.test_query.QueryHelpersTest.test_build_factors_generates_core_indicators_and_kdj` |
 | ADX 边界收敛 | `tests.test_query.QueryHelpersTest.test_render_build_factors_sql_clamps_adx` |
 
+Quick regression commands:
+
+```bash
+./.venv/bin/python -m unittest discover -s tests -q
+./.venv/bin/python -m unittest tests.test_pipeline -q
+./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+./.venv/bin/python -m unittest tests.test_query -q
+./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_actions_status_reports_cache_and_update_report -q
+./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols -q
+```
+
+Recommended order:
+
+1. `tests.test_pipeline` for update/build/cache flow.
+2. `tests.test_duckdb_ops` for ASOF and factor join logic.
+3. `tests.test_query` for SQL generation and factor checks.
+4. Full `discover` run before you commit or push.
+
 The committed dataset is written under:
 
 ```text
