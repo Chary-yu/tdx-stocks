@@ -3,12 +3,20 @@ from __future__ import annotations
 import tempfile
 import unittest
 from argparse import Namespace
+import io
+import contextlib
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
-from tdx_stocks.cli import cmd_build, cmd_rebuild, cmd_update_actions
+from tdx_stocks.cli import cmd_actions_status, cmd_build, cmd_rebuild, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.export_io import load_export_adjustment_factor_rows
+from tdx_stocks.parquet_io import (
+    adjustment_factors_schema,
+    corporate_actions_schema,
+    write_records_table,
+)
 from tdx_stocks.pipeline import rebuild_dataset, update_actions
 from tdx_stocks.tdx_day import DAY_RECORD
 
@@ -231,6 +239,86 @@ class PipelineTest(unittest.TestCase):
                 )
             )
             self.assertEqual(nested_report["matched_symbols_sample"][0]["skipped_rows"], 0)
+
+    def test_actions_status_reports_cache_and_update_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = root / "Database"
+            cache_root = data_root / "cache"
+            corporate_actions_dir = cache_root / "corporate_actions"
+            adjustment_factors_dir = cache_root / "adjustment_factors"
+            corporate_actions_dir.mkdir(parents=True, exist_ok=True)
+            adjustment_factors_dir.mkdir(parents=True, exist_ok=True)
+
+            write_records_table(
+                corporate_actions_dir,
+                corporate_actions_schema(),
+                [
+                    {
+                        "market": "sh",
+                        "symbol": "600000",
+                        "ex_date": date(2024, 1, 2),
+                        "category": 1,
+                        "cash_dividend": 0.0,
+                        "stock_dividend": 0.0,
+                        "allotment_share": 0.0,
+                        "allotment_price": 0.0,
+                        "raw_c1": 0.0,
+                        "raw_c2": 0.0,
+                        "raw_c3": 0.0,
+                        "raw_c4": 0.0,
+                        "source": "manual",
+                    }
+                ],
+            )
+            write_records_table(
+                adjustment_factors_dir,
+                adjustment_factors_schema(),
+                [
+                    {
+                        "market": "sh",
+                        "symbol": "600000",
+                        "trade_date": date(2024, 1, 2),
+                        "start_date": date(2024, 1, 2),
+                        "end_date": date(2024, 1, 2),
+                        "qfq_factor": 1.0,
+                        "hfq_factor": 1.0,
+                        "source": "manual",
+                    }
+                ],
+            )
+            (cache_root / "action_update_report.json").write_text(
+                """
+                {
+                  "generated_at": "2024-01-02T12:00:00",
+                  "source": "export",
+                  "dry_run": true,
+                  "adjustment_factors_state": "dry-run",
+                  "corporate_actions_state": "unchanged",
+                  "adjustment_factors_rows": 1,
+                  "corporate_actions_rows": 0
+                }
+                """.strip(),
+                encoding="utf-8",
+            )
+
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=root / "vipdoc",
+                    tdx_export=root / "export",
+                    data_root=data_root,
+                ),
+                build=BuildConfig(),
+            )
+
+            buf = io.StringIO()
+            with patch("tdx_stocks.cli.load_config", return_value=config), contextlib.redirect_stdout(buf):
+                self.assertEqual(cmd_actions_status(Namespace(config=None, json=False)), 0)
+            output = buf.getvalue()
+            self.assertIn("corporate_actions.rows=1", output)
+            self.assertIn("adjustment_factors.rows=1", output)
+            self.assertIn("action_update_report.dry_run=True", output)
+            self.assertIn("action_update_report.adjustment_factors_state=dry-run", output)
 
     def test_export_source_skips_nonpositive_export_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

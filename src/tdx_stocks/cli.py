@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import load_config, write_default_config
 from .help_summary import write_markdown
 from .pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
+from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 from .query import (
     TABLES,
     build_select_sql,
@@ -95,6 +96,14 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="Show latest dataset status.")
     status_parser.add_argument("--config", type=Path)
     status_parser.set_defaults(func=cmd_status)
+
+    actions_status_parser = subparsers.add_parser(
+        "actions-status",
+        help="Show cached corporate actions and adjustment factor status.",
+    )
+    actions_status_parser.add_argument("--config", type=Path)
+    actions_status_parser.add_argument("--json", action="store_true")
+    actions_status_parser.set_defaults(func=cmd_actions_status)
 
     tables_parser = subparsers.add_parser("tables", help="Show latest table summaries.")
     tables_parser.add_argument("--config", type=Path)
@@ -278,6 +287,95 @@ def cmd_status(args: argparse.Namespace) -> int:
     finally:
         ctx.close()
     return 0
+
+
+def cmd_actions_status(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    cache_root = config.paths.data_root / "cache"
+    con = connect_duckdb(config.paths.data_root / "duckdb" / "tmp", config.build.duckdb_memory_limit)
+    try:
+        report = {
+            "generated_at": None,
+            "data_root": config.paths.data_root.as_posix(),
+            "cache_root": cache_root.as_posix(),
+            "corporate_actions": summarize_cached_table(
+                con,
+                cache_root / "corporate_actions",
+                "ex_date",
+            ),
+            "adjustment_factors": summarize_cached_table(
+                con,
+                cache_root / "adjustment_factors",
+                "trade_date",
+            ),
+        }
+    finally:
+        con.close()
+
+    report_path = cache_root / "action_update_report.json"
+    if report_path.exists():
+        report["action_update_report"] = json.loads(report_path.read_text(encoding="utf-8"))
+    if args.json:
+        print(json.dumps(normalize_output_data(report), ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"data_root={report['data_root']}")
+    print(f"cache_root={report['cache_root']}")
+    for key in ("corporate_actions", "adjustment_factors"):
+        table = report[key]
+        print(f"{key}.exists={table['exists']}")
+        print(f"{key}.parquet_files={table['parquet_files']}")
+        print(f"{key}.rows={table['rows']}")
+        print(f"{key}.symbols={table['symbols']}")
+        print(f"{key}.min_date={table['min_date']}")
+        print(f"{key}.max_date={table['max_date']}")
+        print(f"{key}.cache_path={table['cache_path']}")
+    if "action_update_report" in report:
+        update_report = report["action_update_report"]
+        print(f"action_update_report.source={update_report.get('source')}")
+        print(f"action_update_report.generated_at={update_report.get('generated_at')}")
+        print(f"action_update_report.dry_run={update_report.get('dry_run')}")
+        print(f"action_update_report.adjustment_factors_state={update_report.get('adjustment_factors_state')}")
+        print(f"action_update_report.corporate_actions_state={update_report.get('corporate_actions_state')}")
+        print(f"action_update_report.adjustment_factors_rows={update_report.get('adjustment_factors_rows')}")
+        print(f"action_update_report.corporate_actions_rows={update_report.get('corporate_actions_rows')}")
+    return 0
+
+
+def summarize_cached_table(con, root: Path, date_column: str) -> dict:
+    files = sorted(root.rglob("*.parquet")) if root.exists() else []
+    summary = {
+        "exists": bool(files),
+        "parquet_files": len(files),
+        "rows": 0,
+        "symbols": 0,
+        "min_date": None,
+        "max_date": None,
+        "cache_path": root.as_posix(),
+    }
+    if not files:
+        return summary
+
+    source = f"read_parquet('{sql_literal(parquet_glob(root))}', hive_partitioning=true)"
+    row = con.execute(
+        f"""
+        SELECT
+            count(*) AS rows,
+            count(DISTINCT market || ':' || symbol) AS symbols,
+            min({date_column}) AS min_date,
+            max({date_column}) AS max_date
+        FROM {source}
+        """
+    ).fetchone()
+    summary.update(
+        {
+            "rows": row[0],
+            "symbols": row[1],
+            "min_date": str(row[2]) if row[2] is not None else None,
+            "max_date": str(row[3]) if row[3] is not None else None,
+        }
+    )
+    return summary
 
 
 def cmd_tables(args: argparse.Namespace) -> int:
