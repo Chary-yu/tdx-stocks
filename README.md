@@ -10,6 +10,14 @@ Local TDX daily data pipeline:
 tables. `build` and `rebuild` only consume those local caches and do not fetch
 new rights/dividend data automatically.
 
+Quick copy-paste commands:
+
+```bash
+./.venv/bin/python -m unittest tests.test_pipeline -q
+./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+./.venv/bin/python -m unittest discover -s tests -q
+```
+
 ## Paths
 
 Default local paths for this workspace:

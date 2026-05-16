@@ -25,6 +25,15 @@
 - `build` 和 `rebuild` 的 factors 阶段会在 DuckDB 内部分阶段物化为临时表，再合并导出，便于调试和降低单次查询压力。
 - `build` 和 `rebuild` 会把阶段进度打印到 `stderr`。
 
+快速复制命令：
+
+```bash
+./.venv/bin/python -m unittest tests.test_pipeline -q
+./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+./.venv/bin/python -m unittest tests.test_query -q
+./.venv/bin/python -m unittest discover -s tests -q
+```
+
 ## 2. 快速开始
 
 ```bash
