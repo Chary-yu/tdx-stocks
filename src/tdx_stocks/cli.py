@@ -7,13 +7,11 @@ from pathlib import Path
 
 from .adjustment_verify import build_adjustment_verification_report
 from .config import load_config, write_default_config
-from .console import print_json, print_key_values, print_notice
+from .console import print_json, print_key_values, print_notice, print_table
 from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 from .exit_codes import (
-    BuildCheckFailedError,
     CliError,
     ExitCode,
-    NoDataError,
     UsageError,
     VerificationFailedError,
 )
@@ -24,6 +22,7 @@ from .query import (
     TABLES,
     build_select_sql,
     build_stock_sql,
+    ensure_read_only_sql,
     disk_usage,
     export_query_csv,
     fetch_dicts,
@@ -34,6 +33,7 @@ from .query import (
     table_columns,
     table_summary,
 )
+from .strategy import StrategyParams, run_trend_strength_strategy
 from .sync import build_sync_plan, execute_sync
 from .tdx_day import iter_day_files
 
@@ -88,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     _register_data_group(subparsers)
     _register_audit_group(subparsers)
     _register_query_group(subparsers)
+    _register_strategy_group(subparsers)
     _register_help_summary(subparsers)
     _register_legacy_aliases(subparsers)
     return parser
@@ -233,6 +234,39 @@ def _register_query_group(subparsers: argparse._SubParsersAction[argparse.Argume
     export_parser.set_defaults(func=cmd_export)
 
 
+def _register_strategy_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    strategy_parser = subparsers.add_parser(
+        "strategy",
+        help="Strategy analysis commands.",
+        description="Commands that generate read-only observation pools from the latest dataset.",
+    )
+    strategy_subparsers = strategy_parser.add_subparsers(dest="strategy_command", required=True)
+
+    run_parser = strategy_subparsers.add_parser("run", help="Run a strategy and emit a report.")
+    run_subparsers = run_parser.add_subparsers(dest="strategy_name", required=True)
+
+    trend_parser = run_subparsers.add_parser(
+        "trend-strength",
+        help="Generate the short-term trend observation pool.",
+    )
+    _add_config_arg(trend_parser)
+    trend_parser.add_argument("--limit", type=int, default=20)
+    trend_parser.add_argument("--json", action="store_true")
+    trend_parser.add_argument("--as-of")
+    trend_parser.add_argument("--market", choices=("sh", "sz", "bj"))
+    trend_parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
+    trend_parser.add_argument("--min-score", type=float, default=60.0)
+    trend_parser.add_argument(
+        "--candidate-type",
+        choices=("strong_trend", "breakout_watch", "pullback_watch"),
+    )
+    trend_parser.add_argument("--include-excluded", action="store_true")
+    trend_parser.add_argument("--show-excluded-limit", type=int, default=20)
+    trend_parser.add_argument("--explain-symbol")
+    trend_parser.add_argument("--to", type=Path)
+    trend_parser.set_defaults(func=cmd_strategy_run_trend_strength)
+
+
 def _register_help_summary(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     help_summary_parser = subparsers.add_parser(
         "help-summary",
@@ -249,19 +283,19 @@ def _register_help_summary(subparsers: argparse._SubParsersAction[argparse.Argum
 
 def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     build_parser = subparsers.add_parser("build", help=argparse.SUPPRESS)
-    setattr(build_parser, "_legacy_target", "data build")
+    build_parser._legacy_target = "data build"
     _add_config_arg(build_parser)
     _add_build_args(build_parser)
     build_parser.set_defaults(func=_legacy_build_alias)
 
     rebuild_parser = subparsers.add_parser("rebuild", help=argparse.SUPPRESS)
-    setattr(rebuild_parser, "_legacy_target", "data rebuild")
+    rebuild_parser._legacy_target = "data rebuild"
     _add_config_arg(rebuild_parser)
     _add_build_args(rebuild_parser)
     rebuild_parser.set_defaults(func=_legacy_rebuild_alias)
 
     update_parser = subparsers.add_parser("update-actions", help=argparse.SUPPRESS)
-    setattr(update_parser, "_legacy_target", "data update")
+    update_parser._legacy_target = "data update"
     _add_config_arg(update_parser)
     update_parser.add_argument(
         "--source",
@@ -278,13 +312,13 @@ def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.Arg
     update_parser.set_defaults(func=_legacy_update_actions_alias)
 
     actions_status_parser = subparsers.add_parser("actions-status", help=argparse.SUPPRESS)
-    setattr(actions_status_parser, "_legacy_target", "data status")
+    actions_status_parser._legacy_target = "data status"
     _add_config_arg(actions_status_parser)
     actions_status_parser.add_argument("--json", action="store_true")
     actions_status_parser.set_defaults(func=cmd_actions_status)
 
     verify_parser = subparsers.add_parser("verify-adjustment", help=argparse.SUPPRESS)
-    setattr(verify_parser, "_legacy_target", "audit verify")
+    verify_parser._legacy_target = "audit verify"
     _add_config_arg(verify_parser)
     verify_parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
     verify_parser.add_argument("--input", type=Path, help="Optional export file or directory override.")
@@ -295,43 +329,43 @@ def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.Arg
     verify_parser.set_defaults(func=_legacy_verify_alias)
 
     doctor_parser = subparsers.add_parser("doctor", help=argparse.SUPPRESS)
-    setattr(doctor_parser, "_legacy_target", "audit doctor")
+    doctor_parser._legacy_target = "audit doctor"
     _add_config_arg(doctor_parser)
     doctor_parser.set_defaults(func=cmd_doctor)
 
     status_parser = subparsers.add_parser("status", help=argparse.SUPPRESS)
-    setattr(status_parser, "_legacy_target", "query status")
+    status_parser._legacy_target = "query status"
     _add_config_arg(status_parser)
     status_parser.add_argument("--json", action="store_true")
     status_parser.set_defaults(func=cmd_status)
 
     tables_parser = subparsers.add_parser("tables", help=argparse.SUPPRESS)
-    setattr(tables_parser, "_legacy_target", "query tables")
+    tables_parser._legacy_target = "query tables"
     _add_config_arg(tables_parser)
     tables_parser.add_argument("--json", action="store_true")
     tables_parser.set_defaults(func=cmd_tables)
 
     schema_parser = subparsers.add_parser("schema", help=argparse.SUPPRESS)
-    setattr(schema_parser, "_legacy_target", "query schema")
+    schema_parser._legacy_target = "query schema"
     _add_config_arg(schema_parser)
     schema_parser.add_argument("table", choices=TABLES)
     schema_parser.add_argument("--json", action="store_true")
     schema_parser.set_defaults(func=_legacy_schema_alias)
 
     head_parser = subparsers.add_parser("head", help=argparse.SUPPRESS)
-    setattr(head_parser, "_legacy_target", "query table")
+    head_parser._legacy_target = "query table"
     _add_config_arg(head_parser)
     _add_query_args(head_parser, default_limit=20)
     head_parser.set_defaults(func=_legacy_head_alias)
 
     stock_parser = subparsers.add_parser("stock", help=argparse.SUPPRESS)
-    setattr(stock_parser, "_legacy_target", "query price")
+    stock_parser._legacy_target = "query price"
     _add_config_arg(stock_parser)
     _add_stock_args(stock_parser)
     stock_parser.set_defaults(func=_legacy_stock_alias)
 
     sql_parser = subparsers.add_parser("sql", help=argparse.SUPPRESS)
-    setattr(sql_parser, "_legacy_target", "query sql")
+    sql_parser._legacy_target = "query sql"
     _add_config_arg(sql_parser)
     sql_parser.add_argument("sql")
     sql_parser.add_argument("--limit", type=int, default=100)
@@ -339,7 +373,7 @@ def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.Arg
     sql_parser.set_defaults(func=_legacy_sql_alias)
 
     export_parser = subparsers.add_parser("export", help=argparse.SUPPRESS)
-    setattr(export_parser, "_legacy_target", "query export")
+    export_parser._legacy_target = "query export"
     _add_config_arg(export_parser)
     _add_query_args(export_parser, default_limit=1000)
     export_parser.add_argument("--to", type=Path, required=True)
@@ -372,6 +406,13 @@ def _add_query_args(parser: argparse.ArgumentParser, default_limit: int) -> None
     parser.add_argument("--json", action="store_true")
 
 
+def parse_columns(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    columns = [column.strip() for column in value.split(",")]
+    return [column for column in columns if column]
+
+
 def _add_stock_args(parser: argparse.ArgumentParser, default_limit: int = 100) -> None:
     parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
     parser.add_argument("--limit", type=int, default=default_limit)
@@ -396,15 +437,6 @@ def _lock_path(config) -> Path:
 
 def _write_lock(config, command: str):
     return acquire_database_lock(_lock_path(config), command)
-
-
-def _map_pipeline_error(exc: RuntimeError) -> CliError:
-    message = str(exc)
-    if message.startswith("Build checks failed:"):
-        return BuildCheckFailedError(message)
-    if "No raw_daily rows were parsed" in message:
-        return NoDataError(message)
-    return CliError(message)
 
 
 def cmd_init_config(args: argparse.Namespace) -> int:
@@ -450,17 +482,14 @@ def cmd_build(args: argparse.Namespace) -> int:
     _legacy_notice(args)
     config = load_config(args.config)
     with _write_lock(config, "data build"):
-        try:
-            report = build_dataset(
-                config,
-                from_date=parse_iso_date(args.from_date),
-                to_date=parse_iso_date(args.to_date),
-                limit_symbols=args.limit_symbols,
-                overwrite_staging=args.overwrite_staging or None,
-                progress=stderr_progress,
-            )
-        except RuntimeError as exc:
-            raise _map_pipeline_error(exc) from exc
+        report = build_dataset(
+            config,
+            from_date=parse_iso_date(args.from_date),
+            to_date=parse_iso_date(args.to_date),
+            limit_symbols=args.limit_symbols,
+            overwrite_staging=args.overwrite_staging or None,
+            progress=stderr_progress,
+        )
     print_json(normalize_output_data(report))
     return 0
 
@@ -469,17 +498,14 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     _legacy_notice(args)
     config = load_config(args.config)
     with _write_lock(config, "data rebuild"):
-        try:
-            report = rebuild_dataset(
-                config,
-                from_date=parse_iso_date(args.from_date),
-                to_date=parse_iso_date(args.to_date),
-                limit_symbols=args.limit_symbols,
-                overwrite_staging=args.overwrite_staging or None,
-                progress=stderr_progress,
-            )
-        except RuntimeError as exc:
-            raise _map_pipeline_error(exc) from exc
+        report = rebuild_dataset(
+            config,
+            from_date=parse_iso_date(args.from_date),
+            to_date=parse_iso_date(args.to_date),
+            limit_symbols=args.limit_symbols,
+            overwrite_staging=args.overwrite_staging or None,
+            progress=stderr_progress,
+        )
     print_json(normalize_output_data(report))
     return 0
 
@@ -519,18 +545,15 @@ def cmd_sync(args: argparse.Namespace) -> int:
         return 0
 
     with _write_lock(config, "sync"):
-        try:
-            execution = execute_sync(
-                config,
-                plan,
-                from_date=parse_iso_date(args.from_date),
-                to_date=parse_iso_date(args.to_date),
-                limit_symbols=args.limit_symbols,
-                overwrite_staging=args.overwrite_staging or None,
-                progress=stderr_progress,
-            )
-        except RuntimeError as exc:
-            raise _map_pipeline_error(exc) from exc
+        execution = execute_sync(
+            config,
+            plan,
+            from_date=parse_iso_date(args.from_date),
+            to_date=parse_iso_date(args.to_date),
+            limit_symbols=args.limit_symbols,
+            overwrite_staging=args.overwrite_staging or None,
+            progress=stderr_progress,
+        )
 
     report = _build_sync_report(plan, status="updated")
     report["update_report"] = normalize_output_data(execution.update_report)
@@ -807,7 +830,7 @@ def cmd_sql(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
-        sql = args.sql
+        sql = ensure_read_only_sql(args.sql)
         if args.limit and _is_select_like(sql) and " limit " not in f" {sql.lower()} ":
             sql = f"{sql.rstrip().rstrip(';')}\nLIMIT {args.limit}"
         columns, rows = fetch_dicts(ctx.con, sql)
@@ -877,6 +900,66 @@ def cmd_stock(args: argparse.Namespace) -> int:
             print_rows(columns, rows)
     finally:
         ctx.close()
+    return 0
+
+
+def _print_strategy_table(rows: list[dict[str, object]]) -> None:
+    if not rows:
+        print("(no rows)")
+        return
+    display_rows = []
+    for row in rows:
+        display_rows.append(
+            {
+                "rank": row.get("rank"),
+                "symbol": row.get("display_symbol") or row.get("symbol"),
+                "score": row.get("score"),
+                "type": row.get("candidate_type"),
+                "tags": _join_tokens(row.get("tags")),
+                "risks": _join_tokens(row.get("risk_flags")),
+                "plan": row.get("watch_plan"),
+            }
+        )
+    print_table(["rank", "symbol", "score", "type", "tags", "risks", "plan"], display_rows)
+
+
+def _join_tokens(values: object, max_items: int = 4) -> str:
+    if not isinstance(values, list):
+        return "" if values is None else str(values)
+    items = [str(item) for item in values]
+    if len(items) <= max_items:
+        return "/".join(items)
+    return "/".join(items[:max_items]) + "..."
+
+
+def cmd_strategy_run_trend_strength(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    report = run_trend_strength_strategy(
+        config,
+        StrategyParams(
+            limit=args.limit,
+            min_score=args.min_score,
+            min_amount_ma20=args.min_amount_ma20,
+            market=args.market,
+            candidate_type=args.candidate_type,
+            include_excluded=args.include_excluded,
+            show_excluded_limit=args.show_excluded_limit,
+            explain_symbol=args.explain_symbol,
+            as_of=parse_iso_date(args.as_of),
+            to=args.to,
+            json=args.json,
+        ),
+    )
+    report_dict = report.to_dict()
+    if args.to is not None:
+        args.to.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(report_dict, ensure_ascii=False, indent=2, default=str)
+        args.to.write_text(payload, encoding="utf-8")
+    if args.json:
+        print_json(report_dict)
+    else:
+        _print_strategy_table(report.picks)
     return 0
 
 

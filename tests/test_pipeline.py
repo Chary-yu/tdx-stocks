@@ -17,7 +17,8 @@ from tdx_stocks.parquet_io import (
     corporate_actions_schema,
     write_records_table,
 )
-from tdx_stocks.pipeline import rebuild_dataset, update_actions
+from tdx_stocks.exit_codes import BuildCheckFailedError, NoDataError
+from tdx_stocks.pipeline import CheckResult, _raise_on_errors, build_dataset, rebuild_dataset, update_actions
 from tdx_stocks.sync import execute_sync
 from tdx_stocks.tdx_day import DAY_RECORD
 
@@ -105,6 +106,25 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(cmd_rebuild(args), 0)
             mocked_lock.assert_called_once()
             self.assertTrue(callable(mocked_rebuild.call_args.kwargs["progress"]))
+
+    def test_build_dataset_raises_nodata_error_when_no_files_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "Database"
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=Path("/tmp/tdx_vipdoc"),
+                    data_root=data_root,
+                ),
+                build=BuildConfig(),
+            )
+            with patch("tdx_stocks.pipeline.iter_day_files", return_value=[]):
+                with self.assertRaises(NoDataError):
+                    build_dataset(config)
+
+    def test_raise_on_errors_uses_build_check_failed_error(self) -> None:
+        result = CheckResult(name="raw_daily", errors=["raw_daily has no rows"])
+        with self.assertRaises(BuildCheckFailedError):
+            _raise_on_errors([result])
 
     def test_update_actions_command_passes_progress(self) -> None:
         args = Namespace(

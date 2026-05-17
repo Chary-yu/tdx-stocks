@@ -15,6 +15,7 @@ from .checks import (
 )
 from .actions_io import load_adjustment_factor_rows, load_corporate_action_rows, resolve_action_inputs
 from .config import AppConfig
+from .exit_codes import BuildCheckFailedError, NoDataError
 from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily, copy_parquet_dataset, has_parquet_files
 from .export_io import build_export_adjustment_factor_result
 from .parquet_io import (
@@ -63,72 +64,73 @@ def build_dataset(
     run_paths.staging_dir.mkdir(parents=True)
     run_paths.reports_dir.mkdir(parents=True)
 
-    _progress(progress, f"Scanning local TDX files under {config.paths.tdx_vipdoc}")
-    files = list(
-        iter_day_files(
-            config.paths.tdx_vipdoc,
-            markets=config.build.markets,
-            universe=config.build.universe,
-        )
-    )
-    if limit_symbols is not None:
-        files = files[:limit_symbols]
-    total_files = len(files)
-    _progress(progress, f"Parsing {total_files} day files")
-
+    cache_root = config.paths.data_root / "cache"
+    cache_corporate_actions_dir = cache_root / "corporate_actions"
+    cache_adjustment_factors_dir = cache_root / "adjustment_factors"
     raw_writer = RawDailyWriter(
         run_paths.raw_daily_dir,
         compression=config.build.compression,
         batch_rows=config.build.batch_rows,
     )
-    parsed_files = 0
-    report_every = max(1, total_files // 20) if total_files else 1
-    for path in files:
-        raw_writer.add_many(read_day_records(path, from_date=from_date, to_date=to_date))
-        parsed_files += 1
-        if parsed_files == 1 or parsed_files == total_files or parsed_files % report_every == 0:
-            _progress(progress, f"Parsed {parsed_files}/{total_files} day files")
-    raw_writer.close()
-    if raw_writer.rows_written == 0:
-        raise RuntimeError("No raw_daily rows were parsed from the selected TDX day files")
-    _progress(progress, f"Wrote {raw_writer.rows_written} raw rows")
-
-    con = connect_duckdb(run_paths.duckdb_tmp_dir, config.build.duckdb_memory_limit)
-    cache_root = config.paths.data_root / "cache"
-    cache_corporate_actions_dir = cache_root / "corporate_actions"
-    cache_adjustment_factors_dir = cache_root / "adjustment_factors"
-    if has_parquet_files(cache_corporate_actions_dir):
-        _progress(progress, "Copying cached corporate_actions")
-        copy_parquet_dataset(
-            con,
-            cache_corporate_actions_dir,
-            run_paths.corporate_actions_dir,
-            config.build.compression,
-        )
-    else:
-        write_empty_corporate_actions(
-            run_paths.corporate_actions_dir,
-            compression=config.build.compression,
-        )
-        _progress(progress, "Wrote empty corporate_actions table")
-
-    if has_parquet_files(cache_adjustment_factors_dir):
-        _progress(progress, "Copying cached adjustment_factors")
-        copy_parquet_dataset(
-            con,
-            cache_adjustment_factors_dir,
-            run_paths.adjustment_factors_dir,
-            config.build.compression,
-        )
-    else:
-        write_empty_adjustment_factors(
-            run_paths.adjustment_factors_dir,
-            compression=config.build.compression,
-        )
-        _progress(progress, "Wrote empty adjustment_factors table")
-
+    con = None
     checks: list[CheckResult] = []
+    parsed_files = 0
+    success = False
     try:
+        _progress(progress, f"Scanning local TDX files under {config.paths.tdx_vipdoc}")
+        files = list(
+            iter_day_files(
+                config.paths.tdx_vipdoc,
+                markets=config.build.markets,
+                universe=config.build.universe,
+            )
+        )
+        if limit_symbols is not None:
+            files = files[:limit_symbols]
+        total_files = len(files)
+        _progress(progress, f"Parsing {total_files} day files")
+
+        report_every = max(1, total_files // 20) if total_files else 1
+        for path in files:
+            raw_writer.add_many(read_day_records(path, from_date=from_date, to_date=to_date))
+            parsed_files += 1
+            if parsed_files == 1 or parsed_files == total_files or parsed_files % report_every == 0:
+                _progress(progress, f"Parsed {parsed_files}/{total_files} day files")
+        if raw_writer.rows_written == 0:
+            raise NoDataError("No raw_daily rows were parsed from the selected TDX day files")
+        _progress(progress, f"Wrote {raw_writer.rows_written} raw rows")
+
+        con = connect_duckdb(run_paths.duckdb_tmp_dir, config.build.duckdb_memory_limit)
+        if has_parquet_files(cache_corporate_actions_dir):
+            _progress(progress, "Copying cached corporate_actions")
+            copy_parquet_dataset(
+                con,
+                cache_corporate_actions_dir,
+                run_paths.corporate_actions_dir,
+                config.build.compression,
+            )
+        else:
+            write_empty_corporate_actions(
+                run_paths.corporate_actions_dir,
+                compression=config.build.compression,
+            )
+            _progress(progress, "Wrote empty corporate_actions table")
+
+        if has_parquet_files(cache_adjustment_factors_dir):
+            _progress(progress, "Copying cached adjustment_factors")
+            copy_parquet_dataset(
+                con,
+                cache_adjustment_factors_dir,
+                run_paths.adjustment_factors_dir,
+                config.build.compression,
+            )
+        else:
+            write_empty_adjustment_factors(
+                run_paths.adjustment_factors_dir,
+                compression=config.build.compression,
+            )
+            _progress(progress, "Wrote empty adjustment_factors table")
+
         _progress(progress, "Checking raw_daily")
         checks.append(check_raw_daily(con, run_paths.raw_daily_dir))
         _raise_on_errors(checks)
@@ -173,34 +175,38 @@ def build_dataset(
         _progress(progress, "Checking factors")
         checks.append(check_factors(con, run_paths.factors_dir))
         _raise_on_errors(checks)
+        report = {
+            "run_id": run_id,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "tdx_vipdoc": config.paths.tdx_vipdoc.as_posix(),
+            "data_root": config.paths.data_root.as_posix(),
+            "from_date": from_date.isoformat() if from_date else None,
+            "to_date": to_date.isoformat() if to_date else None,
+            "markets": list(config.build.markets),
+            "universe": config.build.universe,
+            "parsed_files": parsed_files,
+            "raw_rows_written": raw_writer.rows_written,
+            "compression": config.build.compression,
+            "cached_corporate_actions": has_parquet_files(cache_corporate_actions_dir),
+            "cached_adjustment_factors": has_parquet_files(cache_adjustment_factors_dir),
+            "checks": [check.to_dict() for check in checks],
+        }
+        (run_paths.reports_dir / "build_report.json").write_text(
+            json.dumps(report, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+
+        _progress(progress, "Writing build report")
+        commit_version(run_paths, report)
+        _progress(progress, f"Completed run_id={run_id}")
+        success = True
+        return report | {"version_dir": run_paths.version_dir.as_posix()}
     finally:
-        con.close()
-
-    report = {
-        "run_id": run_id,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "tdx_vipdoc": config.paths.tdx_vipdoc.as_posix(),
-        "data_root": config.paths.data_root.as_posix(),
-        "from_date": from_date.isoformat() if from_date else None,
-        "to_date": to_date.isoformat() if to_date else None,
-        "markets": list(config.build.markets),
-        "universe": config.build.universe,
-        "parsed_files": parsed_files,
-        "raw_rows_written": raw_writer.rows_written,
-        "compression": config.build.compression,
-        "cached_corporate_actions": has_parquet_files(cache_corporate_actions_dir),
-        "cached_adjustment_factors": has_parquet_files(cache_adjustment_factors_dir),
-        "checks": [check.to_dict() for check in checks],
-    }
-    (run_paths.reports_dir / "build_report.json").write_text(
-        json.dumps(report, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
-
-    _progress(progress, "Writing build report")
-    commit_version(run_paths, report)
-    _progress(progress, f"Completed run_id={run_id}")
-    return report | {"version_dir": run_paths.version_dir.as_posix()}
+        raw_writer.close()
+        if con is not None:
+            con.close()
+        if not success:
+            shutil.rmtree(run_paths.staging_dir, ignore_errors=True)
 
 
 def rebuild_dataset(
@@ -267,7 +273,7 @@ def _raise_on_errors(checks: list[CheckResult]) -> None:
     errors = [error for check in checks for error in check.errors]
     if errors:
         rendered = "\n".join(f"- {error}" for error in errors)
-        raise RuntimeError(f"Build checks failed:\n{rendered}")
+        raise BuildCheckFailedError(f"Build checks failed:\n{rendered}")
 
 
 def update_actions(

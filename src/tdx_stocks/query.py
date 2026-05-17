@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,13 @@ from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 
 TABLES = ("raw_daily", "corporate_actions", "adjustment_factors", "adj_daily", "hfq_daily", "factors")
 SCALED_COLUMNS = {"volume", "amount"}
+SQL_COMMENT_RE = re.compile(r"(--[^\n]*|/\*.*?\*/)", re.DOTALL)
+SQL_BLOCKLIST_RE = re.compile(
+    r"\b("
+    r"attach|alter|call|copy|create|delete|detach|drop|insert|install|load|pragma|replace|truncate|update"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -174,7 +182,7 @@ def build_filters(
             raise ValueError(f"{table} has no date column")
         filters.append(f"{date_col} <= DATE '{sql_literal(to_date)}'")
     if where:
-        filters.append(f"({where})")
+        filters.append(f"({validate_sql_expression(where, field='where')})")
     return filters
 
 
@@ -400,9 +408,12 @@ def format_scaled_number(value: float) -> str:
 
 def normalize_output_data(data):
     if isinstance(data, dict):
-        return {key: normalize_output_data_for_column(value, key) for key, value in data.items()}
+        return {key: normalize_output_data_for_column(value) for key, value in data.items()}
     if isinstance(data, list):
         return [normalize_output_data(item) for item in data]
+    if isinstance(data, float):
+        rounded = round(data, 2)
+        return int(rounded) if rounded.is_integer() else rounded
     return data
 
 
@@ -414,15 +425,44 @@ def normalize_output_data_for_column(value, column: str | None = None):
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, int) and not isinstance(value, bool):
-        if should_scale_column(column):
-            return format_scaled_number(float(value))
         return value
     if isinstance(value, float):
-        if should_scale_column(column):
-            return format_scaled_number(value)
         rounded = round(value, 2)
         return int(rounded) if rounded.is_integer() else rounded
     return value
+
+
+def ensure_read_only_sql(sql: str) -> str:
+    cleaned = _strip_sql_comments(sql).strip()
+    if not cleaned:
+        raise ValueError("sql must not be empty")
+    statement = cleaned.rstrip()
+    if statement.endswith(";"):
+        statement = statement.rstrip(";").rstrip()
+    if not statement:
+        raise ValueError("sql must not be empty")
+    if ";" in statement:
+        raise ValueError("sql must be a single statement")
+    if not statement.lstrip().lower().startswith(("select", "with")):
+        raise ValueError("sql must start with SELECT or WITH")
+    if SQL_BLOCKLIST_RE.search(statement):
+        raise ValueError("sql must be read-only")
+    return statement
+
+
+def validate_sql_expression(expression: str, *, field: str = "sql") -> str:
+    cleaned = _strip_sql_comments(expression).strip()
+    if not cleaned:
+        raise ValueError(f"{field} must not be empty")
+    if ";" in cleaned:
+        raise ValueError(f"{field} must be a single expression")
+    if SQL_BLOCKLIST_RE.search(cleaned):
+        raise ValueError(f"{field} contains unsupported SQL keywords")
+    return cleaned
+
+
+def _strip_sql_comments(sql: str) -> str:
+    return SQL_COMMENT_RE.sub(" ", sql)
 
 
 def should_scale_column(column: str | None) -> bool:

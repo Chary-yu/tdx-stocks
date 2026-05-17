@@ -11,6 +11,8 @@ from tdx_stocks.duckdb_ops import build_factors
 from tdx_stocks.factor_sql import render_build_factors_sql
 from tdx_stocks.query import (
     build_stock_sql,
+    build_select_sql,
+    ensure_read_only_sql,
     format_bytes,
     normalize_output_data,
     print_rows,
@@ -55,8 +57,33 @@ class QueryHelpersTest(unittest.TestCase):
             [{"price": 101.239, "volume": 1234567, "amount": 987654321.0}]
         )
         self.assertEqual(normalized[0]["price"], 101.24)
-        self.assertEqual(normalized[0]["volume"], "1.23M")
-        self.assertEqual(normalized[0]["amount"], "987.65M")
+        self.assertEqual(normalized[0]["volume"], 1234567)
+        self.assertEqual(normalized[0]["amount"], 987654321)
+
+    def test_ensure_read_only_sql_rejects_write_statements(self) -> None:
+        self.assertEqual(ensure_read_only_sql("SELECT 1"), "SELECT 1")
+        with self.assertRaises(ValueError):
+            ensure_read_only_sql("CREATE TABLE demo(id INT)")
+        with self.assertRaises(ValueError):
+            ensure_read_only_sql("SELECT 1; DROP TABLE demo")
+
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_build_select_sql_rejects_unsafe_where_expression(self) -> None:
+        con = duckdb.connect(":memory:")
+        try:
+            con.execute(
+                """
+                CREATE TABLE raw_daily (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE
+                )
+                """
+            )
+            with self.assertRaises(ValueError):
+                build_select_sql(con, "raw_daily", where="1 = 1; DROP TABLE raw_daily")
+        finally:
+            con.close()
 
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_register_query_macros_last_n_days(self) -> None:
