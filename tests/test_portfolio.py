@@ -137,6 +137,19 @@ class PortfolioBuilderTest(unittest.TestCase):
         self.assertEqual(portfolio.summary["source"], "consensus")
         self.assertEqual(portfolio.holdings[0]["symbol"], "600000")
 
+    def test_build_portfolio_from_report_accepts_latest(self) -> None:
+        fake_doc = {
+            "candidates": [
+                {"market": "sh", "symbol": "600000", "score": 88, "candidate_type": "trend", "risk_flags": [], "tags": []}
+            ],
+            "data_run_id": "run-1",
+            "as_of": "2024-01-31",
+        }
+        with patch("tdx_stocks.portfolio.builder.load_saved_report", return_value=fake_doc):
+            portfolio = build_portfolio(AppConfig(), source="report", strategy="trend-strength")
+        self.assertEqual(portfolio.as_of, "2024-01-31")
+        self.assertEqual(portfolio.holdings[0]["symbol"], "600000")
+
 
 class PortfolioBacktestTest(unittest.TestCase):
     def test_backtest_runs_with_mocked_prices(self) -> None:

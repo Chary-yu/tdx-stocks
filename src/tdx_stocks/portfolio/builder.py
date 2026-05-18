@@ -117,7 +117,7 @@ def _load_candidates(
     config: AppConfig,
     source: str,
     strategy: str | None,
-    as_of: date | None,
+    as_of: date | str | None,
 ) -> tuple[list[dict[str, Any]], str | None, str | date]:
     if source == "consensus":
         strategy_names = [definition.name for definition in list_strategies()]
@@ -149,10 +149,13 @@ def _load_candidates(
         return candidates, str(report.summary.get("dataset_run_id") or None), as_of or "latest"
 
     if source == "report":
+        if strategy is None:
+            raise ValueError("strategy is required when source=report")
+        report_as_of = "latest" if as_of is None else (as_of.isoformat() if isinstance(as_of, date) else as_of)
         doc = load_saved_report(
             config.paths.data_root,
             strategy,
-            as_of=as_of.isoformat() if as_of else "latest",
+            as_of=report_as_of,
         )
         if doc is None:
             raise FileNotFoundError(f"saved strategy report not found for {strategy!r}")

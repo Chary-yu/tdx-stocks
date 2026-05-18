@@ -94,6 +94,8 @@ def _add_build_args(parser: argparse.ArgumentParser) -> None:
 
 def cmd_portfolio_build(args: argparse.Namespace) -> int:
     config = load_config(args.config)
+    if args.source == "report" and not args.strategy:
+        raise ValueError("--strategy is required when --from report")
     report = build_portfolio(
         config,
         source=args.source,

@@ -37,6 +37,7 @@ from .commands.strategy import (
     register_strategy_group,
 )
 from .commands.portfolio import register_portfolio_group
+from .commands.daily import register_daily_group
 from .commands.factors import (
     cmd_factors_describe as _factors_cmd_describe,
     cmd_factors_list as _factors_cmd_list,
@@ -62,8 +63,14 @@ class TdxArgumentParser(argparse.ArgumentParser):
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = _rewrite_legacy_argv(sys.argv[1:] if argv is None else argv)
     try:
-        _load_plugins_for_argv(sys.argv[1:] if argv is None else argv)
+        _validate_output_aliases(argv)
+    except UsageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return int(exc.code)
+    try:
+        _load_plugins_for_argv(argv)
     except FileNotFoundError:
         pass
     except Exception as exc:  # noqa: BLE001
@@ -140,6 +147,7 @@ def build_parser(*, load_default_plugins: bool = True) -> argparse.ArgumentParse
         cmd_strategy_run=cmd_strategy_run,
     )
     register_portfolio_group(subparsers)
+    register_daily_group(subparsers)
     register_factors_group(
         subparsers,
         cmd_factors_list=cmd_factors_list,
@@ -164,7 +172,6 @@ def build_parser(*, load_default_plugins: bool = True) -> argparse.ArgumentParse
         help="Output markdown path, or - for stdout.",
     )
     help_summary_parser.set_defaults(func=cmd_help_summary)
-    _register_legacy_aliases(subparsers)
     return parser
 
 
@@ -184,29 +191,7 @@ def _find_config_arg(argv: list[str]) -> Path | None:
 
 
 def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    register_legacy_data_aliases(
-        subparsers,
-        cmd_build=cmd_build,
-        cmd_rebuild=cmd_rebuild,
-        cmd_update_actions=cmd_update_actions,
-        cmd_actions_status=cmd_actions_status,
-    )
-    register_legacy_audit_aliases(
-        subparsers,
-        cmd_doctor=cmd_doctor,
-        cmd_verify_adjustment=cmd_verify_adjustment,
-    )
-    register_legacy_query_aliases(
-        subparsers,
-        tables=tuple(TABLES),
-        cmd_status=_query_cmd_status,
-        cmd_tables=_query_cmd_tables,
-        cmd_schema=_query_cmd_schema,
-        cmd_head=_query_cmd_head,
-        cmd_stock=_query_cmd_stock,
-        cmd_sql=_query_cmd_sql,
-        cmd_export=_query_cmd_export,
-    )
+    return None
 
 
 def parse_columns(value: str | None) -> list[str] | None:
@@ -288,6 +273,38 @@ def cmd_help_summary(args: argparse.Namespace) -> int:
 
 def cmd_stock(args: argparse.Namespace) -> int:
     return _query_cmd_stock(args)
+
+
+def _rewrite_legacy_argv(argv: list[str]) -> list[str]:
+    if not argv:
+        return argv
+    legacy_map: dict[str, list[str]] = {
+        "build": ["data", "build"],
+        "rebuild": ["data", "rebuild"],
+        "update-actions": ["data", "update"],
+        "actions-status": ["data", "status"],
+        "doctor": ["audit", "doctor"],
+        "verify-adjustment": ["audit", "verify"],
+        "status": ["query", "status"],
+        "tables": ["query", "tables"],
+        "schema": ["query", "schema"],
+        "head": ["query", "table"],
+        "stock": ["query", "price"],
+        "sql": ["query", "sql"],
+        "export": ["query", "export"],
+    }
+    first = argv[0]
+    replacement = legacy_map.get(first)
+    if replacement is None:
+        return argv
+    return [*replacement, *argv[1:]]
+
+
+def _validate_output_aliases(argv: list[str]) -> None:
+    has_output = any(item == "--output" or item.startswith("--output=") for item in argv)
+    has_to = any(item == "--to" or item.startswith("--to=") for item in argv)
+    if has_output and has_to:
+        raise UsageError("use either --output or --to, not both")
 
 
 def cmd_strategy_run(args: argparse.Namespace) -> int:

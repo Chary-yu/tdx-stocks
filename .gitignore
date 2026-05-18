@@ -1,8 +1,11 @@
 .venv/
 __pycache__/
+*.py[cod]
+.mypy_cache/
 .pytest_cache/
 .ruff_cache/
-*.egg-info/
+Database/
 dist/
 build/
+*.egg-info/
 tdx_stocks.toml

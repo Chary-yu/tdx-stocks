@@ -56,10 +56,12 @@ Strategy and portfolio docs:
 
 - `docs/strategies.md`
 - `docs/strategy_explain.md`
+- `docs/strategy_examples.md`
 - `docs/portfolio.md`
 - `docs/portfolio_backtest.md`
 - `docs/rebalance.md`
 - `docs/risk.md`
+- `docs/daily.md`
 
 Create a config file:
 
@@ -131,6 +133,29 @@ The new portfolio layer is research-only:
 - It can generate rebalance plans and portfolio backtests.
 - It does not connect to broker APIs.
 - It does not place automatic trades.
+
+Recommended daily entry point:
+
+```bash
+tdx-stocks daily run --config tdx_stocks.toml
+```
+
+`daily run` reads the latest dataset by default and does not rebuild data.
+Pass `--build` only when you explicitly want to refresh the dataset before the
+workflow runs.
+
+Daily reports are written under:
+
+```text
+Database/reports/daily/latest.json
+Database/reports/daily/latest.md
+Database/reports/daily/by_date/YYYY-MM-DD/daily_report.json
+Database/reports/daily/by_date/YYYY-MM-DD/daily_report.md
+Database/reports/daily/by_date/YYYY-MM-DD/manifest.json
+```
+
+The daily workflow is orchestration only. It reuses the strategy, consensus,
+portfolio, risk, and rebalance modules and does not place automatic trades.
 
 ## Test Map
 

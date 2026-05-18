@@ -40,20 +40,19 @@ class CliHelpSummaryTest(unittest.TestCase):
             "audit",
             "query",
             "strategy",
+            "portfolio",
+            "daily",
             "help-summary",
         ):
             self.assertIn(f"`{command_name}`", output)
         for command_name in (
-            "update-actions",
-            "actions-status",
-            "verify-adjustment",
-            "build",
-            "rebuild",
-            "list",
-            "stock",
+            "groups",
+            "describe",
+            "explain",
+            "report",
         ):
             self.assertIn(f"`{command_name}`", output)
-        self.assertIn("兼容别名", output)
+        self.assertNotIn("兼容别名", output)
 
 
 if __name__ == "__main__":

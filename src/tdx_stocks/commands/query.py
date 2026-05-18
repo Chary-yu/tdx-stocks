@@ -81,7 +81,7 @@ def register_query_group(
 
     export_parser = query_subparsers.add_parser("export", help="Export a filtered table query to CSV.")
     add_query_args(export_parser, default_limit=1000)
-    export_parser.add_argument("--to", type=Path, required=True)
+    export_parser.add_argument("--output", "--to", dest="output", type=Path, required=True)
     export_parser.add_argument("--no-limit", action="store_true")
     export_parser.set_defaults(func=cmd_export)
 
@@ -141,7 +141,7 @@ def register_legacy_query_aliases(
     export_parser._legacy_target = "query export"
     add_config_arg(export_parser)
     add_query_args(export_parser, default_limit=1000)
-    export_parser.add_argument("--to", type=Path, required=True)
+    export_parser.add_argument("--output", "--to", dest="output", type=Path, required=True)
     export_parser.add_argument("--no-limit", action="store_true")
     export_parser.set_defaults(func=cmd_export)
 
@@ -337,11 +337,11 @@ def cmd_export(args: argparse.Namespace) -> int:
             desc=args.desc,
             limit=None if args.no_limit else args.limit,
         )
-        count = export_query_csv(ctx.con, sql, args.to)
+        count = export_query_csv(ctx.con, sql, args.output)
         if getattr(args, "json", False):
-            print_json({"exported_rows": count, "path": args.to.as_posix()})
+            print_json({"exported_rows": count, "path": args.output.as_posix()})
         else:
-            print(f"exported rows={count} path={args.to}")
+            print(f"exported rows={count} path={args.output}")
     finally:
         ctx.close()
     return 0

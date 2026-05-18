@@ -9,28 +9,11 @@
 | `query` | Read-only inspection and query commands. |
 | `strategy` | Strategy analysis commands. |
 | `portfolio` | Portfolio construction and risk commands. |
+| `daily` | Daily orchestration commands. |
 | `factors` | Factor catalog and research commands. |
 | `init-config` | Write a default TOML config. |
 | `sync` | Synchronize export-derived data and rebuild. |
 | `help-summary` | Generate a markdown summary of the CLI. |
-
-## 兼容别名
-
-| 命令 | 替代 |
-| --- | --- |
-| `build` | `data build` |
-| `rebuild` | `data rebuild` |
-| `update-actions` | `data update` |
-| `actions-status` | `data status` |
-| `verify-adjustment` | `audit verify` |
-| `doctor` | `audit doctor` |
-| `status` | `query status` |
-| `tables` | `query tables` |
-| `schema` | `query schema` |
-| `head` | `query table` |
-| `stock` | `query price` |
-| `sql` | `query sql` |
-| `export` | `query export` |
 
 ## 命令参数
 
@@ -43,6 +26,7 @@
 | `query` | Read-only inspection and query commands. |
 | `strategy` | Strategy analysis commands. |
 | `portfolio` | Portfolio construction and risk commands. |
+| `daily` | Daily orchestration commands. |
 | `factors` | Factor catalog and research commands. |
 | `init-config` | Write a default TOML config. |
 | `sync` | Synchronize export-derived data and rebuild. |
@@ -229,7 +213,7 @@
 | `--order-by` |  |
 | `--desc` |  |
 | `--json` |  |
-| `--to` |  |
+| `--output, --to` |  |
 | `--no-limit` |  |
 
 #### `strategy`
@@ -792,6 +776,56 @@
 | `--config` |  |
 | `path` |  |
 | `--json` |  |
+
+#### `daily`
+
+| 参数 | 说明 |
+| --- | --- |
+
+#### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `run` | Run the daily research workflow. |
+| `status` | Show the latest daily status. |
+| `report` | Show a saved daily report. |
+
+##### `daily run`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--as-of` | (default: latest) |
+| `--json` |  |
+| `--output, --to` |  |
+| `--strategies` |  |
+| `--strategy-limit` |  |
+| `--min-score` |  |
+| `--min-hit` |  |
+| `--portfolio-top` |  |
+| `--portfolio-weighting` |  |
+| `--current-holdings` |  |
+| `--skip-strategies` |  |
+| `--skip-portfolio` |  |
+| `--skip-rebalance` |  |
+| `--skip-report` |  |
+| `--build` |  |
+
+##### `daily status`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--json` |  |
+
+##### `daily report`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--as-of` | (default: latest) |
+| `--format` | (default: markdown) |
+| `--output` |  |
 
 #### `factors`
 
