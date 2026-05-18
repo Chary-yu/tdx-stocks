@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Iterable
+from datetime import date, timedelta
 from pathlib import Path
 
 WINDOW_SPEC = "PARTITION BY market, symbol ORDER BY trade_date"
@@ -149,16 +150,25 @@ def build_factors_statements(
     output_dir: Path,
     compression: str,
     factor_windows: Iterable[int] | None = None,
+    from_date: date | None = None,
+    max_window_days: int | None = None,
 ) -> list[str]:
     factor_spec = build_factor_spec(factor_windows)
+    history_from_date = _history_from_date(from_date, factor_spec, max_window_days)
     return [
-        render_create_base_data_sql(adj_daily_dir),
+        render_create_base_data_sql(adj_daily_dir, from_date=history_from_date),
         render_create_rolling_windows_sql(factor_spec),
         render_create_rolling_stats_sql(factor_spec),
         render_create_macd_state_sql(),
         render_create_kdj_inputs_sql(),
         render_create_kdj_state_sql(),
-        render_copy_factors_sql(output_dir, compression, factor_spec),
+        render_copy_factors_sql(
+            output_dir,
+            compression,
+            factor_spec,
+            append_after_date=from_date,
+            append=from_date is not None,
+        ),
     ]
 
 
@@ -167,12 +177,29 @@ def render_build_factors_sql(
     output_dir: Path,
     compression: str,
     factor_windows: Iterable[int] | None = None,
+    from_date: date | None = None,
+    max_window_days: int | None = None,
 ) -> str:
-    return ";\n\n".join(build_factors_statements(adj_daily_dir, output_dir, compression, factor_windows)) + ";\n"
+    return (
+        ";\n\n".join(
+            build_factors_statements(
+                adj_daily_dir,
+                output_dir,
+                compression,
+                factor_windows,
+                from_date=from_date,
+                max_window_days=max_window_days,
+            )
+        )
+        + ";\n"
+    )
 
 
-def render_create_base_data_sql(adj_daily_dir: Path) -> str:
+def render_create_base_data_sql(adj_daily_dir: Path, from_date: date | None = None) -> str:
     source = f"read_parquet('{sql_literal(parquet_glob(adj_daily_dir))}', hive_partitioning=true)"
+    source_where = []
+    if from_date is not None:
+        source_where.append(f"    WHERE trade_date >= DATE '{sql_literal(from_date.isoformat())}'")
     return "\n".join(
         [
             _stage_header("tmp_base_data"),
@@ -195,6 +222,7 @@ def render_create_base_data_sql(adj_daily_dir: Path) -> str:
             f"        lag(adj_high) OVER ({WINDOW_SPEC}) AS prev_high,",
             f"        lag(adj_low) OVER ({WINDOW_SPEC}) AS prev_low",
             f"    FROM {source}",
+            *source_where,
             ")",
             "SELECT",
             "    market,",
@@ -212,6 +240,9 @@ def render_create_base_data_sql(adj_daily_dir: Path) -> str:
             "    prev_close,",
             "    prev_high,",
             "    prev_low,",
+            "    CASE WHEN prev_close IS NOT NULL AND adj_open = adj_high AND adj_close > prev_close * 1.04 THEN 1 ELSE 0 END AS is_limit_up,",
+            "    CASE WHEN prev_close IS NOT NULL AND adj_open = adj_low AND adj_close < prev_close * 0.96 THEN 1 ELSE 0 END AS is_limit_down,",
+            "    CASE WHEN volume = 0 THEN 1 ELSE 0 END AS is_suspended,",
             "    adj_close - prev_close AS diff,",
             "    CASE WHEN prev_close IS NULL OR prev_close = 0 THEN NULL ELSE adj_close / prev_close - 1 END AS pct_chg,",
             "    CASE WHEN adj_close - prev_close > 0 THEN adj_close - prev_close ELSE 0 END AS gain,",
@@ -270,6 +301,7 @@ def render_create_rolling_windows_sql(factor_spec: FactorSpec | None = None) -> 
         ("ma250", "avg(adj_close) OVER ({window})".format(window=_window(250))),
         ("vol_ma5", "avg(volume) OVER ({window})".format(window=_window(5))),
         ("vol_ma20", "avg(volume) OVER ({window})".format(window=_window(20))),
+        ("vol_ma60", "avg(volume) OVER ({window})".format(window=_window(60))),
         ("amount_ma20", "avg(amount) OVER ({window})".format(window=_window(20))),
         ("amount_ma60", "avg(amount) OVER ({window})".format(window=_window(60))),
         ("high_9", "max(adj_high) OVER ({window})".format(window=_window(9))),
@@ -316,6 +348,9 @@ def render_create_rolling_windows_sql(factor_spec: FactorSpec | None = None) -> 
         ("prev_close", "prev_close"),
         ("prev_high", "prev_high"),
         ("prev_low", "prev_low"),
+        ("is_limit_up", "is_limit_up"),
+        ("is_limit_down", "is_limit_down"),
+        ("is_suspended", "is_suspended"),
         ("diff", "diff"),
         ("pct_chg", "pct_chg"),
         ("gain", "gain"),
@@ -359,6 +394,9 @@ def render_create_rolling_stats_sql(factor_spec: FactorSpec | None = None) -> st
         "        prev_close,",
         "        prev_high,",
         "        prev_low,",
+        "        is_limit_up,",
+        "        is_limit_down,",
+        "        is_suspended,",
         "        diff,",
         "        pct_chg,",
         "        pct_chg AS ret_1,",
@@ -405,6 +443,7 @@ def render_create_rolling_stats_sql(factor_spec: FactorSpec | None = None) -> st
         "        ma250,",
         "        vol_ma5,",
         "        vol_ma20,",
+        "        vol_ma60,",
         "        amount_ma20,",
         "        amount_ma60,",
         "        high_9,",
@@ -440,6 +479,7 @@ def render_create_rolling_stats_sql(factor_spec: FactorSpec | None = None) -> st
         "        CASE WHEN ret_cnt_20 < 20 THEN NULL ELSE std_pctchg_20 END AS vol_20,",
         "        CASE WHEN ret_cnt_60 < 60 THEN NULL ELSE std_pctchg_60 END AS vol_60,",
         "        CASE WHEN cnt_20 < 20 OR vol_ma20 IS NULL OR vol_ma20 = 0 THEN NULL ELSE volume / vol_ma20 - 1 END AS vol_ratio_20,",
+        "        CASE WHEN cnt_60 < 60 OR vol_ma60 IS NULL OR vol_ma60 = 0 THEN NULL ELSE vol_ma5 / vol_ma60 END AS vol_ratio_5_60,",
         "        CASE WHEN cnt_5 < 5 OR ma5 IS NULL OR ma5 = 0 THEN NULL ELSE adj_close / ma5 - 1 END AS bias_5,",
         "        CASE WHEN cnt_10 < 10 OR ma10 IS NULL OR ma10 = 0 THEN NULL ELSE adj_close / ma10 - 1 END AS bias_10,",
         "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE adj_close / ma20 - 1 END AS bias_20,",
@@ -459,6 +499,7 @@ def render_create_rolling_stats_sql(factor_spec: FactorSpec | None = None) -> st
         "        CASE WHEN cnt_20 < 20 THEN NULL ELSE ma20 - 2 * close_std20 END AS bb_lower_20,",
         "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE 4 * close_std20 / ma20 END AS bb_width_20,",
         "        CASE WHEN cnt_20 < 20 OR close_std20 IS NULL OR close_std20 = 0 THEN NULL ELSE (adj_close - ma20) / close_std20 END AS bb_z_20,",
+        "        CASE WHEN cnt_20 < 20 THEN NULL ELSE corr(adj_close, volume) OVER ({window}) END AS price_vol_corr_20,".format(window=_window(20)),
         "        CASE WHEN ret_cnt_14 < 14 OR sum_loss_14 IS NULL THEN NULL WHEN sum_loss_14 = 0 AND sum_gain_14 = 0 THEN NULL WHEN sum_loss_14 = 0 THEN 100 ELSE 100 - 100 / (1 + (sum_gain_14 / 14) / (sum_loss_14 / 14)) END AS rsi_14,",
         "        CASE WHEN ret_cnt_6 < 6 OR sum_loss_6 IS NULL THEN NULL WHEN sum_loss_6 = 0 AND sum_gain_6 = 0 THEN NULL WHEN sum_loss_6 = 0 THEN 100 ELSE 100 - 100 / (1 + (sum_gain_6 / 6) / (sum_loss_6 / 6)) END AS rsi_6,",
         "        CASE WHEN cnt_20 < 20 OR tp_std20 IS NULL OR tp_std20 = 0 THEN NULL ELSE (tp - tp_ma20) / (0.015 * tp_std20) END AS cci_20,",
@@ -479,6 +520,9 @@ def render_create_rolling_stats_sql(factor_spec: FactorSpec | None = None) -> st
         "    trade_year,",
         "    adj_close,",
         "    rn,",
+        "    is_limit_up,",
+        "    is_limit_down,",
+        "    is_suspended,",
         "    pct_chg,",
         "    ret_1,",
         "    ret_5,",
@@ -684,6 +728,8 @@ def render_copy_factors_sql(
     output_dir: Path,
     compression: str,
     factor_spec: FactorSpec | None = None,
+    append_after_date: date | None = None,
+    append: bool = False,
 ) -> str:
     columns = [
         "market",
@@ -691,6 +737,9 @@ def render_copy_factors_sql(
         "trade_date",
         "trade_year",
         "adj_close",
+        "is_limit_up",
+        "is_limit_down",
+        "is_suspended",
         "pct_chg",
         "ret_1",
         "ret_5",
@@ -783,6 +832,13 @@ def render_copy_factors_sql(
         else:
             expr = f"s.{column}"
         select_items.append((column, expr))
+    where_lines = []
+    if append_after_date is not None:
+        where_lines.append(f"    WHERE s.trade_date > DATE '{sql_literal(append_after_date.isoformat())}'")
+    copy_options = f"(FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()}"
+    if append:
+        copy_options += ", APPEND"
+    copy_options += ")"
 
     return "\n".join(
         [
@@ -793,8 +849,20 @@ def render_copy_factors_sql(
             "    FROM tmp_rolling_stats AS s",
             "    LEFT JOIN tmp_macd_state AS macd USING (market, symbol, trade_date, trade_year, rn)",
             "    LEFT JOIN tmp_kdj_state AS kdj USING (market, symbol, trade_date, trade_year, rn)",
+            *where_lines,
             ")",
             f"TO '{sql_literal(output_dir.as_posix())}'",
-            f"(FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()})",
+            copy_options,
         ]
     )
+
+
+def _history_from_date(
+    from_date: date | None,
+    factor_spec: FactorSpec,
+    max_window_days: int | None,
+) -> date | None:
+    if from_date is None:
+        return None
+    window_days = max_window_days if max_window_days is not None else max(factor_spec.effective_windows)
+    return from_date - timedelta(days=window_days)

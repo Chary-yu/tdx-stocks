@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
+from typing import Any
 
 DEFAULT_MARKETS = ("sh", "sz")
 DEFAULT_LIMIT = 20
@@ -13,7 +14,15 @@ GLOBAL_REQUIRED_FIELDS = ("adj_close", "ma20", "ma60", "ret_5", "ret_20", "amoun
 BREAKOUT_REQUIRED_FIELDS = ("pos_20", "dd_20", "vol_ratio_20")
 PULLBACK_REQUIRED_FIELDS = ("dd_20", "atr_pct_14")
 
-CANDIDATE_TYPE_ORDER = ("breakout_watch", "strong_trend", "pullback_watch")
+CANDIDATE_TYPE_ORDER = (
+    "breakout_watch",
+    "strong_trend",
+    "pullback_watch",
+    "oversold_rebound",
+    "smart_money",
+    "pair_short",
+    "pair_long",
+)
 HARD_REASON_ORDER = (
     "missing_required_factor",
     "insufficient_liquidity",
@@ -26,12 +35,15 @@ TAG_ORDER = (
     "low_volatility",
     "trend_strong",
     "pullback_watch",
+    "oversold_rebound",
     "near_20d_high",
     "volume_expansion",
     "volume_breakout",
     "relative_strength",
     "active_amount",
     "ma_bullish",
+    "smart_money",
+    "price_volume_alignment",
 )
 RISK_FLAG_ORDER = (
     "ret_5_strong",
@@ -66,6 +78,28 @@ class StrategyParams:
             "explain_symbol": self.explain_symbol,
             "as_of": self.as_of.isoformat() if self.as_of else None,
         }
+
+
+@dataclass(frozen=True)
+class ScoreWeights:
+    momentum: float = 0.4
+    volatility: float = -0.3
+    liquidity: float = 0.3
+    relative_strength: float = 0.2
+    trend: float = 0.1
+
+    def to_dict(self) -> dict[str, float]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MultiFactorParams(StrategyParams):
+    weights: ScoreWeights = field(default_factory=ScoreWeights)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        payload["weights"] = self.weights.to_dict()
+        return payload
 
 
 @dataclass(frozen=True)

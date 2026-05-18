@@ -10,6 +10,12 @@ def classify_trend_candidate(
     params: StrategyParams,
     strategy_name: str = "trend-strength",
 ) -> tuple[str | None, list[str], list[str]]:
+    if _is_mean_reversion_params(params):
+        return _classify_mean_reversion(row, params)
+    if strategy_name == "mean-reversion":
+        return _classify_mean_reversion(row, params)
+    if strategy_name == "smart-money":
+        return _classify_smart_money(row, params)
     if strategy_name == "low-vol-breakout":
         return _classify_low_vol_breakout(row, params)
     if strategy_name == "ma-pullback":
@@ -19,6 +25,67 @@ def classify_trend_candidate(
     if strategy_name == "volume-breakout":
         return _classify_volume_breakout(row, params)
     return _classify_trend_strength(row, params)
+
+
+def _classify_mean_reversion(row: dict[str, Any], params: StrategyParams) -> tuple[str | None, list[str], list[str]]:
+    candidate_type: str | None = None
+    tags: list[str] = []
+    reasons: list[str] = []
+
+    adj_close = _float_or_none(row.get("adj_close"))
+    ma20 = _float_or_none(row.get("ma20"))
+    std_20 = _float_or_none(row.get("std_pctchg_20"))
+    ret_20 = _float_or_none(row.get("ret_20"))
+    rsi_14 = _float_or_none(row.get("rsi_14"))
+    bb_lower_20 = _float_or_none(row.get("bb_lower_20"))
+
+    oversold = rsi_14 is not None and rsi_14 < getattr(params, "rsi_threshold", 25)
+    if bb_lower_20 is None and adj_close is not None and ma20 is not None and std_20 is not None:
+        bb_lower_20 = ma20 * (1.0 - 2.0 * std_20)
+    dipped = adj_close is not None and bb_lower_20 is not None and adj_close < bb_lower_20
+    dumped = ret_20 is not None and ret_20 < -0.15
+
+    if oversold and dipped and dumped:
+        candidate_type = "oversold_rebound"
+        tags.extend(["oversold_rebound", "pullback_watch"])
+        reasons.extend(["RSI 超卖", "跌破布林带下轨", "短期跌幅较大"])
+    amount_ma20 = _float_or_none(row.get("amount_ma20"))
+    if amount_ma20 is not None and amount_ma20 >= params.min_amount_ma20 * 1.5:
+        tags.append("active_amount")
+    return candidate_type, _dedupe_preserve_order(tags), reasons
+
+
+def _classify_smart_money(row: dict[str, Any], params: StrategyParams) -> tuple[str | None, list[str], list[str]]:
+    candidate_type: str | None = None
+    tags: list[str] = []
+    reasons: list[str] = []
+
+    vol_ratio_5_60 = _float_or_none(row.get("vol_ratio_5_60"))
+    price_vol_corr_20 = _float_or_none(row.get("price_vol_corr_20"))
+    atr_pct_14_pct_rank = _float_or_none(row.get("atr_pct_14_pct_rank"))
+    ret_20 = _float_or_none(row.get("ret_20"))
+    vol_20_pct_rank = _float_or_none(row.get("vol_20_pct_rank"))
+
+    smart_money = (
+        vol_ratio_5_60 is not None
+        and price_vol_corr_20 is not None
+        and atr_pct_14_pct_rank is not None
+        and vol_ratio_5_60 > 2.5
+        and price_vol_corr_20 > 0.6
+        and atr_pct_14_pct_rank > 0.8
+    )
+    if smart_money:
+        candidate_type = "smart_money"
+        tags.extend(["smart_money", "volume_expansion", "price_volume_alignment"])
+        reasons.extend(["近期显著放量", "量价齐升", "低波后异动"])
+    if ret_20 is not None and ret_20 > 0:
+        tags.append("trend_strong")
+    if vol_20_pct_rank is not None and vol_20_pct_rank > 0.5:
+        tags.append("low_volatility")
+    amount_ma20 = _float_or_none(row.get("amount_ma20"))
+    if amount_ma20 is not None and amount_ma20 >= params.min_amount_ma20:
+        tags.append("active_amount")
+    return candidate_type, _dedupe_preserve_order(tags), reasons
 
 
 def _classify_trend_strength(row: dict[str, Any], params: StrategyParams) -> tuple[str | None, list[str], list[str]]:
@@ -296,12 +363,20 @@ def build_trend_watch_plan(candidate_type: str | None, risk_flags: list[str], st
         plan = "相对强势优先看趋势延续，跌破 ma20 或动量走弱则放弃"
     elif strategy_name == "volume-breakout":
         plan = "放量突破后观察次日能否站稳，回落到前高下方不追"
+    elif strategy_name == "mean-reversion":
+        plan = "超跌反弹先等止跌确认，继续放量下杀则放弃"
+    elif strategy_name == "smart-money":
+        plan = "放量且量价同步上行时观察，异动衰减则放弃"
     elif candidate_type == "breakout_watch":
         plan = "放量突破前高才确认，尾盘回落不追"
     elif candidate_type == "strong_trend":
         plan = "高开过多不追，回踩不破 ma5 或 ma20 再观察"
     elif candidate_type == "pullback_watch":
         plan = "回踩 ma20 企稳再观察，跌破支撑则放弃"
+    elif candidate_type == "oversold_rebound":
+        plan = "超跌后等待止跌和放量确认，跌破前低则放弃"
+    elif candidate_type == "smart_money":
+        plan = "放量上攻且量价同步时观察，背离则放弃"
     else:
         plan = "不满足当前策略候选类型，暂不进入观察池"
     if "ret_5_strong" in risk_flags:
@@ -318,6 +393,10 @@ def _float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _is_mean_reversion_params(params: StrategyParams) -> bool:
+    return hasattr(params, "rsi_threshold")
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:

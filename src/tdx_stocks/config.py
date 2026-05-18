@@ -7,6 +7,7 @@ from pathlib import Path
 DEFAULT_TDX_VIPDOC = Path("/mnt/d/ProgramFiles/Tdx/vipdoc")
 DEFAULT_TDX_EXPORT = Path("/mnt/d/ProgramFiles/Tdx/T0002/export")
 DEFAULT_DATA_ROOT = Path("/mnt/d/Zcyu/Chary-codex/tdx-stocks/Database")
+DEFAULT_PLUGIN_DIR = Path("~/.tdx-stocks/plugins").expanduser()
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,7 @@ class PathsConfig:
     tdx_vipdoc: Path = DEFAULT_TDX_VIPDOC
     tdx_export: Path = DEFAULT_TDX_EXPORT
     data_root: Path = DEFAULT_DATA_ROOT
+    plugin_dir: Path = DEFAULT_PLUGIN_DIR
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,7 @@ def load_config(path: Path | None) -> AppConfig:
             tdx_vipdoc=Path(paths.get("tdx_vipdoc", DEFAULT_TDX_VIPDOC)),
             tdx_export=Path(paths.get("tdx_export", DEFAULT_TDX_EXPORT)),
             data_root=Path(paths.get("data_root", DEFAULT_DATA_ROOT)),
+            plugin_dir=Path(paths.get("plugin_dir", DEFAULT_PLUGIN_DIR)).expanduser(),
         ),
         build=BuildConfig(
             markets=tuple(build.get("markets", ("sh", "sz"))),
@@ -72,6 +75,7 @@ def write_default_config(path: Path) -> None:
 tdx_vipdoc = "{DEFAULT_TDX_VIPDOC.as_posix()}"
 tdx_export = "{DEFAULT_TDX_EXPORT.as_posix()}"
 data_root = "{DEFAULT_DATA_ROOT.as_posix()}"
+plugin_dir = "{DEFAULT_PLUGIN_DIR.as_posix()}"
 
 [build]
 markets = ["sh", "sz"]

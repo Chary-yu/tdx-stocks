@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from .factor_sql import build_factors_statements
@@ -144,7 +145,16 @@ def build_factors(
     output_dir: Path,
     compression: str,
     factor_windows: tuple[int, ...] | None = None,
+    from_date: date | None = None,
+    max_window_days: int | None = None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    for statement in build_factors_statements(adj_daily_dir, output_dir, compression, factor_windows):
+    for statement in build_factors_statements(
+        adj_daily_dir,
+        output_dir,
+        compression,
+        factor_windows,
+        from_date=from_date,
+        max_window_days=max_window_days,
+    ):
         con.execute(statement)

@@ -11,6 +11,7 @@ from ..base import (
     HARD_REASON_ORDER,
     RISK_FLAG_ORDER,
     TAG_ORDER,
+    MultiFactorParams,
     StrategyParams,
     StrategyReport,
 )
@@ -23,7 +24,7 @@ from ..data import (
     resolve_markets,
 )
 from ..registry import StrategyDefinition, get_strategy, register_strategy
-from ..scoring import build_trend_score_breakdown
+from ..scoring import build_trend_score_breakdown, calculate_multi_factor_score
 from ..signals import build_trend_risk_flags, build_trend_watch_plan, classify_trend_candidate
 from ..universe import display_symbol, float_or_none, hard_exclusion_reason
 
@@ -37,6 +38,7 @@ def run_trend_strength_strategy(
     open_query_context_fn: OpenQueryContextFn | None = None,
     strategy_name: str = "trend-strength",
     preset_candidate_type: str | None = None,
+    source_table: str = "factors",
 ) -> StrategyReport:
     open_context = open_query_context_fn or open_query_context
     definition = get_strategy(strategy_name)
@@ -56,6 +58,7 @@ def run_trend_strength_strategy(
             markets,
             trade_date,
             required_fields=required_fields,
+            source_table=source_table,
         )
         analyzed_rows = _analyze_rows(rows, params, execute_date, dataset_run_id, factor_version, strategy_name)
         summary = _build_summary(
@@ -147,13 +150,22 @@ def _analyze_row(
 
     candidate_type, tags, reasons = classify_trend_candidate(row, params, strategy_name=strategy_name)
     risk_flags = build_trend_risk_flags(row, strategy_name=strategy_name)
-    score_breakdown = build_trend_score_breakdown(
-        row,
-        params.min_amount_ma20,
-        risk_flags,
-        strategy_name=strategy_name,
-    )
-    if strategy_name == "low-vol-breakout":
+    score = 0.0
+    if strategy_name == "multi-factor" and isinstance(params, MultiFactorParams):
+        score_breakdown = calculate_multi_factor_score(row, params.weights)
+    else:
+        score_breakdown = build_trend_score_breakdown(
+            row,
+            params.min_amount_ma20,
+            risk_flags,
+            strategy_name=strategy_name,
+        )
+    if strategy_name == "multi-factor":
+        if "total" in score_breakdown:
+            score = _clamp(score_breakdown["total"] * 100.0, 0.0, 100.0)
+        else:
+            score = _clamp(sum(score_breakdown.values()), 0.0, 100.0)
+    elif strategy_name == "low-vol-breakout":
         score = _clamp(
             score_breakdown["trend"]
             + score_breakdown["breakout"]

@@ -22,13 +22,18 @@ from ..strategies.storage import (
     load_saved_report,
     save_report_document,
 )
-from ..strategies.registry import list_strategies
+from ..strategies.registry import get_strategy, list_strategies
 from ..backtest import BacktestParams, run_backtest
 from ..backtest import (
     analyze_forward_returns,
     analyze_risk_tags,
     backtest_consensus,
     compare_backtests,
+    load_backtest_configs,
+    run_monte_carlo_simulation,
+    run_batch,
+    run_stress_test_suite,
+    run_walk_forward_validation,
     tune_strategy_parameters,
 )
 from .common import add_config_arg, legacy_notice as _legacy_notice
@@ -37,6 +42,10 @@ STRATEGY_TYPE_LABELS = {
     "breakout_watch": "突破观察",
     "strong_trend": "趋势强",
     "pullback_watch": "回调观察",
+    "oversold_rebound": "超跌反弹",
+    "smart_money": "聪明资金",
+    "pair_short": "配对做空",
+    "pair_long": "配对做多",
 }
 
 STRATEGY_TAG_LABELS = {
@@ -50,6 +59,9 @@ STRATEGY_TAG_LABELS = {
     "relative_strength": "相对强势",
     "active_amount": "资金活跃",
     "ma_bullish": "均线多头",
+    "oversold_rebound": "超跌反弹",
+    "smart_money": "聪明资金",
+    "price_volume_alignment": "量价齐升",
 }
 
 STRATEGY_RISK_LABELS = {
@@ -60,6 +72,23 @@ STRATEGY_RISK_LABELS = {
     "risk_factor_missing": "风险因子缺失",
     "high_volatility": "波动偏高",
     "volume_climax": "放量冲顶",
+}
+
+COMMON_CANDIDATE_TYPES = (
+    "strong_trend",
+    "breakout_watch",
+    "pullback_watch",
+    "oversold_rebound",
+    "smart_money",
+    "pair_short",
+    "pair_long",
+)
+
+STRESS_PERIODS = {
+    "2015_crash": ("2015-06-12", "2015-09-30"),
+    "2016_circuit_breaker": ("2016-01-01", "2016-02-28"),
+    "2018_bear": ("2018-01-01", "2018-12-31"),
+    "2024_micro_cap_crash": ("2024-01-01", "2024-02-08"),
 }
 
 
@@ -91,6 +120,8 @@ def register_strategy_group(
             description=definition.description,
         )
         _add_common_run_args(strategy_parser)
+        if definition.add_arguments is not None:
+            definition.add_arguments(strategy_parser)
         strategy_parser.set_defaults(func=cmd_strategy_run, strategy_name=definition.name)
 
     compare_parser = strategy_subparsers.add_parser("compare", help="Compare strategy candidates.")
@@ -144,6 +175,14 @@ def register_strategy_group(
     _add_backtest_consensus_args(consensus_backtest_parser)
     consensus_backtest_parser.set_defaults(func=cmd_strategy_backtest_consensus)
 
+    batch_parser = strategy_subparsers.add_parser(
+        "batch",
+        help="Run TOML-driven backtest experiments.",
+        description="Load a single TOML file and run the backtest or batch search defined in it.",
+    )
+    _add_batch_args(batch_parser)
+    batch_parser.set_defaults(func=cmd_strategy_batch)
+
     reports_parser = strategy_subparsers.add_parser("reports", help="Manage saved strategy reports.")
     reports_subparsers = reports_parser.add_subparsers(dest="reports_command", required=True)
     reports_list_parser = reports_subparsers.add_parser("list", help="List saved strategy reports.")
@@ -170,7 +209,15 @@ def _add_common_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-score", type=float, default=60.0)
     parser.add_argument(
         "--candidate-type",
-        choices=("strong_trend", "breakout_watch", "pullback_watch"),
+        choices=(
+            "strong_trend",
+            "breakout_watch",
+            "pullback_watch",
+            "oversold_rebound",
+            "smart_money",
+            "pair_short",
+            "pair_long",
+        ),
     )
     parser.add_argument("--include-excluded", action="store_true")
     parser.add_argument("--show-excluded-limit", type=int, default=20)
@@ -199,8 +246,8 @@ def _add_consensus_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_backtest_args(parser: argparse.ArgumentParser) -> None:
     add_config_arg(parser)
-    parser.add_argument("--from", dest="from_date", required=True)
-    parser.add_argument("--to", dest="to_date", required=True)
+    parser.add_argument("--from", dest="from_date")
+    parser.add_argument("--to", dest="to_date")
     parser.add_argument("--top", type=int, default=20)
     parser.add_argument("--hold-days", type=int, default=5)
     parser.add_argument("--fee-rate", type=float, default=0.0)
@@ -208,10 +255,18 @@ def _add_backtest_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--market", choices=("sh", "sz", "bj"))
     parser.add_argument("--min-score", type=float, default=60.0)
     parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
-    parser.add_argument("--candidate-type", choices=("strong_trend", "breakout_watch", "pullback_watch"))
+    parser.add_argument("--candidate-type", choices=COMMON_CANDIDATE_TYPES)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--walk-forward", action="store_true")
+    parser.add_argument("--train-years", type=int, default=3)
+    parser.add_argument("--test-years", type=int, default=1)
+    parser.add_argument("--monte-carlo", action="store_true")
+    parser.add_argument("--iterations", type=int, default=1000)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--stress-test", action="store_true")
+    parser.add_argument("--stress-period", choices=("all",) + tuple(STRESS_PERIODS), default="all")
 
 
 def _add_backtest_compare_args(parser: argparse.ArgumentParser) -> None:
@@ -226,7 +281,7 @@ def _add_backtest_compare_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--market", choices=("sh", "sz", "bj"))
     parser.add_argument("--min-score", type=float, default=60.0)
     parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
-    parser.add_argument("--candidate-type", choices=("strong_trend", "breakout_watch", "pullback_watch"))
+    parser.add_argument("--candidate-type", choices=COMMON_CANDIDATE_TYPES)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
@@ -242,7 +297,7 @@ def _add_tune_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fee-rate", type=float, default=0.0)
     parser.add_argument("--slippage", type=float, default=0.0)
     parser.add_argument("--market", choices=("sh", "sz", "bj"))
-    parser.add_argument("--candidate-type", choices=("strong_trend", "breakout_watch", "pullback_watch"))
+    parser.add_argument("--candidate-type", choices=COMMON_CANDIDATE_TYPES)
     parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
@@ -258,7 +313,7 @@ def _add_forward_return_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--market", choices=("sh", "sz", "bj"))
     parser.add_argument("--min-score", type=float, default=60.0)
     parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
-    parser.add_argument("--candidate-type", choices=("strong_trend", "breakout_watch", "pullback_watch"))
+    parser.add_argument("--candidate-type", choices=COMMON_CANDIDATE_TYPES)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
@@ -273,7 +328,7 @@ def _add_risk_tag_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--market", choices=("sh", "sz", "bj"))
     parser.add_argument("--min-score", type=float, default=60.0)
     parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
-    parser.add_argument("--candidate-type", choices=("strong_trend", "breakout_watch", "pullback_watch"))
+    parser.add_argument("--candidate-type", choices=COMMON_CANDIDATE_TYPES)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
@@ -292,10 +347,15 @@ def _add_backtest_consensus_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--market", choices=("sh", "sz", "bj"))
     parser.add_argument("--min-score", type=float, default=60.0)
     parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
-    parser.add_argument("--candidate-type", choices=("strong_trend", "breakout_watch", "pullback_watch"))
+    parser.add_argument("--candidate-type", choices=COMMON_CANDIDATE_TYPES)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
+
+
+def _add_batch_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("-c", "--config", type=Path, required=True, help="Path to the TOML config file.")
+    parser.add_argument("--batch", action="store_true", help="Expand [batch_search] into a grid search.")
 
 
 def _print_strategy_table(rows: list[dict[str, object]], stock_names: dict[tuple[str, str], str] | None = None) -> None:
@@ -383,6 +443,10 @@ def _build_stock_name_map(export_dir: Path | None, rows: list[dict[str, object]]
 
 
 def _build_strategy_params(args: argparse.Namespace) -> StrategyParams:
+    strategy_name = getattr(args, "strategy_name", "trend-strength")
+    definition = get_strategy(strategy_name)
+    if definition.params_builder is not None:
+        return definition.params_builder(args)
     return StrategyParams(
         limit=args.limit,
         min_score=args.min_score,
@@ -849,6 +913,13 @@ def cmd_strategy_backtest_consensus(args: argparse.Namespace) -> int:
 
 def cmd_strategy_backtest(args: argparse.Namespace) -> int:
     config = load_config(args.config)
+    if args.stress_test:
+        if args.from_date is None:
+            args.from_date = min(period[0] for period in STRESS_PERIODS.values())
+        if args.to_date is None:
+            args.to_date = max(period[1] for period in STRESS_PERIODS.values())
+    if args.from_date is None or args.to_date is None:
+        raise ValueError("backtest requires --from and --to unless --stress-test is used")
     params = BacktestParams(
         from_date=parse_iso_date(args.from_date),
         to_date=parse_iso_date(args.to_date),
@@ -861,7 +932,51 @@ def cmd_strategy_backtest(args: argparse.Namespace) -> int:
         min_score=args.min_score,
         min_amount_ma20=args.min_amount_ma20,
     )
-    report = run_backtest(config, args.strategy_name, params)
     output_format = "json" if getattr(args, "json", False) else args.format
+    if args.stress_test:
+        periods = {args.stress_period: STRESS_PERIODS[args.stress_period]} if args.stress_period != "all" else STRESS_PERIODS
+        report = run_stress_test_suite(config, args.strategy_name, params, periods)
+        _write_rows(
+            report["rows"],
+            columns=[
+                "period",
+                "from_date",
+                "to_date",
+                "trade_count",
+                "period_count",
+                "total_return",
+                "annual_return",
+                "max_drawdown",
+                "win_rate",
+                "turnover",
+            ],
+            format_name=output_format,
+            to=args.output,
+        )
+        return 0
+    if args.walk_forward:
+        report = run_walk_forward_validation(
+            config,
+            args.strategy_name,
+            params,
+            train_years=args.train_years,
+            test_years=args.test_years,
+        )
+        _emit_report_table(report, format_name=output_format, to=args.output)
+        return 0
+    if args.monte_carlo:
+        base_report = run_backtest(config, args.strategy_name, params)
+        report = run_monte_carlo_simulation(base_report.trades, params.portfolio.initial_cash if params.portfolio else 1.0, iterations=args.iterations, seed=args.seed)
+        _emit_report_table(report, format_name=output_format, to=args.output)
+        return 0
+    report = run_backtest(config, args.strategy_name, params)
     _emit_report_table(report.to_dict(), format_name=output_format, to=args.output)
+    return 0
+
+
+def cmd_strategy_batch(args: argparse.Namespace) -> int:
+    configs = load_backtest_configs(args.config, batch=args.batch)
+    reports = run_batch(configs)
+    payload = [report.to_dict() for report in reports]
+    print_json(payload if len(payload) != 1 else payload[0])
     return 0

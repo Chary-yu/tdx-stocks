@@ -64,6 +64,7 @@ def fetch_strategy_rows(
     trade_date: date,
     *,
     required_fields: tuple[str, ...] = (),
+    source_table: str = "factors",
 ) -> list[dict[str, Any]]:
     return _fetch_rows(
         con,
@@ -71,6 +72,7 @@ def fetch_strategy_rows(
         trade_date,
         symbol=None,
         required_fields=required_fields,
+        source_table=source_table,
     )
 
 
@@ -81,8 +83,16 @@ def fetch_strategy_rows_for_symbol(
     symbol: str,
     *,
     required_fields: tuple[str, ...] = (),
+    source_table: str = "factors",
 ) -> list[dict[str, Any]]:
-    return _fetch_rows(con, markets, trade_date, symbol=symbol, required_fields=required_fields)
+    return _fetch_rows(
+        con,
+        markets,
+        trade_date,
+        symbol=symbol,
+        required_fields=required_fields,
+        source_table=source_table,
+    )
 
 
 def _fetch_rows(
@@ -91,6 +101,7 @@ def _fetch_rows(
     trade_date: date,
     symbol: str | None,
     required_fields: tuple[str, ...] = (),
+    source_table: str = "factors",
 ) -> list[dict[str, Any]]:
     columns = [
         "market",
@@ -104,6 +115,10 @@ def _fetch_rows(
         "ret_20",
         "ret_60",
         "amount_ma20",
+        "vol_ma5",
+        "vol_ma20",
+        "vol_ma60",
+        "vol_ratio_5_60",
         "pos_20",
         "pos_60",
         "dd_20",
@@ -114,36 +129,52 @@ def _fetch_rows(
         "vol_60",
         "high_20",
         "low_20",
+        "std_pctchg_20",
+        "bb_lower_20",
+        "bb_upper_20",
+        "price_vol_corr_20",
+        "rs_score",
+        "pct_rank_ret_20",
+        "pct_rank_ret_60",
+        "vol_20_pct_rank",
+        "amount_ma20_pct_rank",
+        "atr_pct_14_pct_rank",
+        "ma_cross_20_60",
     ]
-    available_columns = table_column_names(con, "factors")
-    missing_columns = [column for column in columns if column not in available_columns]
+    available_columns = table_column_names(con, source_table)
     missing_required_fields = [column for column in required_fields if column not in available_columns]
-    if missing_columns:
-        raise ValueError(
-            "factors table is missing required columns: "
-            + ", ".join(missing_columns)
-            + "; rebuild the dataset with a compatible factor version"
-        )
     if missing_required_fields:
         raise ValueError(
             "strategy requires factors fields: "
             + ", ".join(missing_required_fields)
-            + "; rebuild the dataset with a compatible factor version"
+            + f"; rebuild the dataset with a compatible factor version in {source_table}"
         )
+    missing_core_columns = [column for column in ("market", "symbol", "trade_date") if column not in available_columns]
+    if missing_core_columns:
+        raise ValueError(
+            "factors table is missing core columns: "
+            + ", ".join(missing_core_columns)
+            + f"; rebuild the dataset with a compatible factor version in {source_table}"
+        )
+    selected_columns = [column for column in columns if column in available_columns]
     where_sql = [market_clause_sql(markets), f"trade_date = DATE '{trade_date.isoformat()}'"]
     if symbol is not None:
         where_sql.append(f"symbol = '{sql_literal(symbol)}'")
     sql = f"""
-        SELECT {", ".join(columns)}
-        FROM factors
+        SELECT {", ".join(selected_columns)}
+        FROM {source_table}
         WHERE {" AND ".join(where_sql)}
         ORDER BY market, symbol
     """
     result = con.execute(sql)
-    return [
-        dict(zip((desc[0] for desc in result.description), row, strict=True))
-        for row in result.fetchall()
-    ]
+    rows: list[dict[str, Any]] = []
+    selected_names = [desc[0] for desc in result.description]
+    for row in result.fetchall():
+        record = dict(zip(selected_names, row, strict=True))
+        for column in columns:
+            record.setdefault(column, None)
+        rows.append(record)
+    return rows
 
 
 def market_clause_sql(markets: tuple[str, ...]) -> str:

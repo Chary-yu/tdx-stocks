@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -17,7 +18,15 @@ from .actions_io import load_adjustment_factor_rows, load_corporate_action_rows,
 from .config import AppConfig
 from .exit_codes import BuildCheckFailedError, NoDataError
 from .factor_sql import build_factor_spec, factor_build_report
-from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily, copy_parquet_dataset, has_parquet_files
+from .duckdb_ops import (
+    build_factors,
+    connect_duckdb,
+    copy_adj_daily,
+    copy_parquet_dataset,
+    has_parquet_files,
+    parquet_glob,
+    sql_literal,
+)
 from .export_io import build_export_adjustment_factor_result
 from .factors.quality import build_factor_quality, build_factor_quality_summary
 from .factors.reports import (
@@ -42,6 +51,15 @@ from .tdx_day import iter_day_files, read_day_records
 ProgressCallback = Callable[[str], None]
 
 
+@dataclass(frozen=True)
+class FactorIncrementalPlan:
+    enabled: bool
+    from_date: date | None
+    previous_factors_dir: Path | None
+    max_window_days: int
+    reason: str
+
+
 def make_run_id(now: datetime | None = None) -> str:
     now = now or datetime.now()
     return now.strftime("%Y%m%d%H%M%S%f")
@@ -64,6 +82,7 @@ def build_dataset(
     run_id = make_run_id()
     run_paths = RunPaths(config.paths.data_root, run_id)
     ensure_base_dirs(config.paths.data_root)
+    previous_manifest = _load_latest_manifest(config.paths.data_root)
 
     overwrite = config.build.overwrite_staging if overwrite_staging is None else overwrite_staging
     if run_paths.staging_dir.exists():
@@ -175,14 +194,33 @@ def build_dataset(
         checks.append(check_adj_daily(con, run_paths.hfq_daily_dir, name="hfq_daily"))
         _raise_on_errors(checks)
 
-        _progress(progress, "Building factors")
         factor_spec = build_factor_spec(config.factors.windows)
+        factor_incremental_plan = _plan_factor_incremental_build(
+            con,
+            run_paths.adjustment_factors_dir,
+            previous_manifest,
+            factor_spec,
+        )
+        if factor_incremental_plan.enabled and factor_incremental_plan.previous_factors_dir is not None:
+            _progress(
+                progress,
+                f"Building factors incrementally from {factor_incremental_plan.from_date}",
+            )
+            shutil.copytree(
+                factor_incremental_plan.previous_factors_dir,
+                run_paths.factors_dir,
+                dirs_exist_ok=True,
+            )
+        else:
+            _progress(progress, f"Building factors full ({factor_incremental_plan.reason})")
         build_factors(
             con,
             run_paths.adj_daily_dir,
             run_paths.factors_dir,
             config.build.compression,
             factor_windows=config.factors.windows,
+            from_date=factor_incremental_plan.from_date if factor_incremental_plan.enabled else None,
+            max_window_days=factor_incremental_plan.max_window_days,
         )
         _progress(progress, "Building factors_xsec")
         build_xsec_factors(con, run_paths.factors_dir, run_paths.factors_xsec_dir, config.build.compression)
@@ -212,6 +250,14 @@ def build_dataset(
             "compression": config.build.compression,
             "cached_corporate_actions": has_parquet_files(cache_corporate_actions_dir),
             "cached_adjustment_factors": has_parquet_files(cache_adjustment_factors_dir),
+            "factor_incremental": factor_incremental_plan.enabled,
+            "factor_incremental_from_date": (
+                factor_incremental_plan.from_date.isoformat()
+                if factor_incremental_plan.from_date is not None
+                else None
+            ),
+            "factor_incremental_reason": factor_incremental_plan.reason,
+            "factor_max_window_days": factor_incremental_plan.max_window_days,
             **factor_build_report(factor_spec),
             "checks": summary_checks,
         }
@@ -287,6 +333,180 @@ def rebuild_dataset(
         overwrite_staging=overwrite_staging,
         progress=progress,
     )
+
+
+def _load_latest_manifest(data_root: Path) -> dict | None:
+    path = data_root / "latest.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _plan_factor_incremental_build(
+    con,
+    current_adjustment_factors_dir: Path,
+    previous_manifest: dict | None,
+    factor_spec,
+) -> FactorIncrementalPlan:
+    max_window_days = max(factor_spec.effective_windows)
+    disabled = FactorIncrementalPlan(
+        enabled=False,
+        from_date=None,
+        previous_factors_dir=None,
+        max_window_days=max_window_days,
+        reason="no_previous_version",
+    )
+    if previous_manifest is None:
+        return disabled
+
+    previous_factors_dir = _manifest_table_path(previous_manifest, "factors")
+    if previous_factors_dir is None or not has_parquet_files(previous_factors_dir):
+        return FactorIncrementalPlan(
+            enabled=False,
+            from_date=None,
+            previous_factors_dir=previous_factors_dir,
+            max_window_days=max_window_days,
+            reason="no_previous_factors",
+        )
+
+    previous_windows = previous_manifest.get("summary", {}).get("configured_windows")
+    if previous_windows is None or tuple(int(window) for window in previous_windows) != factor_spec.configured_windows:
+        return FactorIncrementalPlan(
+            enabled=False,
+            from_date=None,
+            previous_factors_dir=previous_factors_dir,
+            max_window_days=max_window_days,
+            reason="factor_window_config_changed",
+        )
+
+    if not _factor_schema_supports_incremental(con, previous_factors_dir):
+        return FactorIncrementalPlan(
+            enabled=False,
+            from_date=None,
+            previous_factors_dir=previous_factors_dir,
+            max_window_days=max_window_days,
+            reason="factor_schema_changed",
+        )
+
+    last_trade_date = _max_trade_date(con, previous_factors_dir)
+    if last_trade_date is None:
+        return FactorIncrementalPlan(
+            enabled=False,
+            from_date=None,
+            previous_factors_dir=previous_factors_dir,
+            max_window_days=max_window_days,
+            reason="empty_previous_factors",
+        )
+
+    previous_adjustment_factors_dir = _manifest_table_path(previous_manifest, "adjustment_factors")
+    if _has_historical_adjustment_factor_changes(
+        con,
+        current_adjustment_factors_dir,
+        previous_adjustment_factors_dir,
+        last_trade_date,
+    ):
+        return FactorIncrementalPlan(
+            enabled=False,
+            from_date=None,
+            previous_factors_dir=previous_factors_dir,
+            max_window_days=max_window_days,
+            reason="historical_adjustment_changed",
+        )
+
+    return FactorIncrementalPlan(
+        enabled=True,
+        from_date=last_trade_date,
+        previous_factors_dir=previous_factors_dir,
+        max_window_days=max_window_days,
+        reason="append_new_trade_dates",
+    )
+
+
+def _manifest_table_path(manifest: dict, table: str) -> Path | None:
+    value = manifest.get(table)
+    return Path(value) if value else None
+
+
+def _max_trade_date(con, table_dir: Path) -> date | None:
+    source = f"read_parquet('{sql_literal(parquet_glob(table_dir))}', hive_partitioning=true)"
+    row = con.execute(f"SELECT max(trade_date) FROM {source}").fetchone()
+    return row[0] if row is not None else None
+
+
+def _factor_schema_supports_incremental(con, factors_dir: Path) -> bool:
+    source = f"read_parquet('{sql_literal(parquet_glob(factors_dir))}', hive_partitioning=true)"
+    result = con.execute(f"SELECT * FROM {source} LIMIT 0")
+    columns = {description[0] for description in result.description}
+    return {"is_limit_up", "is_limit_down", "is_suspended"}.issubset(columns)
+
+
+def _has_historical_adjustment_factor_changes(
+    con,
+    current_dir: Path,
+    previous_dir: Path | None,
+    through_date: date,
+) -> bool:
+    if not has_parquet_files(current_dir):
+        return has_parquet_files(previous_dir)
+    if not has_parquet_files(previous_dir):
+        return _has_adjustment_rows_through(con, current_dir, through_date)
+    return _has_adjustment_except(con, current_dir, previous_dir, through_date) or _has_adjustment_except(
+        con,
+        previous_dir,
+        current_dir,
+        through_date,
+    )
+
+
+def _has_adjustment_rows_through(con, table_dir: Path, through_date: date) -> bool:
+    source = f"read_parquet('{sql_literal(parquet_glob(table_dir))}', hive_partitioning=true)"
+    row = con.execute(
+        f"""
+        SELECT 1
+        FROM {source}
+        WHERE COALESCE(start_date, trade_date) <= DATE '{sql_literal(through_date.isoformat())}'
+        LIMIT 1
+        """
+    ).fetchone()
+    return row is not None
+
+
+def _has_adjustment_except(con, left_dir: Path, right_dir: Path, through_date: date) -> bool:
+    left_source = f"read_parquet('{sql_literal(parquet_glob(left_dir))}', hive_partitioning=true)"
+    right_source = f"read_parquet('{sql_literal(parquet_glob(right_dir))}', hive_partitioning=true)"
+    row = con.execute(
+        f"""
+        WITH left_hist AS (
+            {_adjustment_compare_sql(left_source, through_date)}
+        ),
+        right_hist AS (
+            {_adjustment_compare_sql(right_source, through_date)}
+        )
+        SELECT 1
+        FROM (
+            SELECT * FROM left_hist
+            EXCEPT
+            SELECT * FROM right_hist
+        ) AS diff
+        LIMIT 1
+        """
+    ).fetchone()
+    return row is not None
+
+
+def _adjustment_compare_sql(source: str, through_date: date) -> str:
+    return f"""
+            SELECT
+                market,
+                symbol,
+                trade_date,
+                start_date,
+                end_date,
+                qfq_factor,
+                hfq_factor
+            FROM {source}
+            WHERE COALESCE(start_date, trade_date) <= DATE '{sql_literal(through_date.isoformat())}'
+    """
 
 
 def clear_database_root_preserving_cache(data_root: Path) -> None:

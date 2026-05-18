@@ -15,7 +15,9 @@ from ..strategies.registry import get_strategy
 from .engine import run_backtest
 from .metrics import max_drawdown
 from .models import BacktestParams
-from .prices import load_adj_open_price, load_trading_dates
+from .prices import coerce_adj_open_price, load_adj_open_price, load_trading_dates
+from .validation import run_stress_test_suite, run_walk_forward_validation
+from .monte_carlo import run_monte_carlo_simulation
 
 
 @dataclass(frozen=True)
@@ -281,8 +283,10 @@ def backtest_consensus(
             period_returns: list[float] = []
             skipped_reasons: list[str] = []
             for item in selected:
-                buy_price = load_adj_open_price(ctx.con, item["market"], item["symbol"], buy_date)
-                sell_price = load_adj_open_price(ctx.con, item["market"], item["symbol"], sell_date)
+                buy_quote = coerce_adj_open_price(load_adj_open_price(ctx.con, item["market"], item["symbol"], buy_date))
+                sell_quote = coerce_adj_open_price(load_adj_open_price(ctx.con, item["market"], item["symbol"], sell_date))
+                buy_price = buy_quote.price if buy_quote is not None else None
+                sell_price = sell_quote.price if sell_quote is not None else None
                 if buy_price is None or sell_price is None:
                     skipped_reasons.append(f"missing_price:{item['market']}:{item['symbol']}")
                     trades.append(
@@ -390,6 +394,50 @@ def backtest_consensus(
         }
     finally:
         ctx.close()
+
+
+def validate_walk_forward(
+    config: AppConfig,
+    strategy_name: str,
+    params: BacktestParams,
+    *,
+    train_years: int = 3,
+    test_years: int = 1,
+    min_scores: list[float] | None = None,
+    tops: list[int] | None = None,
+    hold_days: list[int] | None = None,
+) -> dict[str, Any]:
+    return run_walk_forward_validation(
+        config,
+        strategy_name,
+        params,
+        train_years=train_years,
+        test_years=test_years,
+        min_scores=min_scores,
+        tops=tops,
+        hold_days=hold_days,
+    )
+
+
+def validate_monte_carlo(
+    report: dict[str, Any],
+    *,
+    iterations: int = 1000,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    params = report.get("params") or {}
+    portfolio = params.get("portfolio") or {}
+    initial_cash = float(portfolio.get("initial_cash", 1.0)) if isinstance(portfolio, dict) else 1.0
+    return run_monte_carlo_simulation(report.get("trades") or [], initial_cash, iterations=iterations, seed=seed)
+
+
+def validate_stress_tests(
+    config: AppConfig,
+    strategy_name: str,
+    params: BacktestParams,
+    stress_periods: dict[str, tuple[str, str]],
+) -> dict[str, Any]:
+    return run_stress_test_suite(config, strategy_name, params, stress_periods)
 
 
 def _analyze_forward_returns(
@@ -597,10 +645,10 @@ def _forward_sample(
     sell_date = market_dates[sell_index]
     prices: list[float] = []
     for index in range(buy_index, sell_index + 1):
-        price = load_adj_open_price(con, market, symbol, market_dates[index])
-        if price is None:
+        quote = coerce_adj_open_price(load_adj_open_price(con, market, symbol, market_dates[index]))
+        if quote is None:
             return None
-        prices.append(price)
+        prices.append(quote.price)
     if len(prices) < 2 or prices[0] <= 0:
         return None
     return {

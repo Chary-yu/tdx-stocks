@@ -2,6 +2,40 @@ from __future__ import annotations
 
 from typing import Any
 
+from .base import ScoreWeights
+
+
+def calculate_multi_factor_score(
+    row: dict[str, Any],
+    weights: ScoreWeights,
+) -> dict[str, float]:
+    rs_score = _float_or_none(row.get("rs_score"))
+    vol_20_pct_rank = _float_or_none(row.get("vol_20_pct_rank"))
+    amount_ma20_pct_rank = _float_or_none(row.get("amount_ma20_pct_rank"))
+    atr_pct_14_pct_rank = _float_or_none(row.get("atr_pct_14_pct_rank"))
+    pct_rank_ret_20 = _float_or_none(row.get("pct_rank_ret_20"))
+    pct_rank_ret_60 = _float_or_none(row.get("pct_rank_ret_60"))
+    ma_cross_20_60 = _float_or_none(row.get("ma_cross_20_60"))
+
+    momentum = round((rs_score or 0.0) * weights.momentum, 6)
+    volatility = round((1.0 - (vol_20_pct_rank or 0.0)) * weights.volatility, 6)
+    liquidity = round((amount_ma20_pct_rank or 0.0) * weights.liquidity, 6)
+    relative_strength = round(
+        (((pct_rank_ret_20 or rs_score or 0.0) + (pct_rank_ret_60 or rs_score or 0.0)) / 2.0)
+        * weights.relative_strength,
+        6,
+    )
+    trend = round((((ma_cross_20_60 or 0.0) + (atr_pct_14_pct_rank or 0.0)) / 2.0) * weights.trend, 6)
+    total = round(momentum + volatility + liquidity + relative_strength + trend, 6)
+    return {
+        "momentum": momentum,
+        "volatility": volatility,
+        "liquidity": liquidity,
+        "relative_strength": relative_strength,
+        "trend": trend,
+        "total": total,
+    }
+
 
 def build_trend_score_breakdown(
     row: dict[str, Any],
@@ -23,6 +57,10 @@ def build_trend_score_breakdown(
     vol_20 = _float_or_none(row.get("vol_20"))
     dd_20 = _float_or_none(row.get("dd_20"))
     vol_ratio_20 = _float_or_none(row.get("vol_ratio_20"))
+    vol_ratio_5_60 = _float_or_none(row.get("vol_ratio_5_60"))
+    price_vol_corr_20 = _float_or_none(row.get("price_vol_corr_20"))
+    std_pctchg_20 = _float_or_none(row.get("std_pctchg_20"))
+    bb_lower_20 = _float_or_none(row.get("bb_lower_20"))
 
     trend = 0.0
     if adj_close > ma20:
@@ -81,6 +119,10 @@ def build_trend_score_breakdown(
         risk_penalty -= 4.0
     if strategy_name == "volume-breakout" and (vol_ratio_20 is not None and vol_ratio_20 < 0.25):
         risk_penalty -= 6.0
+    if strategy_name == "mean-reversion" and (rsi_14 is not None and rsi_14 < 30):
+        risk_penalty += 2.0
+    if strategy_name == "smart-money" and (price_vol_corr_20 is not None and price_vol_corr_20 > 0.6):
+        risk_penalty += 2.0
     risk_penalty = round(max(-30.0, risk_penalty), 2)
 
     if strategy_name == "low-vol-breakout":
@@ -111,6 +153,38 @@ def build_trend_score_breakdown(
             "trend": trend,
             "breakout": breakout,
             "volume": volume,
+            "liquidity": liquidity,
+            "risk_penalty": risk_penalty,
+        }
+    if strategy_name == "mean-reversion":
+        oversold = round(
+            25.0 * _clamp((30.0 - (rsi_14 or 30.0)) / 10.0, 0.0, 1.0)
+            + 15.0 * _clamp(max(0.0, -(ret_20 or 0.0) - 0.15) / 0.15, 0.0, 1.0),
+            2,
+        )
+        band_reclaim = round(
+            20.0 * _clamp(max(0.0, (bb_lower_20 or 0.0) - adj_close) / max(abs(bb_lower_20 or adj_close or 1.0), 1.0), 0.0, 1.0)
+            + 10.0 * _clamp(max(0.0, -(std_pctchg_20 or 0.0)) / 0.05, 0.0, 1.0),
+            2,
+        )
+        return {
+            "trend": trend,
+            "oversold": oversold,
+            "band_reclaim": band_reclaim,
+            "liquidity": liquidity,
+            "risk_penalty": risk_penalty,
+        }
+    if strategy_name == "smart-money":
+        smart_volume = round(
+            20.0 * _clamp((vol_ratio_5_60 or 0.0) / 2.5, 0.0, 1.0)
+            + 10.0 * _clamp((price_vol_corr_20 or 0.0) / 0.6, 0.0, 1.0),
+            2,
+        )
+        stability = round(15.0 * _clamp((atr_pct_14 or 0.0) / 0.05, 0.0, 1.0), 2)
+        return {
+            "trend": trend,
+            "smart_volume": smart_volume,
+            "stability": stability,
             "liquidity": liquidity,
             "risk_penalty": risk_penalty,
         }

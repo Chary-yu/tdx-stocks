@@ -19,6 +19,11 @@ dev = [
   "pytest>=8",
   "ruff>=0.7",
 ]
+web = [
+  "streamlit>=1.36",
+  "plotly>=5.22",
+  "pandas>=2.2",
+]
 
 [project.scripts]
 tdx-stocks = "tdx_stocks.cli:main"

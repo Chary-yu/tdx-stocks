@@ -20,11 +20,18 @@ from tdx_stocks.backtest.research import (
     tune_strategy_parameters,
 )
 from tdx_stocks.exit_codes import NoDataError
-from tdx_stocks.backtest import BacktestParams, run_backtest
+from tdx_stocks.backtest import BacktestParams, PortfolioParams, run_backtest, run_portfolio_backtest
+from tdx_stocks.backtest.monte_carlo import run_monte_carlo_simulation
+from tdx_stocks.backtest.prices import AdjDailyPrice, AdjOpenPrice
+from tdx_stocks.backtest.risk import check_exit_signal
+from tdx_stocks.backtest.sizing import calc_target_shares
+from tdx_stocks.backtest.validation import run_stress_test_suite, run_walk_forward_validation
+from tdx_stocks.strategies.base import ScoreWeights
 from tdx_stocks.strategies.compare import compare_strategies
 from tdx_stocks.strategies.consensus import build_consensus
 from tdx_stocks.strategies.data import fetch_strategy_rows
-from tdx_stocks.strategies.scoring import build_trend_score_breakdown
+from tdx_stocks.commands.strategy import cmd_strategy_backtest
+from tdx_stocks.strategies.scoring import build_trend_score_breakdown, calculate_multi_factor_score
 from tdx_stocks.strategies.signals import (
     build_trend_risk_flags,
     build_trend_watch_plan,
@@ -32,6 +39,8 @@ from tdx_stocks.strategies.signals import (
 )
 from tdx_stocks.strategies.registry import get_strategy, list_strategies
 from tdx_stocks.strategies.storage import load_saved_report, save_report_document
+from tdx_stocks.strategies.pairs import PairsParams, run_pairs_strategy
+from tdx_stocks.strategies.presets.mean_reversion import MeanReversionParams
 from tdx_stocks.strategy import StrategyParams, StrategyReport, run_trend_strength_strategy
 
 try:
@@ -445,6 +454,164 @@ class StrategyLogicTest(unittest.TestCase):
         self.assertIn("trend", score_breakdown)
         self.assertIn("突破", watch_plan)
 
+    def test_mean_reversion_and_smart_money_helpers(self) -> None:
+        mean_row = {
+            "adj_close": 9.0,
+            "ma20": 10.0,
+            "std_pctchg_20": 0.12,
+            "ret_20": -0.20,
+            "rsi_14": 20.0,
+            "amount_ma20": 120_000_000.0,
+            "bb_lower_20": 9.5,
+        }
+        smart_row = {
+            "adj_close": 12.0,
+            "ma20": 11.0,
+            "ret_20": 0.10,
+            "amount_ma20": 150_000_000.0,
+            "vol_ratio_5_60": 3.0,
+            "price_vol_corr_20": 0.7,
+            "atr_pct_14_pct_rank": 0.9,
+            "vol_20_pct_rank": 0.7,
+        }
+
+        mean_candidate, mean_tags, mean_reasons = classify_trend_candidate(mean_row, MeanReversionParams())
+        smart_candidate, smart_tags, smart_reasons = classify_trend_candidate(smart_row, StrategyParams(), strategy_name="smart-money")
+        weights = ScoreWeights(momentum=0.5, volatility=-0.2, liquidity=0.3, relative_strength=0.1, trend=0.1)
+        score_breakdown = calculate_multi_factor_score(
+            {
+                "rs_score": 0.8,
+                "vol_20_pct_rank": 0.9,
+                "amount_ma20_pct_rank": 0.7,
+                "atr_pct_14_pct_rank": 0.6,
+                "pct_rank_ret_20": 0.75,
+                "pct_rank_ret_60": 0.70,
+                "ma_cross_20_60": 0.65,
+            },
+            weights,
+        )
+
+        self.assertEqual(mean_candidate, "oversold_rebound")
+        self.assertIn("oversold_rebound", mean_tags)
+        self.assertIn("RSI 超卖", mean_reasons)
+        self.assertEqual(smart_candidate, "smart_money")
+        self.assertIn("smart_money", smart_tags)
+        self.assertIn("量价齐升", smart_reasons)
+        self.assertIn("total", score_breakdown)
+        self.assertGreater(score_breakdown["total"], 0.0)
+
+    def test_walk_forward_and_stress_validation_helpers(self) -> None:
+        fake_report = SimpleNamespace(
+            total_return=0.10,
+            annual_return=0.10,
+            max_drawdown=-0.02,
+            win_rate=0.60,
+            trade_count=1,
+            period_count=1,
+            equity_curve=[
+                {"trade_date": "2021-01-01", "equity": 1.0},
+                {"trade_date": "2021-01-02", "equity": 1.1},
+            ],
+            periods=[{"signal_date": "2021-01-01"}],
+            trades=[{"net_return": 0.1}],
+            to_dict=lambda: {},
+        )
+
+        def fake_run_backtest(_config, _strategy_name, _params, **_kwargs):
+            return fake_report
+
+        def fake_tune(_config, _strategy_name, _params, **_kwargs):
+            return {
+                "rows": [
+                    {
+                        "min_score": 60.0,
+                        "top": 20,
+                        "hold_days": 5,
+                        "research_score": 1.0,
+                    }
+                ]
+            }
+
+        with patch("tdx_stocks.backtest.validation.run_backtest", side_effect=fake_run_backtest):
+            with patch("tdx_stocks.backtest.research.tune_strategy_parameters", side_effect=fake_tune):
+                walk = run_walk_forward_validation(
+                    AppConfig(),
+                    "trend-strength",
+                    BacktestParams(from_date=date(2020, 1, 1), to_date=date(2021, 12, 31)),
+                    train_years=1,
+                    test_years=1,
+                )
+                stress = run_stress_test_suite(
+                    AppConfig(),
+                    "trend-strength",
+                    BacktestParams(from_date=date(2020, 1, 1), to_date=date(2021, 12, 31)),
+                    {"sample": ("2020-01-01", "2020-12-31")},
+                )
+
+        mc = run_monte_carlo_simulation(
+            [
+                {"net_return": 0.1},
+                {"net_return": -0.05},
+            ],
+            1_000_000.0,
+            iterations=32,
+            seed=7,
+        )
+
+        self.assertEqual(walk["summary"]["phase_count"], 1)
+        self.assertTrue(walk["equity_curve"])
+        self.assertEqual(stress["rows"][0]["period"], "sample")
+        self.assertIn("summary", mc)
+        self.assertEqual(mc["trade_count"], 2)
+
+    def test_pairs_strategy_emits_short_and_long_legs(self) -> None:
+        self.con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS factors (
+                market VARCHAR,
+                symbol VARCHAR,
+                trade_date DATE,
+                adj_close DOUBLE
+            )
+            """
+        )
+        self.con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS adj_daily (
+                market VARCHAR,
+                symbol VARCHAR,
+                trade_date DATE
+            )
+            """
+        )
+        rows = [
+            ("sh", "600000", date(2024, 1, 2), 10.0),
+            ("sh", "600001", date(2024, 1, 2), 10.0),
+            ("sh", "600000", date(2024, 1, 3), 20.0),
+            ("sh", "600001", date(2024, 1, 3), 10.0),
+        ]
+        self.con.executemany("INSERT INTO factors (market, symbol, trade_date, adj_close) VALUES (?, ?, ?, ?)", rows)
+        self.con.executemany(
+            "INSERT INTO adj_daily VALUES (?, ?, ?)",
+            [
+                ("sh", "600000", date(2024, 1, 2)),
+                ("sh", "600001", date(2024, 1, 2)),
+                ("sh", "600000", date(2024, 1, 3)),
+                ("sh", "600001", date(2024, 1, 3)),
+            ],
+        )
+
+        fake_context = FakeContext(self.con, self.manifest)
+        with patch("tdx_stocks.strategies.pairs.open_query_context", return_value=fake_context):
+            report = run_pairs_strategy(
+                AppConfig(),
+                PairsParams(symbols=("600000", "600001"), lookback=2, zscore_threshold=0.5, max_pairs=1),
+            )
+
+        self.assertEqual(report.summary["picked"], 2)
+        self.assertEqual(report.picks[0]["direction"], "SHORT")
+        self.assertEqual(report.picks[1]["direction"], "LONG")
+
     def _insert_strategy_row(self, row: dict[str, object], trade_date: date = date(2024, 1, 4)) -> None:
         self.con.execute(
             """
@@ -647,7 +814,11 @@ class StrategyCliTest(unittest.TestCase):
             [
                 "low-vol-breakout",
                 "ma-pullback",
+                "mean-reversion",
+                "multi-factor",
+                "pairs-arb",
                 "relative-strength",
+                "smart-money",
                 "trend-strength",
                 "volume-breakout",
             ],
@@ -694,6 +865,63 @@ class StrategyCliTest(unittest.TestCase):
         self.assertEqual(args.strategy_command, "run")
         self.assertEqual(args.strategy_name, "relative-strength")
         self.assertEqual(args.limit, 1)
+
+    def test_parser_contains_mean_reversion(self) -> None:
+        args = build_parser().parse_args(["strategy", "run", "mean-reversion", "--limit", "1"])
+        self.assertEqual(args.strategy_name, "mean-reversion")
+
+    def test_parser_contains_multi_factor(self) -> None:
+        args = build_parser().parse_args(
+            ["strategy", "run", "multi-factor", "--limit", "1", "--weight-mom", "0.5"]
+        )
+        self.assertEqual(args.strategy_name, "multi-factor")
+        self.assertEqual(args.weight_mom, 0.5)
+
+    def test_parser_contains_pairs_strategy(self) -> None:
+        args = build_parser().parse_args(
+            ["strategy", "run", "pairs-arb", "--limit", "1", "--symbols", "600000,600016"]
+        )
+        self.assertEqual(args.strategy_name, "pairs-arb")
+        self.assertEqual(args.symbols, "600000,600016")
+
+    def test_parser_contains_backtest_validation_flags(self) -> None:
+        args = build_parser().parse_args(
+            ["strategy", "backtest", "trend-strength", "--walk-forward", "--stress-test", "--monte-carlo"]
+        )
+        self.assertTrue(args.walk_forward)
+        self.assertTrue(args.stress_test)
+        self.assertTrue(args.monte_carlo)
+
+    def test_backtest_stress_route_invokes_validation_suite(self) -> None:
+        args = SimpleNamespace(
+            config=None,
+            strategy_name="trend-strength",
+            from_date=None,
+            to_date=None,
+            top=20,
+            hold_days=5,
+            fee_rate=0.0,
+            slippage=0.0,
+            market=None,
+            min_score=60.0,
+            min_amount_ma20=50_000_000.0,
+            candidate_type=None,
+            format="table",
+            json=False,
+            output=None,
+            stress_test=True,
+            stress_period="all",
+            walk_forward=False,
+            monte_carlo=False,
+            train_years=3,
+            test_years=1,
+            iterations=1000,
+            seed=None,
+        )
+        with patch("tdx_stocks.commands.strategy.load_config", return_value=AppConfig()):
+            with patch("tdx_stocks.commands.strategy.run_stress_test_suite", return_value={"rows": []}) as mocked:
+                cmd_strategy_backtest(args)
+        self.assertTrue(mocked.called)
 
     def test_parser_contains_volume_breakout(self) -> None:
         args = build_parser().parse_args(["strategy", "run", "volume-breakout", "--limit", "1"])
@@ -996,6 +1224,7 @@ class StrategyCliTest(unittest.TestCase):
 
         self.assertIn("排名", stdout.getvalue())
 
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_missing_required_strategy_fields_raise_clear_error(self) -> None:
         con = duckdb.connect(":memory:")
         try:
@@ -1302,6 +1531,214 @@ class StrategyReportStorageTest(unittest.TestCase):
             self.assertGreater(report.total_return, 0.0)
             self.assertEqual(report.period_count, 4)
             self.assertEqual(report.empty_period_count, 3)
+
+    def test_portfolio_sizing_and_stop_loss_helpers(self) -> None:
+        params = PortfolioParams(initial_cash=1_000_000.0, max_positions=5, stop_loss_pct=0.08)
+        self.assertEqual(calc_target_shares(available_cash=260_000.0, price=12.3, params=params), 16200)
+        pos = SimpleNamespace(buy_price=10.0)
+        self.assertEqual(check_exit_signal(pos, 9.3, params), None)
+        self.assertEqual(check_exit_signal(pos, 9.0, params), "stop_loss")
+
+    def test_portfolio_backtest_skips_limit_up_and_triggers_stop_loss(self) -> None:
+        config = AppConfig()
+
+        class FakeContext:
+            con = object()
+            manifest = {"summary": {}}
+
+            def close(self) -> None:
+                return None
+
+        def fake_open_query_context(_config):
+            return FakeContext()
+
+        trading_dates = [
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            date(2024, 1, 4),
+            date(2024, 1, 5),
+        ]
+
+        def fake_runner(_config, params):
+            if params.as_of == date(2024, 1, 2):
+                return StrategyReport(
+                    summary={},
+                    picks=[
+                        {
+                            "market": "sh",
+                            "symbol": "600000",
+                            "display_symbol": "600000.SH",
+                            "score": 88.0,
+                            "candidate_type": "breakout_watch",
+                        }
+                    ],
+                    excluded=[],
+                    explain=None,
+                )
+            return StrategyReport(summary={}, picks=[], excluded=[], explain=None)
+
+        prices = {
+            ("sh", "600000", date(2024, 1, 3)): AdjDailyPrice(10.0, 10.0, 10.0, 10.0, is_limit_up=True),
+            ("sh", "600000", date(2024, 1, 4)): AdjDailyPrice(9.0, 9.0, 9.0, 9.0),
+        }
+
+        def fake_daily_loader(_con, market, symbol, trade_date):
+            return prices.get((market, symbol, trade_date))
+
+        with patch("tdx_stocks.backtest.engine.load_adj_daily_price", side_effect=fake_daily_loader):
+            report = run_backtest(
+                config,
+                "trend-strength",
+                BacktestParams(
+                    from_date=date(2024, 1, 2),
+                    to_date=date(2024, 1, 5),
+                    hold_days=5,
+                    portfolio=PortfolioParams(initial_cash=1_000_000.0, max_positions=5, stop_loss_pct=0.08),
+                ),
+                open_query_context_fn=fake_open_query_context,
+                strategy_runner_fn=fake_runner,
+                trading_dates_fn=lambda con, from_date, to_date, market: trading_dates,
+            )
+
+        self.assertEqual(report.trade_count, 0)
+        self.assertEqual(report.period_count, 4)
+        self.assertIn("limit_up/suspended", report.periods[1]["skipped_reasons"])
+
+        prices[("sh", "600000", date(2024, 1, 3))] = AdjDailyPrice(10.0, 10.0, 10.0, 10.0)
+        report = run_portfolio_backtest(
+            config,
+            "trend-strength",
+            BacktestParams(
+                from_date=date(2024, 1, 2),
+                to_date=date(2024, 1, 5),
+                hold_days=5,
+                portfolio=PortfolioParams(initial_cash=1_000_000.0, max_positions=5, stop_loss_pct=0.08),
+            ),
+            open_query_context_fn=fake_open_query_context,
+            strategy_runner_fn=fake_runner,
+            daily_price_loader_fn=fake_daily_loader,
+            trading_dates_fn=lambda con, from_date, to_date, market: trading_dates,
+        )
+        self.assertEqual(report.trade_count, 1)
+        self.assertEqual(report.total_return, -0.02)
+        self.assertEqual(report.trades[0]["sell_date"], "2024-01-04")
+        self.assertEqual(report.trades[0]["gross_return"], -0.1)
+        self.assertEqual(report.trades[0]["shares"], 20000)
+
+    def test_backtest_price_flags_skip_buy_and_delay_sell(self) -> None:
+        config = AppConfig()
+
+        class FakeContext:
+            con = object()
+            manifest = {"summary": {}}
+
+            def close(self) -> None:
+                return None
+
+        def fake_open_query_context(_config):
+            return FakeContext()
+
+        def fake_runner(_config, params):
+            if params.as_of == date(2024, 1, 2):
+                return StrategyReport(
+                    summary={"eligible": 1, "excluded": 0},
+                    picks=[
+                        {
+                            "market": "sh",
+                            "symbol": "600000",
+                            "display_symbol": "600000.SH",
+                            "score": 90.0,
+                            "candidate_type": "breakout_watch",
+                        }
+                    ],
+                    excluded=[],
+                    explain=None,
+                )
+            return StrategyReport(summary={"eligible": 0, "excluded": 0}, picks=[], excluded=[], explain=None)
+
+        trading_dates = [
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            date(2024, 1, 4),
+            date(2024, 1, 5),
+            date(2024, 1, 6),
+        ]
+
+        def limit_up_loader(_con, _market, _symbol, trade_date):
+            return {
+                date(2024, 1, 3): AdjOpenPrice(10.0, is_limit_up=True),
+                date(2024, 1, 4): AdjOpenPrice(11.0),
+            }.get(trade_date)
+
+        limit_up_report = run_backtest(
+            config,
+            "trend-strength",
+            BacktestParams(from_date=trading_dates[0], to_date=trading_dates[-1], hold_days=1),
+            open_query_context_fn=fake_open_query_context,
+            strategy_runner_fn=fake_runner,
+            price_loader_fn=limit_up_loader,
+            trading_dates_fn=lambda con, from_date, to_date, market: trading_dates,
+        )
+        self.assertEqual(limit_up_report.trade_count, 0)
+        self.assertEqual(limit_up_report.trades[0]["skipped_reason"], "limit_up/suspended")
+
+        def limit_down_loader(_con, _market, _symbol, trade_date):
+            return {
+                date(2024, 1, 3): AdjOpenPrice(10.0),
+                date(2024, 1, 4): AdjOpenPrice(9.0, is_limit_down=True),
+                date(2024, 1, 5): AdjOpenPrice(12.0),
+            }.get(trade_date)
+
+        limit_down_report = run_backtest(
+            config,
+            "trend-strength",
+            BacktestParams(from_date=trading_dates[0], to_date=trading_dates[-1], hold_days=1),
+            open_query_context_fn=fake_open_query_context,
+            strategy_runner_fn=fake_runner,
+            price_loader_fn=limit_down_loader,
+            trading_dates_fn=lambda con, from_date, to_date, market: trading_dates,
+        )
+        self.assertEqual(limit_down_report.trade_count, 1)
+        self.assertEqual(limit_down_report.trades[0]["sell_date"], "2024-01-05")
+        self.assertEqual(limit_down_report.trades[0]["gross_return"], 0.2)
+
+        def short_loader(_con, _market, _symbol, trade_date):
+            return {
+                date(2024, 1, 3): AdjOpenPrice(10.0),
+                date(2024, 1, 4): AdjOpenPrice(8.0),
+            }.get(trade_date)
+
+        def short_runner(_config, params):
+            if params.as_of == date(2024, 1, 2):
+                return StrategyReport(
+                    summary={"eligible": 1, "excluded": 0},
+                    picks=[
+                        {
+                            "market": "sh",
+                            "symbol": "600001",
+                            "display_symbol": "600001.SH",
+                            "score": 88.0,
+                            "candidate_type": "pair_short",
+                            "direction": "SHORT",
+                        }
+                    ],
+                    excluded=[],
+                    explain=None,
+                )
+            return StrategyReport(summary={"eligible": 0, "excluded": 0}, picks=[], excluded=[], explain=None)
+
+        short_report = run_backtest(
+            config,
+            "pairs-arb",
+            BacktestParams(from_date=trading_dates[0], to_date=trading_dates[-1], hold_days=1),
+            open_query_context_fn=fake_open_query_context,
+            strategy_runner_fn=short_runner,
+            price_loader_fn=short_loader,
+            trading_dates_fn=lambda con, from_date, to_date, market: trading_dates,
+        )
+        self.assertEqual(short_report.trade_count, 1)
+        self.assertEqual(short_report.trades[0]["direction"], "SHORT")
+        self.assertGreater(short_report.trades[0]["net_return"], 0)
 
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_research_helpers_cover_compare_tune_forward_risk_and_consensus(self) -> None:

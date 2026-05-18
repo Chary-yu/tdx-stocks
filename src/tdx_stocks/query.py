@@ -71,39 +71,53 @@ def register_latest_views(con, manifest: dict) -> None:
             """
         )
     if all(key in manifest for key in ("factors", "factors_xsec", "factors_quality")):
+        xsec_columns = table_column_names(con, "factors_xsec")
+        quality_columns = table_column_names(con, "factors_quality")
+        xsec_selects = _build_factor_full_selects(
+            xsec_columns,
+            [
+                "rank_ret_20",
+                "rank_ret_60",
+                "pct_rank_ret_20",
+                "pct_rank_amount_ma20",
+                "pct_rank_vol_20",
+                "rs_ret_20",
+                "rs_ret_60",
+                "rs_score",
+                "is_top_ret_20",
+                "is_top_ret_60",
+                "is_new_high_60",
+                "is_new_high_120",
+                "is_new_high_250",
+                "pct_from_high_60",
+                "pct_from_high_120",
+                "amount_stability_20",
+                "vol_20_pct_rank",
+                "amount_ma20_pct_rank",
+                "atr_pct_14_pct_rank",
+                "risk_score",
+                "is_high_volatility",
+            ],
+            table_name="factors_xsec",
+        )
+        quality_selects = _build_factor_full_selects(
+            quality_columns,
+            [
+                "missing_price_flag",
+                "zero_amount_flag",
+                "invalid_ohlc_flag",
+                "stale_price_flag",
+                "extreme_return_flag",
+                "low_history_flag",
+                "quality_score",
+            ],
+            table_name="factors_quality",
+        )
         con.execute(
-            """
+            f"""
             CREATE OR REPLACE VIEW factor_full AS
             SELECT
-                factors.*,
-                factors_xsec.rank_ret_20,
-                factors_xsec.rank_ret_60,
-                factors_xsec.pct_rank_ret_20,
-                factors_xsec.pct_rank_amount_ma20,
-                factors_xsec.pct_rank_vol_20,
-                factors_xsec.rs_ret_20,
-                factors_xsec.rs_ret_60,
-                factors_xsec.rs_score,
-                factors_xsec.is_top_ret_20,
-                factors_xsec.is_top_ret_60,
-                factors_xsec.is_new_high_60,
-                factors_xsec.is_new_high_120,
-                factors_xsec.is_new_high_250,
-                factors_xsec.pct_from_high_60,
-                factors_xsec.pct_from_high_120,
-                factors_xsec.amount_stability_20,
-                factors_xsec.vol_20_pct_rank,
-                factors_xsec.amount_ma20_pct_rank,
-                factors_xsec.atr_pct_14_pct_rank,
-                factors_xsec.risk_score,
-                factors_xsec.is_high_volatility,
-                factors_quality.missing_price_flag,
-                factors_quality.zero_amount_flag,
-                factors_quality.invalid_ohlc_flag,
-                factors_quality.stale_price_flag,
-                factors_quality.extreme_return_flag,
-                factors_quality.low_history_flag,
-                factors_quality.quality_score
+                factors.*{xsec_selects}{quality_selects}
             FROM factors
             LEFT JOIN factors_xsec USING (market, symbol, trade_date, trade_year)
             LEFT JOIN factors_quality USING (market, symbol, trade_date, trade_year)
@@ -170,6 +184,16 @@ def register_query_macros(con) -> None:
         )
         """
     )
+
+
+def _build_factor_full_selects(available_columns: set[str], desired_columns: list[str], *, table_name: str) -> str:
+    select_parts: list[str] = []
+    for column in desired_columns:
+        if column in available_columns:
+            select_parts.append(f", {table_name}.{column}")
+        else:
+            select_parts.append(f", NULL AS {column}")
+    return "".join(select_parts)
 
 
 def table_path(manifest: dict, table: str) -> Path:

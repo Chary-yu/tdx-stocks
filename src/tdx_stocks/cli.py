@@ -44,7 +44,7 @@ from .commands.factors import (
     register_factors_group,
 )
 from .commands.sync import cmd_sync as _sync_cmd_sync, register_sync_group
-from .config import write_default_config
+from .config import AppConfig, load_config, write_default_config
 from .exit_codes import (
     CliError,
     ExitCode,
@@ -52,6 +52,7 @@ from .exit_codes import (
 )
 from .help_summary import write_markdown
 from .query import TABLES
+from .strategies.registry import load_plugins
 
 
 class TdxArgumentParser(argparse.ArgumentParser):
@@ -60,7 +61,14 @@ class TdxArgumentParser(argparse.ArgumentParser):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
+    try:
+        _load_plugins_for_argv(sys.argv[1:] if argv is None else argv)
+    except FileNotFoundError:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: {exc}", file=sys.stderr)
+        return int(ExitCode.UNKNOWN_ERROR)
+    parser = build_parser(load_default_plugins=False)
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
@@ -92,7 +100,9 @@ def main(argv: list[str] | None = None) -> int:
     return int(result)
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(*, load_default_plugins: bool = True) -> argparse.ArgumentParser:
+    if load_default_plugins:
+        load_plugins(AppConfig().paths.plugin_dir)
     parser = TdxArgumentParser(
         prog="tdx-stocks",
         epilog="Tip: use `tdx-stocks help-summary` to generate the markdown CLI manual.",
@@ -154,6 +164,21 @@ def build_parser() -> argparse.ArgumentParser:
     help_summary_parser.set_defaults(func=cmd_help_summary)
     _register_legacy_aliases(subparsers)
     return parser
+
+
+def _load_plugins_for_argv(argv: list[str]) -> None:
+    config_path = _find_config_arg(argv)
+    config = load_config(config_path) if config_path is not None else AppConfig()
+    load_plugins(config.paths.plugin_dir)
+
+
+def _find_config_arg(argv: list[str]) -> Path | None:
+    for index, item in enumerate(argv):
+        if item in {"--config", "-c"} and index + 1 < len(argv):
+            return Path(argv[index + 1])
+        if item.startswith("--config="):
+            return Path(item.split("=", 1)[1])
+    return None
 
 
 def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:

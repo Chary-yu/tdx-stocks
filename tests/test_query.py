@@ -571,6 +571,99 @@ class QueryHelpersTest(unittest.TestCase):
             con.close()
 
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_register_latest_views_allows_missing_optional_xsec_columns(self) -> None:
+        from tdx_stocks.query import register_latest_views, table_column_names
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            data_root = root / "Database"
+            factors_dir = data_root / "versions" / "run-1" / "parquet" / "factors"
+            xsec_dir = data_root / "versions" / "run-1" / "parquet" / "factors_xsec"
+            quality_dir = data_root / "versions" / "run-1" / "parquet" / "factors_quality"
+            for directory in (factors_dir, xsec_dir, quality_dir):
+                directory.mkdir(parents=True, exist_ok=True)
+
+            writer = duckdb.connect(":memory:")
+            try:
+                writer.execute(
+                    """
+                    CREATE TABLE factors (
+                        market VARCHAR,
+                        symbol VARCHAR,
+                        trade_date DATE,
+                        trade_year BIGINT
+                    )
+                    """
+                )
+                writer.execute(
+                    """
+                    INSERT INTO factors VALUES ('sh', '600000', DATE '2024-01-04', 2024)
+                    """
+                )
+                writer.execute(
+                    f"COPY factors TO '{(factors_dir / 'data.parquet').as_posix()}' (FORMAT PARQUET)"
+                )
+                writer.execute(
+                    """
+                    CREATE TABLE factors_xsec (
+                        market VARCHAR,
+                        symbol VARCHAR,
+                        trade_date DATE,
+                        trade_year BIGINT,
+                        rank_ret_20 BIGINT
+                    )
+                    """
+                )
+                writer.execute(
+                    """
+                    INSERT INTO factors_xsec VALUES ('sh', '600000', DATE '2024-01-04', 2024, 1)
+                    """
+                )
+                writer.execute(
+                    f"COPY factors_xsec TO '{(xsec_dir / 'data.parquet').as_posix()}' (FORMAT PARQUET)"
+                )
+                writer.execute(
+                    """
+                    CREATE TABLE factors_quality (
+                        market VARCHAR,
+                        symbol VARCHAR,
+                        trade_date DATE,
+                        trade_year BIGINT,
+                        missing_price_flag BIGINT
+                    )
+                    """
+                )
+                writer.execute(
+                    """
+                    INSERT INTO factors_quality VALUES ('sh', '600000', DATE '2024-01-04', 2024, 0)
+                    """
+                )
+                writer.execute(
+                    f"COPY factors_quality TO '{(quality_dir / 'data.parquet').as_posix()}' (FORMAT PARQUET)"
+                )
+            finally:
+                writer.close()
+
+            con = duckdb.connect(":memory:")
+            try:
+                register_latest_views(
+                    con,
+                    {
+                        "factors": factors_dir.as_posix(),
+                        "factors_xsec": xsec_dir.as_posix(),
+                        "factors_quality": quality_dir.as_posix(),
+                    },
+                )
+
+                columns = table_column_names(con, "factor_full")
+                self.assertIn("risk_score", columns)
+                self.assertIn("atr_pct_14_pct_rank", columns)
+                value = con.execute("SELECT atr_pct_14_pct_rank FROM factor_full WHERE symbol = '600000'").fetchone()[0]
+                self.assertIsNone(value)
+            finally:
+                con.close()
+
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_factors_generates_core_indicators_and_kdj(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -775,6 +868,21 @@ class QueryHelpersTest(unittest.TestCase):
         sql = render_build_factors_sql(Path("/tmp/in"), Path("/tmp/out"), "zstd")
         self.assertIn("ROUND(avg(dx_14)", sql)
         self.assertIn("least(100.0, greatest(0.0", sql)
+
+    def test_render_build_factors_sql_adds_tradeability_flags_and_incremental_filter(self) -> None:
+        sql = render_build_factors_sql(
+            Path("/tmp/in"),
+            Path("/tmp/out"),
+            "zstd",
+            from_date=date(2024, 1, 31),
+            max_window_days=10,
+        )
+        self.assertIn("AS is_limit_up", sql)
+        self.assertIn("AS is_limit_down", sql)
+        self.assertIn("AS is_suspended", sql)
+        self.assertIn("WHERE trade_date >= DATE '2024-01-21'", sql)
+        self.assertIn("WHERE s.trade_date > DATE '2024-01-31'", sql)
+        self.assertIn("APPEND", sql)
 
     def test_render_build_factors_sql_adds_configured_windows(self) -> None:
         spec = build_factor_spec((7, 30, 20))
