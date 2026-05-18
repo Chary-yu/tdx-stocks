@@ -12,6 +12,13 @@ from unittest.mock import patch
 
 from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_trend_strength
 from tdx_stocks.config import AppConfig, PathsConfig
+from tdx_stocks.backtest.research import (
+    analyze_forward_returns,
+    analyze_risk_tags,
+    backtest_consensus,
+    compare_backtests,
+    tune_strategy_parameters,
+)
 from tdx_stocks.exit_codes import NoDataError
 from tdx_stocks.backtest import BacktestParams, run_backtest
 from tdx_stocks.strategies.compare import compare_strategies
@@ -710,6 +717,21 @@ class StrategyCliTest(unittest.TestCase):
         self.assertEqual(args.from_date, "2024-01-01")
         self.assertEqual(args.to_date, "2024-02-01")
 
+        args = build_parser().parse_args(["strategy", "backtest-compare", "--from", "2024-01-01", "--to", "2024-02-01"])
+        self.assertEqual(args.strategy_command, "backtest-compare")
+
+        args = build_parser().parse_args(["strategy", "tune", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
+        self.assertEqual(args.strategy_command, "tune")
+
+        args = build_parser().parse_args(["strategy", "analyze-forward-returns", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
+        self.assertEqual(args.strategy_command, "analyze-forward-returns")
+
+        args = build_parser().parse_args(["strategy", "analyze-risk-tags", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
+        self.assertEqual(args.strategy_command, "analyze-risk-tags")
+
+        args = build_parser().parse_args(["strategy", "backtest-consensus", "--from", "2024-01-01", "--to", "2024-02-01"])
+        self.assertEqual(args.strategy_command, "backtest-consensus")
+
         args = build_parser().parse_args(["strategy", "reports", "list"])
         self.assertEqual(args.strategy_command, "reports")
         self.assertEqual(args.reports_command, "list")
@@ -1261,6 +1283,153 @@ class StrategyReportStorageTest(unittest.TestCase):
             self.assertGreater(report.total_return, 0.0)
             self.assertEqual(report.period_count, 4)
             self.assertEqual(report.empty_period_count, 3)
+
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_research_helpers_cover_compare_tune_forward_risk_and_consensus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_root = Path(tmpdir) / "Database"
+            config = AppConfig(paths=PathsConfig(data_root=data_root))
+            con = duckdb.connect(":memory:")
+            try:
+                compare_reports = [
+                    SimpleNamespace(
+                        total_return=0.10,
+                        annual_return=0.20,
+                        max_drawdown=-0.05,
+                        win_rate=0.60,
+                        avg_period_return=0.01,
+                        turnover=0.40,
+                        period_count=10,
+                        empty_period_count=1,
+                    ),
+                    SimpleNamespace(
+                        total_return=0.15,
+                        annual_return=0.25,
+                        max_drawdown=-0.03,
+                        win_rate=0.70,
+                        avg_period_return=0.02,
+                        turnover=0.50,
+                        period_count=10,
+                        empty_period_count=0,
+                    ),
+                ]
+                with patch("tdx_stocks.backtest.research.run_backtest", side_effect=compare_reports * 3):
+                    compare = compare_backtests(
+                        config,
+                        ["trend-strength", "low-vol-breakout"],
+                        BacktestParams(from_date=date(2024, 1, 1), to_date=date(2024, 1, 31)),
+                    )
+                    self.assertEqual(compare["rows"][0]["strategy_name"], "low-vol-breakout")
+                    tune = tune_strategy_parameters(
+                        config,
+                        "trend-strength",
+                        BacktestParams(from_date=date(2024, 1, 1), to_date=date(2024, 1, 31)),
+                        min_scores=[55.0, 60.0],
+                        tops=[10],
+                        hold_days=[5],
+                    )
+                    self.assertEqual(len(tune["rows"]), 2)
+                    self.assertGreaterEqual(tune["rows"][0]["research_score"], tune["rows"][1]["research_score"])
+
+                con.execute(
+                    """
+                    CREATE TABLE factors (
+                        market VARCHAR,
+                        symbol VARCHAR,
+                        trade_date DATE
+                    )
+                    """
+                )
+                con.execute(
+                    """
+                    INSERT INTO factors VALUES
+                        ('sh', '600000', DATE '2024-01-02'),
+                        ('sh', '600000', DATE '2024-01-03'),
+                        ('sh', '600000', DATE '2024-01-04'),
+                        ('sh', '600000', DATE '2024-01-05')
+                    """
+                )
+                con.execute(
+                    """
+                    CREATE TABLE adj_daily (
+                        market VARCHAR,
+                        symbol VARCHAR,
+                        trade_date DATE,
+                        adj_open DOUBLE
+                    )
+                    """
+                )
+                con.execute(
+                    """
+                    INSERT INTO adj_daily VALUES
+                        ('sh', '600000', DATE '2024-01-03', 10.0),
+                        ('sh', '600000', DATE '2024-01-04', 11.0),
+                        ('sh', '600000', DATE '2024-01-05', 12.0)
+                    """
+                )
+
+                class FakeContext:
+                    def __init__(self, con):
+                        self.con = con
+                        self.manifest = {"summary": {}}
+
+                    def close(self) -> None:
+                        return None
+
+                def fake_runner(_config, params):
+                    if params.as_of == date(2024, 1, 2):
+                        return StrategyReport(
+                            summary={"eligible": 1, "excluded": 0},
+                            picks=[
+                                {
+                                    "market": "sh",
+                                    "symbol": "600000",
+                                    "display_symbol": "600000.SH",
+                                    "score": 90.0,
+                                    "candidate_type": "breakout_watch",
+                                    "tags": ["breakout_watch"],
+                                    "risk_flags": ["rsi_high"],
+                                    "reasons": ["reason"],
+                                }
+                            ],
+                            excluded=[],
+                            explain=None,
+                        )
+                    return StrategyReport(summary={"eligible": 0, "excluded": 0}, picks=[], excluded=[], explain=None)
+
+                with patch("tdx_stocks.backtest.research.open_query_context", return_value=FakeContext(con)):
+                    with patch(
+                        "tdx_stocks.backtest.research.get_strategy",
+                        side_effect=lambda _name: SimpleNamespace(runner=fake_runner),
+                    ):
+                        forward = analyze_forward_returns(
+                            config,
+                            "trend-strength",
+                            BacktestParams(from_date=date(2024, 1, 2), to_date=date(2024, 1, 5), top=20),
+                            horizons=[1, 2],
+                        )
+                        self.assertEqual([row["horizon"] for row in forward["rows"]], [1, 2])
+                        self.assertGreaterEqual(forward["rows"][0]["sample_count"], 1)
+
+                        risk = analyze_risk_tags(
+                            config,
+                            "trend-strength",
+                            BacktestParams(from_date=date(2024, 1, 2), to_date=date(2024, 1, 5), top=20),
+                            horizons=[1, 2],
+                        )
+                        self.assertTrue(any(row["risk_tag"] == "rsi_high" for row in risk["rows"]))
+
+                        consensus = backtest_consensus(
+                            config,
+                            ["trend-strength", "low-vol-breakout"],
+                            BacktestParams(from_date=date(2024, 1, 2), to_date=date(2024, 1, 5), top=20, hold_days=1),
+                            min_hit=2,
+                        )
+                        self.assertEqual(consensus["trade_count"], 1)
+                        self.assertEqual(consensus["period_count"], 4)
+                        self.assertEqual(consensus["strategy_names"], ["trend-strength", "low-vol-breakout"])
+            finally:
+                con.close()
 
 
 if __name__ == "__main__":

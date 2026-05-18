@@ -19,6 +19,14 @@ from .exit_codes import BuildCheckFailedError, NoDataError
 from .factor_sql import build_factor_spec, factor_build_report
 from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily, copy_parquet_dataset, has_parquet_files
 from .export_io import build_export_adjustment_factor_result
+from .factors.quality import build_factor_quality, build_factor_quality_summary
+from .factors.reports import (
+    build_data_quality_report,
+    build_factor_catalog_report,
+    build_factor_quality_report,
+    write_json_atomic,
+)
+from .factors.xsec import build_xsec_factors
 from .parquet_io import (
     RawDailyWriter,
     adjustment_factors_schema,
@@ -176,10 +184,21 @@ def build_dataset(
             config.build.compression,
             factor_windows=config.factors.windows,
         )
+        _progress(progress, "Building factors_xsec")
+        build_xsec_factors(con, run_paths.factors_dir, run_paths.factors_xsec_dir, config.build.compression)
+        _progress(progress, "Building factors_quality")
+        build_factor_quality(
+            con,
+            run_paths.adj_daily_dir,
+            run_paths.factors_dir,
+            run_paths.factors_quality_dir,
+            config.build.compression,
+        )
         _progress(progress, "Checking factors")
         checks.append(check_factors(con, run_paths.factors_dir))
         _raise_on_errors(checks)
-        report = {
+        summary_checks = [check.to_dict() for check in checks]
+        build_report = {
             "run_id": run_id,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "tdx_vipdoc": config.paths.tdx_vipdoc.as_posix(),
@@ -194,8 +213,41 @@ def build_dataset(
             "cached_corporate_actions": has_parquet_files(cache_corporate_actions_dir),
             "cached_adjustment_factors": has_parquet_files(cache_adjustment_factors_dir),
             **factor_build_report(factor_spec),
-            "checks": [check.to_dict() for check in checks],
+            "checks": summary_checks,
         }
+        write_json_atomic(
+            run_paths.reports_dir / "factor_catalog_report.json",
+            build_factor_catalog_report(run_id, build_report["factor_version"]),
+        )
+        write_json_atomic(
+            run_paths.reports_dir / "data_quality_report.json",
+            build_data_quality_report(
+                {
+                    "run_id": run_id,
+                    "data_root": config.paths.data_root.as_posix(),
+                    "raw_rows_written": raw_writer.rows_written,
+                    "parsed_files": parsed_files,
+                    "factor_version": build_report["factor_version"],
+                    "checks": summary_checks,
+                },
+                summary_checks,
+            ),
+        )
+        write_json_atomic(
+            run_paths.reports_dir / "factor_quality_report.json",
+            build_factor_quality_report(
+                build_factor_quality_summary(con, run_paths.factors_dir),
+                [
+                    {"name": "missing_price_flag", "description": "缺失价格标记"},
+                    {"name": "zero_amount_flag", "description": "零成交额标记"},
+                    {"name": "invalid_ohlc_flag", "description": "OHLC 异常标记"},
+                    {"name": "stale_price_flag", "description": "价格停滞标记"},
+                    {"name": "extreme_return_flag", "description": "极端收益标记"},
+                    {"name": "low_history_flag", "description": "历史长度不足标记"},
+                ],
+            ),
+        )
+        report = build_report
         (run_paths.reports_dir / "build_report.json").write_text(
             json.dumps(report, ensure_ascii=True, indent=2),
             encoding="utf-8",
@@ -266,7 +318,12 @@ def commit_version(run_paths: RunPaths, report: dict) -> None:
         "adj_daily": (run_paths.version_dir / "parquet" / "adj_daily").as_posix(),
         "hfq_daily": (run_paths.version_dir / "parquet" / "hfq_daily").as_posix(),
         "factors": (run_paths.version_dir / "parquet" / "factors").as_posix(),
+        "factors_xsec": (run_paths.version_dir / "parquet" / "factors_xsec").as_posix(),
+        "factors_quality": (run_paths.version_dir / "parquet" / "factors_quality").as_posix(),
         "report": (run_paths.version_dir / "reports" / "build_report.json").as_posix(),
+        "factor_catalog_report": (run_paths.version_dir / "reports" / "factor_catalog_report.json").as_posix(),
+        "data_quality_report": (run_paths.version_dir / "reports" / "data_quality_report.json").as_posix(),
+        "factor_quality_report": (run_paths.version_dir / "reports" / "factor_quality_report.json").as_posix(),
         "summary": report,
     }
     tmp_path = run_paths.latest_manifest.with_suffix(".json.tmp")

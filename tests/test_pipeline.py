@@ -205,6 +205,12 @@ class PipelineTest(unittest.TestCase):
             version_dir = data_root / "versions" / report["run_id"]
             self.assertTrue((version_dir / "parquet" / "corporate_actions" / "data.parquet").exists())
             self.assertTrue((version_dir / "parquet" / "adjustment_factors" / "data.parquet").exists())
+            self.assertTrue(any((version_dir / "parquet" / "factors").rglob("*.parquet")))
+            self.assertTrue((version_dir / "parquet" / "factors_xsec").exists())
+            self.assertTrue((version_dir / "parquet" / "factors_quality").exists())
+            self.assertTrue((version_dir / "reports" / "factor_catalog_report.json").exists())
+            self.assertTrue((version_dir / "reports" / "data_quality_report.json").exists())
+            self.assertTrue((version_dir / "reports" / "factor_quality_report.json").exists())
             self.assertEqual(report["cached_corporate_actions"], True)
             self.assertEqual(report["cached_adjustment_factors"], True)
 

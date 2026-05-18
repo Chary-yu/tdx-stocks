@@ -13,6 +13,7 @@ from .commands.audit import (
 from .commands.data import (
     cmd_actions_status as _data_cmd_actions_status,
     cmd_build as _data_cmd_build,
+    cmd_quality_report as _data_cmd_quality_report,
     cmd_rebuild as _data_cmd_rebuild,
     cmd_update_actions as _data_cmd_update_actions,
     register_data_group,
@@ -34,6 +35,13 @@ from .commands.strategy import (
     cmd_strategy_run as _strategy_cmd_strategy_run,
     cmd_strategy_run_trend_strength as _strategy_cmd_strategy_run_trend_strength,
     register_strategy_group,
+)
+from .commands.factors import (
+    cmd_factors_describe as _factors_cmd_describe,
+    cmd_factors_list as _factors_cmd_list,
+    cmd_factors_rank as _factors_cmd_rank,
+    cmd_factors_schema as _factors_cmd_schema,
+    register_factors_group,
 )
 from .commands.sync import cmd_sync as _sync_cmd_sync, register_sync_group
 from .config import write_default_config
@@ -97,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_rebuild=cmd_rebuild,
         cmd_update_actions=cmd_update_actions,
         cmd_actions_status=cmd_actions_status,
+        cmd_quality_report=cmd_quality_report,
     )
     register_audit_group(
         subparsers,
@@ -118,6 +127,13 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers,
         cmd_strategy_list=cmd_strategy_list,
         cmd_strategy_run=cmd_strategy_run,
+    )
+    register_factors_group(
+        subparsers,
+        cmd_factors_list=cmd_factors_list,
+        cmd_factors_describe=cmd_factors_describe,
+        cmd_factors_schema=cmd_factors_schema,
+        cmd_factors_rank=cmd_factors_rank,
     )
     init_parser = subparsers.add_parser("init-config", help="Write a default TOML config.")
     init_parser.add_argument("--path", type=Path, default=Path("tdx_stocks.toml"))
@@ -207,6 +223,10 @@ def cmd_actions_status(args: argparse.Namespace) -> int:
     return _data_cmd_actions_status(args)
 
 
+def cmd_quality_report(args: argparse.Namespace) -> int:
+    return _data_cmd_quality_report(args)
+
+
 def cmd_verify_adjustment(args: argparse.Namespace) -> int:
     return _audit_cmd_verify_adjustment(args)
 
@@ -253,6 +273,22 @@ def cmd_strategy_run_trend_strength(args: argparse.Namespace) -> int:
 
 def cmd_strategy_list(args: argparse.Namespace) -> int:
     return _strategy_cmd_strategy_list(args)
+
+
+def cmd_factors_list(args: argparse.Namespace) -> int:
+    return _factors_cmd_list(args)
+
+
+def cmd_factors_describe(args: argparse.Namespace) -> int:
+    return _factors_cmd_describe(args)
+
+
+def cmd_factors_schema(args: argparse.Namespace) -> int:
+    return _factors_cmd_schema(args)
+
+
+def cmd_factors_rank(args: argparse.Namespace) -> int:
+    return _factors_cmd_rank(args)
 
 if __name__ == "__main__":
     raise SystemExit(main())

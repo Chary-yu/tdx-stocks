@@ -17,6 +17,9 @@ TABLES = (
     "adj_daily",
     "hfq_daily",
     "factors",
+    "factors_xsec",
+    "factors_quality",
+    "factor_full",
 )
 SCALED_COLUMNS = {"volume", "amount"}
 SQL_COMMENT_RE = re.compile(r"(--[^\n]*|/\*.*?\*/)", re.DOTALL)
@@ -57,12 +60,52 @@ def open_query_context(config: AppConfig) -> QueryContext:
 
 def register_latest_views(con, manifest: dict) -> None:
     for table in TABLES:
+        if table not in manifest:
+            continue
         path = table_path(manifest, table)
         con.execute(
             f"""
             CREATE OR REPLACE VIEW {table} AS
             SELECT *
             FROM read_parquet('{sql_literal(parquet_glob(path))}', hive_partitioning=true)
+            """
+        )
+    if all(key in manifest for key in ("factors", "factors_xsec", "factors_quality")):
+        con.execute(
+            """
+            CREATE OR REPLACE VIEW factor_full AS
+            SELECT
+                factors.*,
+                factors_xsec.rank_ret_20,
+                factors_xsec.rank_ret_60,
+                factors_xsec.pct_rank_ret_20,
+                factors_xsec.pct_rank_amount_ma20,
+                factors_xsec.pct_rank_vol_20,
+                factors_xsec.rs_ret_20,
+                factors_xsec.rs_ret_60,
+                factors_xsec.rs_score,
+                factors_xsec.is_top_ret_20,
+                factors_xsec.is_top_ret_60,
+                factors_xsec.is_new_high_60,
+                factors_xsec.is_new_high_120,
+                factors_xsec.is_new_high_250,
+                factors_xsec.pct_from_high_60,
+                factors_xsec.pct_from_high_120,
+                factors_xsec.amount_stability_20,
+                factors_xsec.vol_20_pct_rank,
+                factors_xsec.amount_ma20_pct_rank,
+                factors_xsec.risk_score AS xsec_risk_score,
+                factors_xsec.is_high_volatility AS xsec_is_high_volatility,
+                factors_quality.missing_price_flag,
+                factors_quality.zero_amount_flag,
+                factors_quality.invalid_ohlc_flag,
+                factors_quality.stale_price_flag,
+                factors_quality.extreme_return_flag,
+                factors_quality.low_history_flag,
+                factors_quality.quality_score
+            FROM factors
+            LEFT JOIN factors_xsec USING (market, symbol, trade_date, trade_year)
+            LEFT JOIN factors_quality USING (market, symbol, trade_date, trade_year)
             """
         )
 
@@ -556,12 +599,31 @@ def format_bytes(value: int) -> str:
 
 def table_summary(con, manifest: dict, table: str) -> dict:
     validate_table(table)
+    factor_full_available = all(key in manifest for key in ("factors", "factors_xsec", "factors_quality"))
+    if table == "factor_full" and not factor_full_available:
+        return {
+            "table": table,
+            "rows": 0,
+            "disk": "0 B",
+            "path": None,
+            "exists": False,
+        }
+    if table != "factor_full" and table not in manifest:
+        return {
+            "table": table,
+            "rows": 0,
+            "disk": "0 B",
+            "path": None,
+            "exists": False,
+        }
     columns = table_column_names(con, table)
+    path = table_path(manifest, table) if table in manifest else None
     metrics = {
         "table": table,
         "rows": con.execute(f"SELECT count(*) FROM {table}").fetchone()[0],
-        "disk": format_bytes(disk_usage(table_path(manifest, table))),
-        "path": table_path(manifest, table).as_posix(),
+        "disk": format_bytes(disk_usage(path)) if path is not None else "0 B",
+        "path": path.as_posix() if path is not None else None,
+        "exists": True,
     }
     if "symbol" in columns:
         metrics["symbols"] = con.execute(

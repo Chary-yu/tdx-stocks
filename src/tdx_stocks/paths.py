@@ -66,10 +66,24 @@ class RunPaths:
         return self.parquet_dir / "factors"
 
     @property
+    def factors_xsec_dir(self) -> Path:
+        return self.parquet_dir / "factors_xsec"
+
+    @property
+    def factors_quality_dir(self) -> Path:
+        return self.parquet_dir / "factors_quality"
+
+    @property
     def duckdb_tmp_dir(self) -> Path:
         return self.data_root / "duckdb" / "tmp"
 
 
 def ensure_base_dirs(data_root: Path) -> None:
-    for name in ("_staging", "versions", "duckdb/tmp", "cache/corporate_actions", "cache/adjustment_factors"):
+    for name in (
+        "_staging",
+        "versions",
+        "duckdb/tmp",
+        "cache/corporate_actions",
+        "cache/adjustment_factors",
+    ):
         (data_root / name).mkdir(parents=True, exist_ok=True)

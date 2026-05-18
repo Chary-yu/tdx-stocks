@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from ..config import load_config
 from ..console import print_json, print_key_values
+from ..factors.reports import build_data_quality_report, write_json_atomic
 from ..duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 from ..pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
 from ..query import normalize_output_data
@@ -58,6 +59,7 @@ def register_data_group(
     cmd_rebuild: Callable[[argparse.Namespace], int],
     cmd_update_actions: Callable[[argparse.Namespace], int],
     cmd_actions_status: Callable[[argparse.Namespace], int],
+    cmd_quality_report: Callable[[argparse.Namespace], int],
 ) -> None:
     data_parser = subparsers.add_parser(
         "data",
@@ -103,6 +105,14 @@ def register_data_group(
     add_config_arg(rebuild_parser)
     add_build_args(rebuild_parser)
     rebuild_parser.set_defaults(func=cmd_rebuild)
+
+    quality_parser = data_subparsers.add_parser(
+        "quality-report",
+        help="Write a data quality report for the latest dataset.",
+    )
+    add_config_arg(quality_parser)
+    quality_parser.add_argument("--json", action="store_true")
+    quality_parser.set_defaults(func=cmd_quality_report)
 
 
 def register_legacy_data_aliases(
@@ -305,4 +315,46 @@ def cmd_actions_status(args: argparse.Namespace) -> int:
                 rows.append(("action_update_report.date_range.min", date_range.get("min")))
                 rows.append(("action_update_report.date_range.max", date_range.get("max")))
         print_key_values("action update report", rows)
+    return 0
+
+
+def cmd_quality_report(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    latest = config.paths.data_root / "latest.json"
+    if not latest.exists():
+        raise FileNotFoundError(f"latest manifest not found: {latest}")
+    manifest = json.loads(latest.read_text(encoding="utf-8"))
+    summary = manifest.get("summary", {})
+    report = build_data_quality_report(
+        {
+            "run_id": manifest.get("run_id"),
+            "data_root": config.paths.data_root.as_posix(),
+            "version_dir": manifest.get("version_dir"),
+            "generated_at": summary.get("generated_at") if isinstance(summary, dict) else None,
+            "factor_version": summary.get("factor_version") if isinstance(summary, dict) else None,
+        },
+        summary.get("checks", []) if isinstance(summary, dict) else [],
+    )
+    report_path = (
+        config.paths.data_root
+        / "versions"
+        / str(manifest.get("run_id") or "latest")
+        / "reports"
+        / "data_quality_report.json"
+    )
+    write_json_atomic(report_path, report)
+    if getattr(args, "json", False):
+        print_json(normalize_output_data(report))
+    else:
+        print_key_values(
+            "data quality report",
+            [
+                ("run_id", report["summary"].get("run_id")),
+                ("factor_version", report["summary"].get("factor_version")),
+                ("generated_at", report["generated_at"]),
+                ("checks", len(report["checks"])),
+                ("report_path", report_path.as_posix()),
+            ],
+        )
     return 0
