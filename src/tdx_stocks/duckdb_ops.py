@@ -138,7 +138,13 @@ def copy_parquet_dataset(con, source_dir: Path, output_dir: Path, compression: s
     )
 
 
-def build_factors(con, adj_daily_dir: Path, output_dir: Path, compression: str) -> None:
+def build_factors(
+    con,
+    adj_daily_dir: Path,
+    output_dir: Path,
+    compression: str,
+    factor_windows: tuple[int, ...] | None = None,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    for statement in build_factors_statements(adj_daily_dir, output_dir, compression):
+    for statement in build_factors_statements(adj_daily_dir, output_dir, compression, factor_windows):
         con.execute(statement)

@@ -4,11 +4,12 @@
 
 | 命令 | 功能 |
 | --- | --- |
-| `init-config` | Write a default TOML config. |
-| `sync` | Synchronize export-derived data and rebuild. |
 | `data` | Data pipeline commands. |
 | `audit` | Audit and diagnostics commands. |
 | `query` | Read-only inspection and query commands. |
+| `strategy` | Strategy analysis commands. |
+| `init-config` | Write a default TOML config. |
+| `sync` | Synchronize export-derived data and rebuild. |
 | `help-summary` | Generate a markdown summary of the CLI. |
 
 ## 兼容别名
@@ -35,30 +36,13 @@
 
 | 命令 | 功能 |
 | --- | --- |
-| `init-config` | Write a default TOML config. |
-| `sync` | Synchronize export-derived data and rebuild. |
 | `data` | Data pipeline commands. |
 | `audit` | Audit and diagnostics commands. |
 | `query` | Read-only inspection and query commands. |
+| `strategy` | Strategy analysis commands. |
+| `init-config` | Write a default TOML config. |
+| `sync` | Synchronize export-derived data and rebuild. |
 | `help-summary` | Generate a markdown summary of the CLI. |
-
-#### `init-config`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--path` | (default: tdx_stocks.toml) |
-
-#### `sync`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--from-date` |  |
-| `--to-date` |  |
-| `--limit-symbols` |  |
-| `--overwrite-staging` |  |
-| `--dry-run` |  |
-| `--json` |  |
 
 #### `data`
 
@@ -235,6 +219,142 @@
 | `--json` |  |
 | `--to` |  |
 | `--no-limit` |  |
+
+#### `strategy`
+
+| 参数 | 说明 |
+| --- | --- |
+
+#### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `list` | List available strategy presets. |
+| `run` | Run a strategy and emit a report. |
+
+##### `strategy list`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--json` |  |
+
+##### `strategy run`
+
+| 参数 | 说明 |
+| --- | --- |
+
+##### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `low-vol-breakout` | Generate a low-volatility breakout observation pool. |
+| `ma-pullback` | Generate a moving-average pullback observation pool. |
+| `relative-strength` | Generate a relative-strength observation pool. |
+| `trend-strength` | Generate the short-term trend observation pool. |
+| `volume-breakout` | Generate a volume breakout observation pool. |
+
+###### `strategy run low-vol-breakout`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--to` |  |
+
+###### `strategy run ma-pullback`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--to` |  |
+
+###### `strategy run relative-strength`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--to` |  |
+
+###### `strategy run trend-strength`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--to` |  |
+
+###### `strategy run volume-breakout`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--to` |  |
+
+#### `init-config`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--path` | (default: tdx_stocks.toml) |
+
+#### `sync`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--from-date` |  |
+| `--to-date` |  |
+| `--limit-symbols` |  |
+| `--overwrite-staging` |  |
+| `--dry-run` |  |
+| `--json` |  |
 
 #### `help-summary`
 

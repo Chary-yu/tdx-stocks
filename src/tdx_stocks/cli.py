@@ -6,8 +6,13 @@ import sys
 from pathlib import Path
 
 from .adjustment_verify import build_adjustment_verification_report
+from .commands.audit import register_audit_group, register_legacy_audit_aliases
+from .commands.common import legacy_notice as _legacy_notice, stderr_progress, write_lock as _write_lock
+from .commands.data import register_data_group, register_legacy_data_aliases
+from .commands.query import register_legacy_query_aliases, register_query_group
+from .commands.strategy import register_strategy_group
 from .config import load_config, write_default_config
-from .console import print_json, print_key_values, print_notice, print_table
+from .console import print_json, print_key_values, print_table
 from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 from .exit_codes import (
     CliError,
@@ -16,7 +21,6 @@ from .exit_codes import (
     VerificationFailedError,
 )
 from .help_summary import write_markdown
-from .lock import acquire_database_lock
 from .pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
 from .query import (
     TABLES,
@@ -83,24 +87,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    _register_init_config(subparsers)
-    _register_sync(subparsers)
-    _register_data_group(subparsers)
-    _register_audit_group(subparsers)
-    _register_query_group(subparsers)
-    _register_strategy_group(subparsers)
-    _register_help_summary(subparsers)
-    _register_legacy_aliases(subparsers)
-    return parser
-
-
-def _register_init_config(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    register_data_group(
+        subparsers,
+        cmd_build=cmd_build,
+        cmd_rebuild=cmd_rebuild,
+        cmd_update_actions=cmd_update_actions,
+        cmd_actions_status=cmd_actions_status,
+    )
+    register_audit_group(
+        subparsers,
+        cmd_doctor=cmd_doctor,
+        cmd_verify_adjustment=cmd_verify_adjustment,
+    )
+    register_query_group(
+        subparsers,
+        tables=tuple(TABLES),
+        cmd_status=cmd_status,
+        cmd_stock=cmd_stock,
+        cmd_head=cmd_head,
+        cmd_tables=cmd_tables,
+        cmd_schema=cmd_schema,
+        cmd_sql=cmd_sql,
+        cmd_export=cmd_export,
+    )
+    register_strategy_group(
+        subparsers,
+        cmd_strategy_list=cmd_strategy_list,
+        cmd_strategy_run=cmd_strategy_run,
+    )
     init_parser = subparsers.add_parser("init-config", help="Write a default TOML config.")
     init_parser.add_argument("--path", type=Path, default=Path("tdx_stocks.toml"))
     init_parser.set_defaults(func=cmd_init_config)
 
-
-def _register_sync(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     sync_parser = subparsers.add_parser("sync", help="Synchronize export-derived data and rebuild.")
     sync_parser.add_argument("--config", type=Path)
     sync_parser.add_argument("--from-date", dest="from_date")
@@ -111,163 +129,6 @@ def _register_sync(subparsers: argparse._SubParsersAction[argparse.ArgumentParse
     sync_parser.add_argument("--json", action="store_true")
     sync_parser.set_defaults(func=cmd_sync)
 
-
-def _register_data_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    data_parser = subparsers.add_parser(
-        "data",
-        help="Data pipeline commands.",
-        description="Commands that refresh caches and rebuild versioned data.",
-    )
-    data_subparsers = data_parser.add_subparsers(dest="data_command", required=True)
-
-    update_parser = data_subparsers.add_parser("update", help="Refresh cached corporate actions.")
-    _add_config_arg(update_parser)
-    update_parser.add_argument(
-        "--source",
-        choices=("local", "official", "file", "export"),
-        default="local",
-        help="Update source label for the report.",
-    )
-    update_parser.add_argument(
-        "--input",
-        type=Path,
-        help="Optional CSV file or directory containing corporate_actions.csv and adjustment_factors.csv.",
-    )
-    update_parser.add_argument("--dry-run", action="store_true")
-    update_parser.add_argument("--json", action="store_true")
-    update_parser.set_defaults(func=cmd_update_actions)
-
-    status_parser = data_subparsers.add_parser(
-        "status",
-        help="Show cached corporate actions and adjustment factor status.",
-    )
-    _add_config_arg(status_parser)
-    status_parser.add_argument("--json", action="store_true")
-    status_parser.set_defaults(func=cmd_actions_status)
-
-    build_parser = data_subparsers.add_parser("build", help="Build a versioned local dataset.")
-    _add_config_arg(build_parser)
-    _add_build_args(build_parser)
-    build_parser.set_defaults(func=cmd_build)
-
-    rebuild_parser = data_subparsers.add_parser(
-        "rebuild",
-        help="Clear the current database and rebuild from local TDX data.",
-    )
-    _add_config_arg(rebuild_parser)
-    _add_build_args(rebuild_parser)
-    rebuild_parser.set_defaults(func=cmd_rebuild)
-
-
-def _register_audit_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    audit_parser = subparsers.add_parser(
-        "audit",
-        help="Audit and diagnostics commands.",
-        description="Commands for environment checks and adjustment verification.",
-    )
-    audit_subparsers = audit_parser.add_subparsers(dest="audit_command", required=True)
-
-    doctor_parser = audit_subparsers.add_parser("doctor", help="Check paths and dependency imports.")
-    _add_config_arg(doctor_parser)
-    doctor_parser.set_defaults(func=cmd_doctor)
-
-    verify_parser = audit_subparsers.add_parser(
-        "verify",
-        help="Compare adj_daily against TDX export front-adjusted text.",
-    )
-    _add_config_arg(verify_parser)
-    verify_parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
-    verify_parser.add_argument("--input", type=Path, help="Optional export file or directory override.")
-    verify_parser.add_argument("--from-date", dest="from_date")
-    verify_parser.add_argument("--to-date", dest="to_date")
-    verify_parser.add_argument("--threshold", type=float, default=0.01)
-    verify_parser.add_argument("--json", action="store_true")
-    verify_parser.set_defaults(func=cmd_verify_adjustment)
-
-
-def _register_query_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    query_parser = subparsers.add_parser(
-        "query",
-        help="Read-only inspection and query commands.",
-        description="Commands that inspect the latest versioned dataset.",
-    )
-    query_subparsers = query_parser.add_subparsers(dest="query_command", required=True)
-
-    status_parser = query_subparsers.add_parser("status", help="Show latest dataset status.")
-    _add_config_arg(status_parser)
-    status_parser.add_argument("--json", action="store_true")
-    status_parser.set_defaults(func=cmd_status)
-
-    price_parser = query_subparsers.add_parser(
-        "price",
-        help="Show merged daily rows and factors for one stock code.",
-    )
-    _add_stock_args(price_parser)
-    price_parser.set_defaults(func=cmd_stock)
-
-    table_parser = query_subparsers.add_parser("table", help="Show rows from a latest table.")
-    _add_query_args(table_parser, default_limit=20)
-    table_parser.set_defaults(func=cmd_head)
-
-    tables_parser = query_subparsers.add_parser("tables", help="Show latest table summaries.")
-    _add_config_arg(tables_parser)
-    tables_parser.add_argument("--json", action="store_true")
-    tables_parser.set_defaults(func=cmd_tables)
-
-    schema_parser = query_subparsers.add_parser("schema", help="Show a table schema.")
-    _add_config_arg(schema_parser)
-    schema_parser.add_argument("table", choices=TABLES)
-    schema_parser.add_argument("--json", action="store_true")
-    schema_parser.set_defaults(func=cmd_schema)
-
-    sql_parser = query_subparsers.add_parser("sql", help="Run SQL against latest table views.")
-    _add_config_arg(sql_parser)
-    sql_parser.add_argument("sql")
-    sql_parser.add_argument("--limit", type=int, default=100)
-    sql_parser.add_argument("--json", action="store_true")
-    sql_parser.set_defaults(func=cmd_sql)
-
-    export_parser = query_subparsers.add_parser("export", help="Export a filtered table query to CSV.")
-    _add_query_args(export_parser, default_limit=1000)
-    export_parser.add_argument("--to", type=Path, required=True)
-    export_parser.add_argument("--no-limit", action="store_true")
-    export_parser.set_defaults(func=cmd_export)
-
-
-def _register_strategy_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    strategy_parser = subparsers.add_parser(
-        "strategy",
-        help="Strategy analysis commands.",
-        description="Commands that generate read-only observation pools from the latest dataset.",
-    )
-    strategy_subparsers = strategy_parser.add_subparsers(dest="strategy_command", required=True)
-
-    run_parser = strategy_subparsers.add_parser("run", help="Run a strategy and emit a report.")
-    run_subparsers = run_parser.add_subparsers(dest="strategy_name", required=True)
-
-    trend_parser = run_subparsers.add_parser(
-        "trend-strength",
-        help="Generate the short-term trend observation pool.",
-    )
-    _add_config_arg(trend_parser)
-    trend_parser.add_argument("--limit", type=int, default=20)
-    trend_parser.add_argument("--json", action="store_true")
-    trend_parser.add_argument("--as-of")
-    trend_parser.add_argument("--market", choices=("sh", "sz", "bj"))
-    trend_parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
-    trend_parser.add_argument("--min-score", type=float, default=60.0)
-    trend_parser.add_argument(
-        "--candidate-type",
-        choices=("strong_trend", "breakout_watch", "pullback_watch"),
-    )
-    trend_parser.add_argument("--include-excluded", action="store_true")
-    trend_parser.add_argument("--show-excluded-limit", type=int, default=20)
-    trend_parser.add_argument("--explain-symbol")
-    trend_parser.add_argument("--to", type=Path)
-    trend_parser.set_defaults(func=cmd_strategy_run_trend_strength)
-
-
-def _register_help_summary(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     help_summary_parser = subparsers.add_parser(
         "help-summary",
         help="Generate a markdown summary of the CLI.",
@@ -279,131 +140,34 @@ def _register_help_summary(subparsers: argparse._SubParsersAction[argparse.Argum
         help="Output markdown path, or - for stdout.",
     )
     help_summary_parser.set_defaults(func=cmd_help_summary)
+    _register_legacy_aliases(subparsers)
+    return parser
 
 
 def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    build_parser = subparsers.add_parser("build", help=argparse.SUPPRESS)
-    build_parser._legacy_target = "data build"
-    _add_config_arg(build_parser)
-    _add_build_args(build_parser)
-    build_parser.set_defaults(func=_legacy_build_alias)
-
-    rebuild_parser = subparsers.add_parser("rebuild", help=argparse.SUPPRESS)
-    rebuild_parser._legacy_target = "data rebuild"
-    _add_config_arg(rebuild_parser)
-    _add_build_args(rebuild_parser)
-    rebuild_parser.set_defaults(func=_legacy_rebuild_alias)
-
-    update_parser = subparsers.add_parser("update-actions", help=argparse.SUPPRESS)
-    update_parser._legacy_target = "data update"
-    _add_config_arg(update_parser)
-    update_parser.add_argument(
-        "--source",
-        choices=("local", "official", "file", "export"),
-        default="local",
+    register_legacy_data_aliases(
+        subparsers,
+        cmd_build=cmd_build,
+        cmd_rebuild=cmd_rebuild,
+        cmd_update_actions=cmd_update_actions,
+        cmd_actions_status=cmd_actions_status,
     )
-    update_parser.add_argument(
-        "--input",
-        type=Path,
-        help="Optional CSV file or directory containing corporate_actions.csv and adjustment_factors.csv.",
+    register_legacy_audit_aliases(
+        subparsers,
+        cmd_doctor=cmd_doctor,
+        cmd_verify_adjustment=cmd_verify_adjustment,
     )
-    update_parser.add_argument("--dry-run", action="store_true")
-    update_parser.add_argument("--json", action="store_true")
-    update_parser.set_defaults(func=_legacy_update_actions_alias)
-
-    actions_status_parser = subparsers.add_parser("actions-status", help=argparse.SUPPRESS)
-    actions_status_parser._legacy_target = "data status"
-    _add_config_arg(actions_status_parser)
-    actions_status_parser.add_argument("--json", action="store_true")
-    actions_status_parser.set_defaults(func=cmd_actions_status)
-
-    verify_parser = subparsers.add_parser("verify-adjustment", help=argparse.SUPPRESS)
-    verify_parser._legacy_target = "audit verify"
-    _add_config_arg(verify_parser)
-    verify_parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
-    verify_parser.add_argument("--input", type=Path, help="Optional export file or directory override.")
-    verify_parser.add_argument("--from-date", dest="from_date")
-    verify_parser.add_argument("--to-date", dest="to_date")
-    verify_parser.add_argument("--threshold", type=float, default=0.01)
-    verify_parser.add_argument("--json", action="store_true")
-    verify_parser.set_defaults(func=_legacy_verify_alias)
-
-    doctor_parser = subparsers.add_parser("doctor", help=argparse.SUPPRESS)
-    doctor_parser._legacy_target = "audit doctor"
-    _add_config_arg(doctor_parser)
-    doctor_parser.set_defaults(func=cmd_doctor)
-
-    status_parser = subparsers.add_parser("status", help=argparse.SUPPRESS)
-    status_parser._legacy_target = "query status"
-    _add_config_arg(status_parser)
-    status_parser.add_argument("--json", action="store_true")
-    status_parser.set_defaults(func=cmd_status)
-
-    tables_parser = subparsers.add_parser("tables", help=argparse.SUPPRESS)
-    tables_parser._legacy_target = "query tables"
-    _add_config_arg(tables_parser)
-    tables_parser.add_argument("--json", action="store_true")
-    tables_parser.set_defaults(func=cmd_tables)
-
-    schema_parser = subparsers.add_parser("schema", help=argparse.SUPPRESS)
-    schema_parser._legacy_target = "query schema"
-    _add_config_arg(schema_parser)
-    schema_parser.add_argument("table", choices=TABLES)
-    schema_parser.add_argument("--json", action="store_true")
-    schema_parser.set_defaults(func=_legacy_schema_alias)
-
-    head_parser = subparsers.add_parser("head", help=argparse.SUPPRESS)
-    head_parser._legacy_target = "query table"
-    _add_config_arg(head_parser)
-    _add_query_args(head_parser, default_limit=20)
-    head_parser.set_defaults(func=_legacy_head_alias)
-
-    stock_parser = subparsers.add_parser("stock", help=argparse.SUPPRESS)
-    stock_parser._legacy_target = "query price"
-    _add_config_arg(stock_parser)
-    _add_stock_args(stock_parser)
-    stock_parser.set_defaults(func=_legacy_stock_alias)
-
-    sql_parser = subparsers.add_parser("sql", help=argparse.SUPPRESS)
-    sql_parser._legacy_target = "query sql"
-    _add_config_arg(sql_parser)
-    sql_parser.add_argument("sql")
-    sql_parser.add_argument("--limit", type=int, default=100)
-    sql_parser.add_argument("--json", action="store_true")
-    sql_parser.set_defaults(func=_legacy_sql_alias)
-
-    export_parser = subparsers.add_parser("export", help=argparse.SUPPRESS)
-    export_parser._legacy_target = "query export"
-    _add_config_arg(export_parser)
-    _add_query_args(export_parser, default_limit=1000)
-    export_parser.add_argument("--to", type=Path, required=True)
-    export_parser.add_argument("--no-limit", action="store_true")
-    export_parser.set_defaults(func=_legacy_export_alias)
-
-
-def _add_config_arg(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path)
-
-
-def _add_build_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--from-date", dest="from_date")
-    parser.add_argument("--to-date", dest="to_date")
-    parser.add_argument("--limit-symbols", type=int)
-    parser.add_argument("--overwrite-staging", action="store_true")
-
-
-def _add_query_args(parser: argparse.ArgumentParser, default_limit: int) -> None:
-    parser.add_argument("table", choices=TABLES)
-    parser.add_argument("--limit", type=int, default=default_limit)
-    parser.add_argument("--columns", help="Comma-separated output columns.")
-    parser.add_argument("--symbol")
-    parser.add_argument("--market", choices=("sh", "sz", "bj"))
-    parser.add_argument("--from-date", dest="from_date")
-    parser.add_argument("--to-date", dest="to_date")
-    parser.add_argument("--where", help="Extra SQL WHERE expression.")
-    parser.add_argument("--order-by")
-    parser.add_argument("--desc", action="store_true")
-    parser.add_argument("--json", action="store_true")
+    register_legacy_query_aliases(
+        subparsers,
+        tables=tuple(TABLES),
+        cmd_status=cmd_status,
+        cmd_tables=cmd_tables,
+        cmd_schema=cmd_schema,
+        cmd_head=cmd_head,
+        cmd_stock=cmd_stock,
+        cmd_sql=cmd_sql,
+        cmd_export=cmd_export,
+    )
 
 
 def parse_columns(value: str | None) -> list[str] | None:
@@ -411,32 +175,6 @@ def parse_columns(value: str | None) -> list[str] | None:
         return None
     columns = [column.strip() for column in value.split(",")]
     return [column for column in columns if column]
-
-
-def _add_stock_args(parser: argparse.ArgumentParser, default_limit: int = 100) -> None:
-    parser.add_argument("symbol", help="Stock code such as 600519.SH or sh600519.")
-    parser.add_argument("--limit", type=int, default=default_limit)
-    parser.add_argument("--adjust", choices=("raw", "qfq", "hfq"), default="qfq")
-    parser.add_argument("--from-date", dest="from_date")
-    parser.add_argument("--to-date", dest="to_date")
-    parser.add_argument("--asc", dest="desc", action="store_false")
-    parser.set_defaults(desc=True)
-    parser.add_argument("--no-limit", action="store_true")
-    parser.add_argument("--json", action="store_true")
-
-
-def _legacy_notice(args: argparse.Namespace) -> None:
-    target = getattr(args, "_legacy_target", None)
-    if target and not getattr(args, "json", False):
-        print_notice(f"提示: 该命令已升级。建议下次使用 {target}。")
-
-
-def _lock_path(config) -> Path:
-    return config.paths.data_root / ".lock"
-
-
-def _write_lock(config, command: str):
-    return acquire_database_lock(_lock_path(config), command)
 
 
 def cmd_init_config(args: argparse.Namespace) -> int:
@@ -932,25 +670,23 @@ def _join_tokens(values: object, max_items: int = 4) -> str:
     return "/".join(items[:max_items]) + "..."
 
 
-def cmd_strategy_run_trend_strength(args: argparse.Namespace) -> int:
-    _legacy_notice(args)
-    config = load_config(args.config)
-    report = run_trend_strength_strategy(
-        config,
-        StrategyParams(
-            limit=args.limit,
-            min_score=args.min_score,
-            min_amount_ma20=args.min_amount_ma20,
-            market=args.market,
-            candidate_type=args.candidate_type,
-            include_excluded=args.include_excluded,
-            show_excluded_limit=args.show_excluded_limit,
-            explain_symbol=args.explain_symbol,
-            as_of=parse_iso_date(args.as_of),
-            to=args.to,
-            json=args.json,
-        ),
+def _build_strategy_params(args: argparse.Namespace) -> StrategyParams:
+    return StrategyParams(
+        limit=args.limit,
+        min_score=args.min_score,
+        min_amount_ma20=args.min_amount_ma20,
+        market=args.market,
+        candidate_type=args.candidate_type,
+        include_excluded=args.include_excluded,
+        show_excluded_limit=args.show_excluded_limit,
+        explain_symbol=args.explain_symbol,
+        as_of=parse_iso_date(args.as_of),
+        to=args.to,
+        json=args.json,
     )
+
+
+def _write_strategy_output(report, args: argparse.Namespace) -> None:
     report_dict = report.to_dict()
     if args.to is not None:
         args.to.parent.mkdir(parents=True, exist_ok=True)
@@ -960,6 +696,42 @@ def cmd_strategy_run_trend_strength(args: argparse.Namespace) -> int:
         print_json(report_dict)
     else:
         _print_strategy_table(report.picks)
+
+
+def cmd_strategy_run(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    from .strategies.registry import get_strategy
+
+    config = load_config(args.config)
+    definition = get_strategy(args.strategy_name)
+    report = definition.runner(config, _build_strategy_params(args))
+    _write_strategy_output(report, args)
+    return 0
+
+
+def cmd_strategy_run_trend_strength(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    report = run_trend_strength_strategy(config, _build_strategy_params(args))
+    _write_strategy_output(report, args)
+    return 0
+
+
+def cmd_strategy_list(args: argparse.Namespace) -> int:
+    from .strategies.registry import list_strategies
+
+    strategies = [
+        {
+            "name": definition.name,
+            "description": definition.description,
+            "aliases": list(definition.aliases),
+        }
+        for definition in list_strategies()
+    ]
+    if getattr(args, "json", False):
+        print_json(normalize_output_data(strategies))
+    else:
+        print_table(["name", "aliases", "description"], strategies)
     return 0
 
 

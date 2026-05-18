@@ -10,9 +10,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tdx_stocks.cli import build_parser, cmd_strategy_run_trend_strength
+from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_trend_strength
 from tdx_stocks.config import AppConfig
 from tdx_stocks.exit_codes import NoDataError
+from tdx_stocks.strategies.scoring import build_trend_score_breakdown
+from tdx_stocks.strategies.signals import (
+    build_trend_risk_flags,
+    build_trend_watch_plan,
+    classify_trend_candidate,
+)
+from tdx_stocks.strategies.registry import get_strategy, list_strategies
 from tdx_stocks.strategy import StrategyParams, StrategyReport, run_trend_strength_strategy
 
 try:
@@ -389,13 +396,108 @@ class StrategyLogicTest(unittest.TestCase):
         with self.assertRaises(NoDataError):
             self._run(StrategyParams(as_of=date(2024, 1, 1)))
 
+    def test_signal_and_scoring_helpers(self) -> None:
+        row = {
+            "adj_close": 12.0,
+            "ma20": 10.0,
+            "ma60": 9.0,
+            "ret_5": 0.03,
+            "ret_20": 0.12,
+            "amount_ma20": 200_000_000.0,
+            "pos_20": 0.9,
+            "dd_20": -0.01,
+            "vol_ratio_20": 0.2,
+            "rsi_14": 60.0,
+            "atr_pct_14": 0.03,
+            "vol_20": 0.02,
+        }
+
+        candidate_type, tags, reasons = classify_trend_candidate(row, StrategyParams())
+        risk_flags = build_trend_risk_flags(row)
+        score_breakdown = build_trend_score_breakdown(row, StrategyParams().min_amount_ma20, risk_flags)
+        watch_plan = build_trend_watch_plan(candidate_type, risk_flags)
+
+        self.assertEqual(candidate_type, "breakout_watch")
+        self.assertIn("breakout_watch", tags)
+        self.assertIn("趋势延续", reasons)
+        self.assertIn("near_20d_high", risk_flags)
+        self.assertIn("trend", score_breakdown)
+        self.assertIn("突破", watch_plan)
+
 
 class StrategyCliTest(unittest.TestCase):
+    def test_parser_contains_strategy_list(self) -> None:
+        args = build_parser().parse_args(["strategy", "list"])
+        self.assertEqual(args.command, "strategy")
+        self.assertEqual(args.strategy_command, "list")
+
     def test_parser_contains_strategy_run(self) -> None:
         args = build_parser().parse_args(["strategy", "run", "trend-strength", "--limit", "1"])
         self.assertEqual(args.command, "strategy")
         self.assertEqual(args.strategy_command, "run")
         self.assertEqual(args.strategy_name, "trend-strength")
+        self.assertEqual(args.limit, 1)
+
+    def test_strategy_registry_contains_trend_strength(self) -> None:
+        names = [definition.name for definition in list_strategies()]
+        self.assertEqual(
+            names,
+            [
+                "low-vol-breakout",
+                "ma-pullback",
+                "relative-strength",
+                "trend-strength",
+                "volume-breakout",
+            ],
+        )
+        self.assertEqual(get_strategy("trend-strength").name, "trend-strength")
+
+    def test_strategy_registry_contains_low_vol_breakout(self) -> None:
+        names = [definition.name for definition in list_strategies()]
+        self.assertIn("low-vol-breakout", names)
+        self.assertEqual(get_strategy("low-vol-breakout").name, "low-vol-breakout")
+
+    def test_strategy_registry_contains_ma_pullback(self) -> None:
+        names = [definition.name for definition in list_strategies()]
+        self.assertIn("ma-pullback", names)
+        self.assertEqual(get_strategy("ma-pullback").name, "ma-pullback")
+
+    def test_strategy_registry_contains_relative_strength(self) -> None:
+        names = [definition.name for definition in list_strategies()]
+        self.assertIn("relative-strength", names)
+        self.assertEqual(get_strategy("relative-strength").name, "relative-strength")
+
+    def test_strategy_registry_contains_volume_breakout(self) -> None:
+        names = [definition.name for definition in list_strategies()]
+        self.assertIn("volume-breakout", names)
+        self.assertEqual(get_strategy("volume-breakout").name, "volume-breakout")
+
+    def test_parser_contains_low_vol_breakout(self) -> None:
+        args = build_parser().parse_args(["strategy", "run", "low-vol-breakout", "--limit", "1"])
+        self.assertEqual(args.command, "strategy")
+        self.assertEqual(args.strategy_command, "run")
+        self.assertEqual(args.strategy_name, "low-vol-breakout")
+        self.assertEqual(args.limit, 1)
+
+    def test_parser_contains_ma_pullback(self) -> None:
+        args = build_parser().parse_args(["strategy", "run", "ma-pullback", "--limit", "1"])
+        self.assertEqual(args.command, "strategy")
+        self.assertEqual(args.strategy_command, "run")
+        self.assertEqual(args.strategy_name, "ma-pullback")
+        self.assertEqual(args.limit, 1)
+
+    def test_parser_contains_relative_strength(self) -> None:
+        args = build_parser().parse_args(["strategy", "run", "relative-strength", "--limit", "1"])
+        self.assertEqual(args.command, "strategy")
+        self.assertEqual(args.strategy_command, "run")
+        self.assertEqual(args.strategy_name, "relative-strength")
+        self.assertEqual(args.limit, 1)
+
+    def test_parser_contains_volume_breakout(self) -> None:
+        args = build_parser().parse_args(["strategy", "run", "volume-breakout", "--limit", "1"])
+        self.assertEqual(args.command, "strategy")
+        self.assertEqual(args.strategy_command, "run")
+        self.assertEqual(args.strategy_name, "volume-breakout")
         self.assertEqual(args.limit, 1)
 
     def test_command_writes_json_and_keeps_stdout_table(self) -> None:
@@ -505,6 +607,61 @@ class StrategyCliTest(unittest.TestCase):
         self.assertIn('"summary"', rendered)
         self.assertIn('"excluded"', rendered)
         self.assertIn('"explain"', rendered)
+
+    def test_generic_strategy_run_uses_registry_runner(self) -> None:
+        report = StrategyReport(
+            summary={"strategy": "trend-strength", "picked": 1, "excluded_returned": 0},
+            picks=[
+                {
+                    "trade_date": "2024-01-04",
+                    "execute_date": "2024-01-05",
+                    "market": "sh",
+                    "symbol": "600000",
+                    "display_symbol": "600000.SH",
+                    "score": 88.5,
+                    "score_breakdown": {"trend": 35.0},
+                    "rank": 1,
+                    "candidate_type": "breakout_watch",
+                    "tags": ["breakout_watch", "trend_strong"],
+                    "priority_weight": 0.885,
+                    "reasons": ["趋势延续"],
+                    "risk_flags": ["ret_5_strong"],
+                    "watch_plan": "watch plan",
+                    "dataset_run_id": "run-1",
+                    "factor_version": "v1",
+                    "excluded": False,
+                    "excluded_reason": None,
+                }
+            ],
+            excluded=[],
+            explain=None,
+        )
+        args = SimpleNamespace(
+            config=None,
+            strategy_name="trend-strength",
+            limit=1,
+            json=False,
+            as_of=None,
+            market=None,
+            min_amount_ma20=50_000_000.0,
+            min_score=60.0,
+            candidate_type=None,
+            include_excluded=False,
+            show_excluded_limit=20,
+            explain_symbol=None,
+            to=None,
+        )
+        with patch("tdx_stocks.cli.load_config", return_value=AppConfig()):
+            with patch("tdx_stocks.strategies.registry.get_strategy") as get_strategy:
+                get_strategy.return_value = SimpleNamespace(
+                    name="trend-strength",
+                    runner=lambda config, params: report,
+                )
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    cmd_strategy_run(args)
+
+        self.assertIn("rank", stdout.getvalue())
 
 
 if __name__ == "__main__":

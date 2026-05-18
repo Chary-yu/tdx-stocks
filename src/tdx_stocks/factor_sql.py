@@ -3,10 +3,62 @@
 # ruff: noqa
 from __future__ import annotations
 
+from dataclasses import dataclass
 from collections.abc import Iterable
 from pathlib import Path
 
 WINDOW_SPEC = "PARTITION BY market, symbol ORDER BY trade_date"
+DEFAULT_FACTOR_WINDOWS = (5, 10, 20, 60)
+DEFAULT_REQUIRED_WINDOWS = (5, 10, 20, 60, 120, 250)
+DEFAULT_TECHNICAL_WINDOWS = (9, 14)
+
+
+@dataclass(frozen=True)
+class FactorSpec:
+    configured_windows: tuple[int, ...] = DEFAULT_FACTOR_WINDOWS
+    required_windows: tuple[int, ...] = DEFAULT_REQUIRED_WINDOWS
+    technical_windows: tuple[int, ...] = DEFAULT_TECHNICAL_WINDOWS
+
+    @property
+    def extra_windows(self) -> tuple[int, ...]:
+        required = set(self.required_windows)
+        return tuple(window for window in self.configured_windows if window not in required)
+
+    @property
+    def effective_windows(self) -> tuple[int, ...]:
+        return tuple(sorted(set(self.required_windows).union(self.configured_windows)))
+
+    @property
+    def effective_ma_windows(self) -> tuple[int, ...]:
+        return self.effective_windows
+
+    @property
+    def effective_ret_windows(self) -> tuple[int, ...]:
+        return self.effective_windows
+
+    @property
+    def effective_range_windows(self) -> tuple[int, ...]:
+        return self.effective_windows
+
+    @property
+    def effective_vol_windows(self) -> tuple[int, ...]:
+        return self.effective_windows
+
+
+def build_factor_spec(factor_windows: Iterable[int] | None = None) -> FactorSpec:
+    configured = _normalize_windows(factor_windows or DEFAULT_FACTOR_WINDOWS)
+    return FactorSpec(configured_windows=configured)
+
+
+def factor_build_report(spec: FactorSpec) -> dict[str, object]:
+    return {
+        "factor_version": "windowed-v1",
+        "configured_windows": list(spec.configured_windows),
+        "effective_ma_windows": list(spec.effective_ma_windows),
+        "effective_ret_windows": list(spec.effective_ret_windows),
+        "effective_range_windows": list(spec.effective_range_windows),
+        "effective_vol_windows": list(spec.effective_vol_windows),
+    }
 
 
 def parquet_glob(path: Path) -> str:
@@ -29,19 +81,66 @@ def _stage_header(name: str) -> str:
     return f"-- Stage: {name}"
 
 
+def _normalize_windows(values: Iterable[int]) -> tuple[int, ...]:
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for raw in values:
+        window = int(raw)
+        if window <= 0:
+            raise ValueError(f"factor windows must be positive integers, got {window}")
+        if window not in seen:
+            seen.add(window)
+            normalized.append(window)
+    return tuple(sorted(normalized))
+
+
+def _extra_windows(factor_spec: FactorSpec | None) -> tuple[int, ...]:
+    return factor_spec.extra_windows if factor_spec is not None else ()
+
+
+def _window_alias(window: int, prefix: str, expr: str) -> tuple[str, str]:
+    return (f"{prefix}{window}", expr.format(window=window))
+
+
+def _extra_window_metrics(window: int) -> list[tuple[str, str]]:
+    return [
+        (f"lag_close_{window}", "lag(adj_close, {window}) OVER ({window_spec})".format(window=window, window_spec=WINDOW_SPEC)),
+        (f"cnt_{window}", "count(*) OVER ({window_spec})".format(window_spec=_window(window))),
+        (f"ret_cnt_{window}", "count(pct_chg) OVER ({window_spec})".format(window_spec=_window(window))),
+        _window_alias(window, "ma", "avg(adj_close) OVER ({window})"),
+        _window_alias(window, "vol_ma", "avg(volume) OVER ({window})"),
+        _window_alias(window, "high_", "max(adj_high) OVER ({window})"),
+        _window_alias(window, "low_", "min(adj_low) OVER ({window})"),
+        _window_alias(window, "std_pctchg_", "stddev_samp(pct_chg) OVER ({window})"),
+    ]
+
+
+def _extra_window_technical_items(window: int) -> list[tuple[str, str]]:
+    return [
+        (f"ret_{window}", f"CASE WHEN lag_close_{window} IS NULL THEN NULL ELSE adj_close / lag_close_{window} - 1 END"),
+        (f"vol_{window}", f"CASE WHEN ret_cnt_{window} < {window} THEN NULL ELSE std_pctchg_{window} END"),
+        (f"bias_{window}", f"CASE WHEN cnt_{window} < {window} OR ma{window} IS NULL OR ma{window} = 0 THEN NULL ELSE adj_close / ma{window} - 1 END"),
+        (f"dd_{window}", f"CASE WHEN cnt_{window} < {window} OR high_{window} IS NULL OR low_{window} IS NULL OR high_{window} = low_{window} THEN NULL ELSE adj_close / high_{window} - 1 END"),
+        (f"pos_{window}", f"CASE WHEN cnt_{window} < {window} OR high_{window} IS NULL OR low_{window} IS NULL OR high_{window} = low_{window} THEN NULL ELSE (adj_close - low_{window}) / (high_{window} - low_{window}) END"),
+        (f"range_{window}", f"CASE WHEN cnt_{window} < {window} OR high_{window} IS NULL OR low_{window} IS NULL OR low_{window} = 0 THEN NULL ELSE high_{window} / low_{window} - 1 END"),
+    ]
+
+
 def build_factors_statements(
     adj_daily_dir: Path,
     output_dir: Path,
     compression: str,
+    factor_windows: Iterable[int] | None = None,
 ) -> list[str]:
+    factor_spec = build_factor_spec(factor_windows)
     return [
         render_create_base_data_sql(adj_daily_dir),
-        render_create_rolling_windows_sql(),
-        render_create_rolling_stats_sql(),
+        render_create_rolling_windows_sql(factor_spec),
+        render_create_rolling_stats_sql(factor_spec),
         render_create_macd_state_sql(),
         render_create_kdj_inputs_sql(),
         render_create_kdj_state_sql(),
-        render_copy_factors_sql(output_dir, compression),
+        render_copy_factors_sql(output_dir, compression, factor_spec),
     ]
 
 
@@ -49,8 +148,9 @@ def render_build_factors_sql(
     adj_daily_dir: Path,
     output_dir: Path,
     compression: str,
+    factor_windows: Iterable[int] | None = None,
 ) -> str:
-    return ";\n\n".join(build_factors_statements(adj_daily_dir, output_dir, compression)) + ";\n"
+    return ";\n\n".join(build_factors_statements(adj_daily_dir, output_dir, compression, factor_windows)) + ";\n"
 
 
 def render_create_base_data_sql(adj_daily_dir: Path) -> str:
@@ -122,7 +222,7 @@ def render_create_base_data_sql(adj_daily_dir: Path) -> str:
     )
 
 
-def render_create_rolling_windows_sql() -> str:
+def render_create_rolling_windows_sql(factor_spec: FactorSpec | None = None) -> str:
     cols: list[tuple[str, str]] = [
         ("lag_close_5", "lag(adj_close, 5) OVER ({window})".format(window=WINDOW_SPEC)),
         ("lag_close_10", "lag(adj_close, 10) OVER ({window})".format(window=WINDOW_SPEC)),
@@ -180,6 +280,8 @@ def render_create_rolling_windows_sql() -> str:
         ("close_std20", "stddev_samp(adj_close) OVER ({window})".format(window=_window(20))),
         ("close_std60", "stddev_samp(adj_close) OVER ({window})".format(window=_window(60))),
     ]
+    for window in _extra_windows(factor_spec):
+        cols.extend(_extra_window_metrics(window))
     base_cols = [
         ("market", "market"),
         ("symbol", "symbol"),
@@ -220,194 +322,227 @@ def render_create_rolling_windows_sql() -> str:
     )
 
 
-def render_create_rolling_stats_sql() -> str:
+def render_create_rolling_stats_sql(factor_spec: FactorSpec | None = None) -> str:
+    extra_windows = _extra_windows(factor_spec)
+    technical_lines = [
+        "    SELECT",
+        "        market,",
+        "        symbol,",
+        "        trade_date,",
+        "        trade_year,",
+        "        adj_open,",
+        "        adj_high,",
+        "        adj_low,",
+        "        adj_close,",
+        "        volume,",
+        "        amount,",
+        "        adj_factor,",
+        "        rn,",
+        "        prev_close,",
+        "        prev_high,",
+        "        prev_low,",
+        "        diff,",
+        "        pct_chg,",
+        "        pct_chg AS ret_1,",
+        "        CASE WHEN lag_close_5 IS NULL THEN NULL ELSE adj_close / lag_close_5 - 1 END AS ret_5,",
+        "        CASE WHEN lag_close_10 IS NULL THEN NULL ELSE adj_close / lag_close_10 - 1 END AS ret_10,",
+        "        CASE WHEN lag_close_20 IS NULL THEN NULL ELSE adj_close / lag_close_20 - 1 END AS ret_20,",
+        "        CASE WHEN lag_close_60 IS NULL THEN NULL ELSE adj_close / lag_close_60 - 1 END AS ret_60,",
+        "        CASE WHEN lag_close_120 IS NULL THEN NULL ELSE adj_close / lag_close_120 - 1 END AS ret_120,",
+        "        CASE WHEN lag_close_250 IS NULL THEN NULL ELSE adj_close / lag_close_250 - 1 END AS ret_250,",
+        "        gain,",
+        "        loss,",
+        "        tp,",
+        "        up_move,",
+        "        down_move,",
+        "        tr,",
+        "        amp_1,",
+        "        plus_dm,",
+        "        minus_dm,",
+        "        lag_close_5,",
+        "        lag_close_10,",
+        "        lag_close_20,",
+        "        lag_close_60,",
+        "        lag_close_120,",
+        "        lag_close_250,",
+        "        cnt_5,",
+        "        cnt_9,",
+        "        cnt_10,",
+        "        cnt_14,",
+        "        cnt_20,",
+        "        cnt_60,",
+        "        cnt_120,",
+        "        cnt_250,",
+        "        ret_cnt_5,",
+        "        ret_cnt_6,",
+        "        ret_cnt_10,",
+        "        ret_cnt_14,",
+        "        ret_cnt_20,",
+        "        ret_cnt_60,",
+        "        ma5,",
+        "        ma10,",
+        "        ma20,",
+        "        ma60,",
+        "        ma120,",
+        "        ma250,",
+        "        vol_ma5,",
+        "        vol_ma20,",
+        "        amount_ma20,",
+        "        amount_ma60,",
+        "        high_9,",
+        "        low_9,",
+        "        high_20,",
+        "        low_20,",
+        "        high_60,",
+        "        low_60,",
+        "        high_120,",
+        "        low_120,",
+        "        high_250,",
+        "        low_250,",
+        "        std_pctchg_5,",
+        "        std_pctchg_10,",
+        "        std_pctchg_20,",
+        "        std_pctchg_60,",
+        "        sum_gain_6,",
+        "        sum_loss_6,",
+        "        sum_gain_14,",
+        "        sum_loss_14,",
+        "        sum_tr_14,",
+        "        sum_plus_dm_14,",
+        "        sum_minus_dm_14,",
+        "        tp_ma20,",
+        "        tp_std20,",
+        "        close_std20,",
+        "        close_std60,",
+        "        CASE WHEN cnt_14 < 14 OR sum_tr_14 IS NULL OR sum_tr_14 = 0 THEN NULL ELSE 100.0 * sum_plus_dm_14 / sum_tr_14 END AS plus_di_14,",
+        "        CASE WHEN cnt_14 < 14 OR sum_tr_14 IS NULL OR sum_tr_14 = 0 THEN NULL ELSE 100.0 * sum_minus_dm_14 / sum_tr_14 END AS minus_di_14,",
+        "        CASE WHEN cnt_9 < 9 OR high_9 IS NULL OR low_9 IS NULL OR high_9 = low_9 THEN NULL ELSE (adj_close - low_9) / (high_9 - low_9) * 100 END AS rsv_9,",
+        "        CASE WHEN ret_cnt_5 < 5 THEN NULL ELSE std_pctchg_5 END AS vol_5,",
+        "        CASE WHEN ret_cnt_10 < 10 THEN NULL ELSE std_pctchg_10 END AS vol_10,",
+        "        CASE WHEN ret_cnt_20 < 20 THEN NULL ELSE std_pctchg_20 END AS vol_20,",
+        "        CASE WHEN ret_cnt_60 < 60 THEN NULL ELSE std_pctchg_60 END AS vol_60,",
+        "        CASE WHEN cnt_20 < 20 OR vol_ma20 IS NULL OR vol_ma20 = 0 THEN NULL ELSE volume / vol_ma20 - 1 END AS vol_ratio_20,",
+        "        CASE WHEN cnt_5 < 5 OR ma5 IS NULL OR ma5 = 0 THEN NULL ELSE adj_close / ma5 - 1 END AS bias_5,",
+        "        CASE WHEN cnt_10 < 10 OR ma10 IS NULL OR ma10 = 0 THEN NULL ELSE adj_close / ma10 - 1 END AS bias_10,",
+        "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE adj_close / ma20 - 1 END AS bias_20,",
+        "        CASE WHEN cnt_60 < 60 OR ma60 IS NULL OR ma60 = 0 THEN NULL ELSE adj_close / ma60 - 1 END AS bias_60,",
+        "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE ma5 / ma20 - 1 END AS ma_cross_5_20,",
+        "        CASE WHEN cnt_60 < 60 OR ma60 IS NULL OR ma60 = 0 THEN NULL ELSE ma20 / ma60 - 1 END AS ma_cross_20_60,",
+        "        CASE WHEN cnt_20 < 20 OR high_20 IS NULL OR low_20 IS NULL OR high_20 = low_20 THEN NULL ELSE adj_close / high_20 - 1 END AS dd_20,",
+        "        CASE WHEN cnt_60 < 60 OR high_60 IS NULL OR low_60 IS NULL OR high_60 = low_60 THEN NULL ELSE adj_close / high_60 - 1 END AS dd_60,",
+        "        CASE WHEN cnt_20 < 20 OR high_20 IS NULL OR low_20 IS NULL OR high_20 = low_20 THEN NULL ELSE (adj_close - low_20) / (high_20 - low_20) END AS pos_20,",
+        "        CASE WHEN cnt_60 < 60 OR high_60 IS NULL OR low_60 IS NULL OR high_60 = low_60 THEN NULL ELSE (adj_close - low_60) / (high_60 - low_60) END AS pos_60,",
+        "        CASE WHEN cnt_20 < 20 OR high_20 IS NULL OR low_20 IS NULL OR low_20 = 0 THEN NULL ELSE high_20 / low_20 - 1 END AS range_20,",
+        "        CASE WHEN cnt_14 < 14 THEN NULL ELSE sum_tr_14 / 14 END AS atr_14,",
+        "        CASE WHEN cnt_14 < 14 OR adj_close IS NULL OR adj_close = 0 THEN NULL ELSE (sum_tr_14 / 14) / adj_close END AS atr_pct_14,",
+        "        CASE WHEN cnt_20 < 20 THEN NULL ELSE ma20 END AS bb_mid_20,",
+        "        CASE WHEN cnt_20 < 20 THEN NULL ELSE close_std20 END AS bb_std_20,",
+        "        CASE WHEN cnt_20 < 20 THEN NULL ELSE ma20 + 2 * close_std20 END AS bb_upper_20,",
+        "        CASE WHEN cnt_20 < 20 THEN NULL ELSE ma20 - 2 * close_std20 END AS bb_lower_20,",
+        "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE 4 * close_std20 / ma20 END AS bb_width_20,",
+        "        CASE WHEN cnt_20 < 20 OR close_std20 IS NULL OR close_std20 = 0 THEN NULL ELSE (adj_close - ma20) / close_std20 END AS bb_z_20,",
+        "        CASE WHEN ret_cnt_14 < 14 OR sum_loss_14 IS NULL THEN NULL WHEN sum_loss_14 = 0 AND sum_gain_14 = 0 THEN NULL WHEN sum_loss_14 = 0 THEN 100 ELSE 100 - 100 / (1 + (sum_gain_14 / 14) / (sum_loss_14 / 14)) END AS rsi_14,",
+        "        CASE WHEN ret_cnt_6 < 6 OR sum_loss_6 IS NULL THEN NULL WHEN sum_loss_6 = 0 AND sum_gain_6 = 0 THEN NULL WHEN sum_loss_6 = 0 THEN 100 ELSE 100 - 100 / (1 + (sum_gain_6 / 6) / (sum_loss_6 / 6)) END AS rsi_6,",
+        "        CASE WHEN cnt_20 < 20 OR tp_std20 IS NULL OR tp_std20 = 0 THEN NULL ELSE (tp - tp_ma20) / (0.015 * tp_std20) END AS cci_20,",
+        "        CASE WHEN cnt_14 < 14 OR sum_plus_dm_14 IS NULL OR sum_tr_14 IS NULL OR sum_tr_14 = 0 OR sum_plus_dm_14 + sum_minus_dm_14 = 0 THEN NULL ELSE 100 * abs((100 * sum_plus_dm_14 / sum_tr_14) - (100 * sum_minus_dm_14 / sum_tr_14)) / ((100 * sum_plus_dm_14 / sum_tr_14) + (100 * sum_minus_dm_14 / sum_tr_14)) END AS dx_14",
+    ]
+    if extra_windows:
+        technical_lines[-1] += ","
+    for window in extra_windows:
+        for alias, expr in _extra_window_technical_items(window):
+            technical_lines.append(f"        {expr} AS {alias},")
+    if extra_windows:
+        technical_lines[-1] = technical_lines[-1].rstrip(",")
+
+    final_lines = [
+        "    market,",
+        "    symbol,",
+        "    trade_date,",
+        "    trade_year,",
+        "    rn,",
+        "    pct_chg,",
+        "    ret_1,",
+        "    ret_5,",
+        "    ret_10,",
+        "    ret_20,",
+        "    ret_60,",
+        "    ret_120,",
+        "    ret_250,",
+        "    adj_close,",
+        "    ma5,",
+        "    ma10,",
+        "    ma20,",
+        "    ma60,",
+        "    ma120,",
+        "    ma250,",
+        "    vol_ma5,",
+        "    vol_ma20,",
+        "    vol_5,",
+        "    vol_10,",
+        "    vol_20,",
+        "    vol_60,",
+        "    high_20,",
+        "    low_20,",
+        "    range_20,",
+        "    dd_20,",
+        "    dd_60,",
+        "    pos_20,",
+        "    pos_60,",
+        "    tr,",
+        "    atr_14,",
+        "    atr_pct_14,",
+        "    bb_mid_20,",
+        "    bb_std_20,",
+        "    bb_upper_20,",
+        "    bb_lower_20,",
+        "    bb_width_20,",
+        "    bb_z_20,",
+        "    rsi_6,",
+        "    rsi_14,",
+        "    bias_5,",
+        "    bias_10,",
+        "    bias_20,",
+        "    bias_60,",
+        "    ma_cross_5_20,",
+        "    ma_cross_20_60,",
+        "    rsv_9,",
+        "    plus_di_14,",
+        "    minus_di_14,",
+        "    amount_ma20,",
+        "    amount_ma60,",
+        "    vol_ratio_20,",
+        "    amp_1,",
+        "    cci_20,",
+    ]
+    for window in extra_windows:
+        final_lines.extend(
+            [
+                f"    ret_{window},",
+                f"    ma{window},",
+                f"    vol_ma{window},",
+                f"    vol_{window},",
+                f"    high_{window},",
+                f"    low_{window},",
+                f"    range_{window},",
+                f"    dd_{window},",
+                f"    pos_{window},",
+                f"    bias_{window},",
+            ]
+        )
+    final_lines.append(
+        "    CASE WHEN cnt_14 < 14 THEN NULL ELSE least(100.0, greatest(0.0, ROUND(avg(dx_14) OVER (PARTITION BY market, symbol ORDER BY trade_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW), 6))) END AS adx_14"
+    )
+
     return "\n".join(
         [
             _stage_header("tmp_rolling_stats"),
             "CREATE TEMP TABLE tmp_rolling_stats AS",
             "WITH technical AS (",
-            "    SELECT",
-            "        market,",
-            "        symbol,",
-            "        trade_date,",
-            "        trade_year,",
-            "        adj_open,",
-            "        adj_high,",
-            "        adj_low,",
-            "        adj_close,",
-            "        volume,",
-            "        amount,",
-            "        adj_factor,",
-            "        rn,",
-            "        prev_close,",
-            "        prev_high,",
-            "        prev_low,",
-            "        diff,",
-            "        pct_chg,",
-            "        pct_chg AS ret_1,",
-            "        CASE WHEN lag_close_5 IS NULL THEN NULL ELSE adj_close / lag_close_5 - 1 END AS ret_5,",
-            "        CASE WHEN lag_close_10 IS NULL THEN NULL ELSE adj_close / lag_close_10 - 1 END AS ret_10,",
-            "        CASE WHEN lag_close_20 IS NULL THEN NULL ELSE adj_close / lag_close_20 - 1 END AS ret_20,",
-            "        CASE WHEN lag_close_60 IS NULL THEN NULL ELSE adj_close / lag_close_60 - 1 END AS ret_60,",
-            "        CASE WHEN lag_close_120 IS NULL THEN NULL ELSE adj_close / lag_close_120 - 1 END AS ret_120,",
-            "        CASE WHEN lag_close_250 IS NULL THEN NULL ELSE adj_close / lag_close_250 - 1 END AS ret_250,",
-            "        gain,",
-            "        loss,",
-            "        tp,",
-            "        up_move,",
-            "        down_move,",
-            "        tr,",
-            "        amp_1,",
-            "        plus_dm,",
-            "        minus_dm,",
-            "        lag_close_5,",
-            "        lag_close_10,",
-            "        lag_close_20,",
-            "        lag_close_60,",
-            "        lag_close_120,",
-            "        lag_close_250,",
-            "        cnt_5,",
-            "        cnt_9,",
-            "        cnt_10,",
-            "        cnt_14,",
-            "        cnt_20,",
-            "        cnt_60,",
-            "        cnt_120,",
-            "        cnt_250,",
-            "        ret_cnt_5,",
-            "        ret_cnt_6,",
-            "        ret_cnt_10,",
-            "        ret_cnt_14,",
-            "        ret_cnt_20,",
-            "        ret_cnt_60,",
-            "        ma5,",
-            "        ma10,",
-            "        ma20,",
-            "        ma60,",
-            "        ma120,",
-            "        ma250,",
-            "        vol_ma5,",
-            "        vol_ma20,",
-            "        amount_ma20,",
-            "        amount_ma60,",
-            "        high_9,",
-            "        low_9,",
-            "        high_20,",
-            "        low_20,",
-            "        high_60,",
-            "        low_60,",
-            "        high_120,",
-            "        low_120,",
-            "        high_250,",
-            "        low_250,",
-            "        std_pctchg_5,",
-            "        std_pctchg_10,",
-            "        std_pctchg_20,",
-            "        std_pctchg_60,",
-            "        sum_gain_6,",
-            "        sum_loss_6,",
-            "        sum_gain_14,",
-            "        sum_loss_14,",
-            "        sum_tr_14,",
-            "        sum_plus_dm_14,",
-            "        sum_minus_dm_14,",
-            "        tp_ma20,",
-            "        tp_std20,",
-            "        close_std20,",
-            "        close_std60,",
-            "        CASE WHEN cnt_14 < 14 OR sum_tr_14 IS NULL OR sum_tr_14 = 0 THEN NULL ELSE 100.0 * sum_plus_dm_14 / sum_tr_14 END AS plus_di_14,",
-            "        CASE WHEN cnt_14 < 14 OR sum_tr_14 IS NULL OR sum_tr_14 = 0 THEN NULL ELSE 100.0 * sum_minus_dm_14 / sum_tr_14 END AS minus_di_14,",
-            "        CASE WHEN cnt_9 < 9 OR high_9 IS NULL OR low_9 IS NULL OR high_9 = low_9 THEN NULL ELSE (adj_close - low_9) / (high_9 - low_9) * 100 END AS rsv_9,",
-            "        CASE WHEN ret_cnt_5 < 5 THEN NULL ELSE std_pctchg_5 END AS vol_5,",
-            "        CASE WHEN ret_cnt_10 < 10 THEN NULL ELSE std_pctchg_10 END AS vol_10,",
-            "        CASE WHEN ret_cnt_20 < 20 THEN NULL ELSE std_pctchg_20 END AS vol_20,",
-            "        CASE WHEN ret_cnt_60 < 60 THEN NULL ELSE std_pctchg_60 END AS vol_60,",
-            "        CASE WHEN cnt_20 < 20 OR vol_ma20 IS NULL OR vol_ma20 = 0 THEN NULL ELSE volume / vol_ma20 - 1 END AS vol_ratio_20,",
-            "        CASE WHEN cnt_5 < 5 OR ma5 IS NULL OR ma5 = 0 THEN NULL ELSE adj_close / ma5 - 1 END AS bias_5,",
-            "        CASE WHEN cnt_10 < 10 OR ma10 IS NULL OR ma10 = 0 THEN NULL ELSE adj_close / ma10 - 1 END AS bias_10,",
-            "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE adj_close / ma20 - 1 END AS bias_20,",
-            "        CASE WHEN cnt_60 < 60 OR ma60 IS NULL OR ma60 = 0 THEN NULL ELSE adj_close / ma60 - 1 END AS bias_60,",
-            "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE ma5 / ma20 - 1 END AS ma_cross_5_20,",
-            "        CASE WHEN cnt_60 < 60 OR ma60 IS NULL OR ma60 = 0 THEN NULL ELSE ma20 / ma60 - 1 END AS ma_cross_20_60,",
-            "        CASE WHEN cnt_20 < 20 OR high_20 IS NULL OR low_20 IS NULL OR high_20 = low_20 THEN NULL ELSE adj_close / high_20 - 1 END AS dd_20,",
-            "        CASE WHEN cnt_60 < 60 OR high_60 IS NULL OR low_60 IS NULL OR high_60 = low_60 THEN NULL ELSE adj_close / high_60 - 1 END AS dd_60,",
-            "        CASE WHEN cnt_20 < 20 OR high_20 IS NULL OR low_20 IS NULL OR high_20 = low_20 THEN NULL ELSE (adj_close - low_20) / (high_20 - low_20) END AS pos_20,",
-            "        CASE WHEN cnt_60 < 60 OR high_60 IS NULL OR low_60 IS NULL OR high_60 = low_60 THEN NULL ELSE (adj_close - low_60) / (high_60 - low_60) END AS pos_60,",
-            "        CASE WHEN cnt_20 < 20 OR high_20 IS NULL OR low_20 IS NULL OR low_20 = 0 THEN NULL ELSE high_20 / low_20 - 1 END AS range_20,",
-            "        CASE WHEN cnt_14 < 14 THEN NULL ELSE sum_tr_14 / 14 END AS atr_14,",
-            "        CASE WHEN cnt_14 < 14 OR adj_close IS NULL OR adj_close = 0 THEN NULL ELSE (sum_tr_14 / 14) / adj_close END AS atr_pct_14,",
-            "        CASE WHEN cnt_20 < 20 THEN NULL ELSE ma20 END AS bb_mid_20,",
-            "        CASE WHEN cnt_20 < 20 THEN NULL ELSE close_std20 END AS bb_std_20,",
-            "        CASE WHEN cnt_20 < 20 THEN NULL ELSE ma20 + 2 * close_std20 END AS bb_upper_20,",
-            "        CASE WHEN cnt_20 < 20 THEN NULL ELSE ma20 - 2 * close_std20 END AS bb_lower_20,",
-            "        CASE WHEN cnt_20 < 20 OR ma20 IS NULL OR ma20 = 0 THEN NULL ELSE 4 * close_std20 / ma20 END AS bb_width_20,",
-            "        CASE WHEN cnt_20 < 20 OR close_std20 IS NULL OR close_std20 = 0 THEN NULL ELSE (adj_close - ma20) / close_std20 END AS bb_z_20,",
-            "        CASE WHEN ret_cnt_14 < 14 OR sum_loss_14 IS NULL THEN NULL WHEN sum_loss_14 = 0 AND sum_gain_14 = 0 THEN NULL WHEN sum_loss_14 = 0 THEN 100 ELSE 100 - 100 / (1 + (sum_gain_14 / 14) / (sum_loss_14 / 14)) END AS rsi_14,",
-            "        CASE WHEN ret_cnt_6 < 6 OR sum_loss_6 IS NULL THEN NULL WHEN sum_loss_6 = 0 AND sum_gain_6 = 0 THEN NULL WHEN sum_loss_6 = 0 THEN 100 ELSE 100 - 100 / (1 + (sum_gain_6 / 6) / (sum_loss_6 / 6)) END AS rsi_6,",
-            "        CASE WHEN cnt_20 < 20 OR tp_std20 IS NULL OR tp_std20 = 0 THEN NULL ELSE (tp - tp_ma20) / (0.015 * tp_std20) END AS cci_20,",
-            "        CASE WHEN cnt_14 < 14 OR sum_plus_dm_14 IS NULL OR sum_tr_14 IS NULL OR sum_tr_14 = 0 OR sum_plus_dm_14 + sum_minus_dm_14 = 0 THEN NULL ELSE 100 * abs((100 * sum_plus_dm_14 / sum_tr_14) - (100 * sum_minus_dm_14 / sum_tr_14)) / ((100 * sum_plus_dm_14 / sum_tr_14) + (100 * sum_minus_dm_14 / sum_tr_14)) END AS dx_14",
+            *technical_lines,
             "    FROM tmp_rolling_windows",
             ")",
             "SELECT",
-            "    market,",
-            "    symbol,",
-            "    trade_date,",
-            "    trade_year,",
-            "    rn,",
-            "    pct_chg,",
-            "    ret_1,",
-            "    ret_5,",
-            "    ret_10,",
-            "    ret_20,",
-            "    ret_60,",
-            "    ret_120,",
-            "    ret_250,",
-            "    adj_close,",
-            "    ma5,",
-            "    ma10,",
-            "    ma20,",
-            "    ma60,",
-            "    ma120,",
-            "    ma250,",
-            "    vol_ma5,",
-            "    vol_ma20,",
-            "    vol_5,",
-            "    vol_10,",
-            "    vol_20,",
-            "    vol_60,",
-            "    high_20,",
-            "    low_20,",
-            "    range_20,",
-            "    dd_20,",
-            "    dd_60,",
-            "    pos_20,",
-            "    pos_60,",
-            "    tr,",
-            "    atr_14,",
-            "    atr_pct_14,",
-            "    bb_mid_20,",
-            "    bb_std_20,",
-            "    bb_upper_20,",
-            "    bb_lower_20,",
-            "    bb_width_20,",
-            "    bb_z_20,",
-            "    rsi_6,",
-            "    rsi_14,",
-            "    bias_5,",
-            "    bias_10,",
-            "    bias_20,",
-            "    bias_60,",
-            "    ma_cross_5_20,",
-            "    ma_cross_20_60,",
-            "    rsv_9,",
-            "    plus_di_14,",
-            "    minus_di_14,",
-            "    amount_ma20,",
-            "    amount_ma60,",
-            "    vol_ratio_20,",
-            "    amp_1,",
-            "    cci_20,",
-            "    CASE WHEN cnt_14 < 14 THEN NULL ELSE least(100.0, greatest(0.0, ROUND(avg(dx_14) OVER (PARTITION BY market, symbol ORDER BY trade_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW), 6))) END AS adx_14",
+            *final_lines,
             "FROM technical",
         ]
     )
@@ -520,7 +655,11 @@ def render_create_kdj_state_sql() -> str:
     )
 
 
-def render_copy_factors_sql(output_dir: Path, compression: str) -> str:
+def render_copy_factors_sql(
+    output_dir: Path,
+    compression: str,
+    factor_spec: FactorSpec | None = None,
+) -> str:
     columns = [
         "market",
         "symbol",
@@ -586,6 +725,21 @@ def render_copy_factors_sql(output_dir: Path, compression: str) -> str:
         "macd_dea",
         "macd_hist",
     ]
+    for window in _extra_windows(factor_spec):
+        columns.extend(
+            [
+                f"ret_{window}",
+                f"ma{window}",
+                f"vol_ma{window}",
+                f"vol_{window}",
+                f"high_{window}",
+                f"low_{window}",
+                f"range_{window}",
+                f"dd_{window}",
+                f"pos_{window}",
+                f"bias_{window}",
+            ]
+        )
     select_items: list[tuple[str, str]] = []
     for column in columns:
         if column in {"macd_dif", "macd_dea", "macd_hist"}:

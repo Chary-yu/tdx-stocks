@@ -39,6 +39,7 @@ class CliHelpSummaryTest(unittest.TestCase):
             "data",
             "audit",
             "query",
+            "strategy",
             "help-summary",
         ):
             self.assertIn(f"`{command_name}`", output)
@@ -48,6 +49,7 @@ class CliHelpSummaryTest(unittest.TestCase):
             "verify-adjustment",
             "build",
             "rebuild",
+            "list",
             "stock",
         ):
             self.assertIn(f"`{command_name}`", output)

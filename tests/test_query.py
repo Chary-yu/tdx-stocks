@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tdx_stocks.duckdb_ops import build_factors
-from tdx_stocks.factor_sql import render_build_factors_sql
+from tdx_stocks.factor_sql import build_factor_spec, factor_build_report, render_build_factors_sql
 from tdx_stocks.query import (
     build_stock_sql,
     build_select_sql,
@@ -613,6 +613,21 @@ class QueryHelpersTest(unittest.TestCase):
         sql = render_build_factors_sql(Path("/tmp/in"), Path("/tmp/out"), "zstd")
         self.assertIn("ROUND(avg(dx_14)", sql)
         self.assertIn("least(100.0, greatest(0.0", sql)
+
+    def test_render_build_factors_sql_adds_configured_windows(self) -> None:
+        spec = build_factor_spec((7, 30, 20))
+        self.assertEqual(spec.configured_windows, (7, 20, 30))
+        report = factor_build_report(spec)
+        self.assertEqual(report["configured_windows"], [7, 20, 30])
+        self.assertEqual(report["effective_ma_windows"], [5, 7, 10, 20, 30, 60, 120, 250])
+        sql = render_build_factors_sql(Path("/tmp/in"), Path("/tmp/out"), "zstd", factor_windows=(7, 30))
+        self.assertIn("AS ma7", sql)
+        self.assertIn("AS ret_7", sql)
+        self.assertIn("AS vol_7", sql)
+        self.assertIn("AS pos_7", sql)
+        self.assertIn("AS ma30", sql)
+        self.assertIn("AS ret_30", sql)
+        self.assertIn("AS pos_30", sql)
 
 
 if __name__ == "__main__":

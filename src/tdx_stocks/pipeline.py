@@ -16,6 +16,7 @@ from .checks import (
 from .actions_io import load_adjustment_factor_rows, load_corporate_action_rows, resolve_action_inputs
 from .config import AppConfig
 from .exit_codes import BuildCheckFailedError, NoDataError
+from .factor_sql import build_factor_spec, factor_build_report
 from .duckdb_ops import build_factors, connect_duckdb, copy_adj_daily, copy_parquet_dataset, has_parquet_files
 from .export_io import build_export_adjustment_factor_result
 from .parquet_io import (
@@ -166,11 +167,13 @@ def build_dataset(
         _raise_on_errors(checks)
 
         _progress(progress, "Building factors")
+        factor_spec = build_factor_spec(config.factors.windows)
         build_factors(
             con,
             run_paths.adj_daily_dir,
             run_paths.factors_dir,
             config.build.compression,
+            factor_windows=config.factors.windows,
         )
         _progress(progress, "Checking factors")
         checks.append(check_factors(con, run_paths.factors_dir))
@@ -189,6 +192,7 @@ def build_dataset(
             "compression": config.build.compression,
             "cached_corporate_actions": has_parquet_files(cache_corporate_actions_dir),
             "cached_adjustment_factors": has_parquet_files(cache_adjustment_factors_dir),
+            **factor_build_report(factor_spec),
             "checks": [check.to_dict() for check in checks],
         }
         (run_paths.reports_dir / "build_report.json").write_text(
@@ -286,6 +290,8 @@ def update_actions(
     progress: ProgressCallback | None = None,
 ) -> dict:
     del overwrite_staging
+    if source == "official":
+        raise ValueError("source=official is not implemented yet; use local, file, or export")
     cache_root = config.paths.data_root / "cache"
     cache_corporate_actions_dir = cache_root / "corporate_actions"
     cache_adjustment_factors_dir = cache_root / "adjustment_factors"

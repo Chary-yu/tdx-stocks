@@ -107,6 +107,13 @@ class PipelineTest(unittest.TestCase):
             mocked_lock.assert_called_once()
             self.assertTrue(callable(mocked_rebuild.call_args.kwargs["progress"]))
 
+    def test_update_actions_rejects_official_source(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "source=official is not implemented yet",
+        ):
+            update_actions(AppConfig(), source="official", dry_run=True)
+
     def test_build_dataset_raises_nodata_error_when_no_files_match(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp) / "Database"
