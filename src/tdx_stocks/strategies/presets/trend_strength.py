@@ -49,7 +49,7 @@ def run_trend_strength_strategy(
         trade_date = resolve_as_of_date(ctx.con, markets, requested_as_of)
         execute_date = resolve_execute_date(ctx.con, markets, trade_date)
         rows = fetch_strategy_rows(ctx.con, markets, trade_date)
-        analyzed_rows = _analyze_rows(rows, params, execute_date, dataset_run_id, factor_version)
+        analyzed_rows = _analyze_rows(rows, params, execute_date, dataset_run_id, factor_version, strategy_name)
         summary = _build_summary(
             analyzed_rows,
             params,
@@ -74,6 +74,7 @@ def run_trend_strength_strategy(
                 dataset_run_id,
                 factor_version,
                 execute_date,
+                strategy_name,
             )
         else:
             explain = None
@@ -90,9 +91,10 @@ def _analyze_rows(
     execute_date: date | None,
     dataset_run_id: str | None,
     factor_version: str | None,
+    strategy_name: str,
 ) -> list[dict[str, Any]]:
     return [
-        _analyze_row(row, params, execute_date, dataset_run_id, factor_version)
+        _analyze_row(row, params, execute_date, dataset_run_id, factor_version, strategy_name)
         for row in rows
     ]
 
@@ -103,6 +105,7 @@ def _analyze_row(
     execute_date: date | None,
     dataset_run_id: str | None,
     factor_version: str | None,
+    strategy_name: str,
 ) -> dict[str, Any]:
     market = str(row["market"])
     symbol = str(row["symbol"])
@@ -126,28 +129,73 @@ def _analyze_row(
             "priority_weight": None,
             "reasons": [],
             "risk_flags": [],
-            "watch_plan": _watch_plan(None, []),
+            "watch_plan": build_trend_watch_plan(None, [], strategy_name=strategy_name),
             "dataset_run_id": dataset_run_id,
             "factor_version": factor_version,
             "excluded": True,
             "excluded_reason": hard_reason,
         }
 
-    candidate_type, tags, reasons = classify_trend_candidate(row, params)
-    risk_flags = build_trend_risk_flags(row)
-    score_breakdown = build_trend_score_breakdown(row, params.min_amount_ma20, risk_flags)
-    score = _clamp(
-        score_breakdown["trend"]
-        + score_breakdown["liquidity"]
-        + score_breakdown["position"]
-        + score_breakdown["short_strength"]
-        + score_breakdown["risk_penalty"],
-        0.0,
-        100.0,
+    candidate_type, tags, reasons = classify_trend_candidate(row, params, strategy_name=strategy_name)
+    risk_flags = build_trend_risk_flags(row, strategy_name=strategy_name)
+    score_breakdown = build_trend_score_breakdown(
+        row,
+        params.min_amount_ma20,
+        risk_flags,
+        strategy_name=strategy_name,
     )
+    if strategy_name == "low-vol-breakout":
+        score = _clamp(
+            score_breakdown["trend"]
+            + score_breakdown["breakout"]
+            + score_breakdown["low_volatility"]
+            + score_breakdown["liquidity"]
+            + score_breakdown["risk_penalty"],
+            0.0,
+            100.0,
+        )
+    elif strategy_name == "ma-pullback":
+        score = _clamp(
+            score_breakdown["trend"]
+            + score_breakdown["pullback"]
+            + score_breakdown["liquidity"]
+            + score_breakdown["risk_penalty"],
+            0.0,
+            100.0,
+        )
+    elif strategy_name == "relative-strength":
+        score = _clamp(
+            score_breakdown["trend"]
+            + score_breakdown["momentum"]
+            + score_breakdown["position"]
+            + score_breakdown["liquidity"]
+            + score_breakdown["risk_penalty"],
+            0.0,
+            100.0,
+        )
+    elif strategy_name == "volume-breakout":
+        score = _clamp(
+            score_breakdown["trend"]
+            + score_breakdown["breakout"]
+            + score_breakdown["volume"]
+            + score_breakdown["liquidity"]
+            + score_breakdown["risk_penalty"],
+            0.0,
+            100.0,
+        )
+    else:
+        score = _clamp(
+            score_breakdown["trend"]
+            + score_breakdown["liquidity"]
+            + score_breakdown["position"]
+            + score_breakdown["short_strength"]
+            + score_breakdown["risk_penalty"],
+            0.0,
+            100.0,
+        )
     score = round(score, 2)
     priority_weight = round(score / 100.0, 4)
-    watch_plan = build_trend_watch_plan(candidate_type, risk_flags)
+    watch_plan = build_trend_watch_plan(candidate_type, risk_flags, strategy_name=strategy_name)
 
     status = "unclassified_filtered"
     excluded = False
@@ -314,6 +362,7 @@ def _build_explain(
     dataset_run_id: str | None,
     factor_version: str | None,
     execute_date: date | None,
+    strategy_name: str,
 ) -> dict[str, object]:
     symbol_parts = _parse_symbol(explain_symbol)
     matching = []
@@ -342,6 +391,7 @@ def _build_explain(
                     execute_date,
                     dataset_run_id,
                     factor_version,
+                    strategy_name,
                 )
             ]
     if not matching:

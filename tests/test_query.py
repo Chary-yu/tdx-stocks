@@ -412,6 +412,135 @@ class QueryHelpersTest(unittest.TestCase):
             con.close()
 
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_build_stock_sql_appends_dynamic_factor_columns(self) -> None:
+        con = duckdb.connect(":memory:")
+        try:
+            con.execute(
+                """
+                CREATE TABLE raw_daily (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    trade_year BIGINT,
+                    open DOUBLE,
+                    high DOUBLE,
+                    low DOUBLE,
+                    close DOUBLE,
+                    volume BIGINT,
+                    amount DOUBLE
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE adj_daily (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    trade_year BIGINT,
+                    adj_open DOUBLE,
+                    adj_high DOUBLE,
+                    adj_low DOUBLE,
+                    adj_close DOUBLE,
+                    adj_factor DOUBLE
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE factors (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    trade_year BIGINT,
+                    pct_chg DOUBLE,
+                    ret_1 DOUBLE,
+                    ret_20 DOUBLE,
+                    ma5 DOUBLE,
+                    ma10 DOUBLE,
+                    ma20 DOUBLE,
+                    ma60 DOUBLE,
+                    ma120 DOUBLE,
+                    ma250 DOUBLE,
+                    vol_ma5 DOUBLE,
+                    vol_ma20 DOUBLE,
+                    vol_20 DOUBLE,
+                    high_20 DOUBLE,
+                    low_20 DOUBLE,
+                    range_20 DOUBLE,
+                    dd_20 DOUBLE,
+                    pos_20 DOUBLE,
+                    atr_pct_14 DOUBLE,
+                    bb_width_20 DOUBLE,
+                    rsi_14 DOUBLE,
+                    bias_20 DOUBLE,
+                    plus_di_14 DOUBLE,
+                    minus_di_14 DOUBLE,
+                    adx_14 DOUBLE,
+                    rsv_9 DOUBLE,
+                    k_9 DOUBLE,
+                    d_9 DOUBLE,
+                    j_9 DOUBLE,
+                    amount_ma20 DOUBLE,
+                    amount_ma60 DOUBLE,
+                    vol_ratio_20 DOUBLE,
+                    macd_dif DOUBLE,
+                    macd_dea DOUBLE,
+                    macd_hist DOUBLE,
+                    ma7 DOUBLE,
+                    ret_7 DOUBLE,
+                    vol_ma7 DOUBLE,
+                    vol_7 DOUBLE,
+                    high_7 DOUBLE,
+                    low_7 DOUBLE,
+                    range_7 DOUBLE,
+                    dd_7 DOUBLE,
+                    pos_7 DOUBLE,
+                    bias_7 DOUBLE
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO raw_daily VALUES
+                    ('sh', '600519', DATE '2024-01-04', 2024, 101, 102, 100, 101.5, 1100, 111650)
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO adj_daily VALUES
+                    ('sh', '600519', DATE '2024-01-04', 2024, 101, 102, 100, 101.5, 1.0)
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO factors VALUES
+                    ('sh', '600519', DATE '2024-01-04', 2024, 0.01, 0.01, 0.02,
+                     101, 101, 101, 101, 101, 101, 1000, 1000, 0.02,
+                     102, 100, 0.02, -0.01, 0.5, 0.03, 0.1, 60, 0.01,
+                     48, 52, 54, 54, 55, 56, 57, 1100, 1200, 0.1, 0.02,
+                     0.01, 0.01, 101.2, 0.02, 0.02, 100.8, 100.2, 0.6, 0.01)
+                """
+            )
+            register_query_macros(con)
+
+            sql = build_stock_sql(con, "600519.SH", limit=1)
+            self.assertIn("factors.ma7", sql)
+            self.assertIn("factors.ret_7", sql)
+            self.assertIn("factors.vol_7", sql)
+            self.assertIn("factors.pos_7", sql)
+
+            result = con.execute(sql)
+            row = result.fetchone()
+            columns = [item[0] for item in result.description]
+            row_map = dict(zip(columns, row, strict=True))
+            self.assertEqual(row_map["ma7"], 101.2)
+            self.assertEqual(row_map["ret_7"], 0.02)
+            self.assertEqual(row_map["pos_7"], 0.6)
+        finally:
+            con.close()
+
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_factors_generates_core_indicators_and_kdj(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

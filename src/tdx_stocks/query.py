@@ -265,6 +265,59 @@ def build_stock_sql(
             "    adj.adj_close,",
             "    adj.adj_factor,",
         ]
+    factor_columns = [
+        name
+        for name, _type in table_columns(con, "factors")
+        if name
+        not in {
+            "market",
+            "symbol",
+            "trade_date",
+            "trade_year",
+            "adj_open",
+            "adj_high",
+            "adj_low",
+            "adj_close",
+            "adj_factor",
+        }
+    ]
+    fixed_factor_columns = {
+        "pct_chg",
+        "ret_1",
+        "ret_20",
+        "ma5",
+        "ma10",
+        "ma20",
+        "ma60",
+        "ma120",
+        "ma250",
+        "vol_ma5",
+        "vol_ma20",
+        "vol_20",
+        "high_20",
+        "low_20",
+        "range_20",
+        "dd_20",
+        "pos_20",
+        "atr_pct_14",
+        "bb_width_20",
+        "rsi_14",
+        "bias_20",
+        "plus_di_14",
+        "minus_di_14",
+        "adx_14",
+        "rsv_9",
+        "k_9",
+        "d_9",
+        "j_9",
+        "amount_ma20",
+        "amount_ma60",
+        "vol_ratio_20",
+        "macd_dif",
+        "macd_dea",
+        "macd_hist",
+    }
+    extra_factor_columns = [column for column in factor_columns if column not in fixed_factor_columns]
     where = [
         f"raw.symbol = {code_expr}",
         f"({market_expr} IS NULL OR raw.market = {market_expr})",
@@ -321,11 +374,18 @@ def build_stock_sql(
         "    factors.macd_dif,",
         "    factors.macd_dea,",
         "    factors.macd_hist",
-        "FROM raw_daily AS raw",
-        f"LEFT JOIN {adjusted_table} AS adj USING (market, symbol, trade_date, trade_year)",
-        "LEFT JOIN factors USING (market, symbol, trade_date, trade_year)",
-        "WHERE " + " AND ".join(where),
     ]
+    for column in extra_factor_columns:
+        sql.append(f"    factors.{column},")
+    sql[-1] = sql[-1].rstrip(",")
+    sql.extend(
+        [
+            "FROM raw_daily AS raw",
+            f"LEFT JOIN {adjusted_table} AS adj USING (market, symbol, trade_date, trade_year)",
+            "LEFT JOIN factors USING (market, symbol, trade_date, trade_year)",
+            "WHERE " + " AND ".join(where),
+        ]
+    )
     if order_by not in {"trade_date", "trade_year"}:
         raise ValueError("order_by must be trade_date or trade_year")
     order_target = f"raw.{order_by}"

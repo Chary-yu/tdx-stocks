@@ -58,28 +58,31 @@ class StrategyLogicTest(unittest.TestCase):
     def _create_tables(self) -> None:
         self.con.execute(
             """
-            CREATE TABLE factors (
-                market VARCHAR,
-                symbol VARCHAR,
-                trade_date DATE,
-                adj_close DOUBLE,
-                ma5 DOUBLE,
-                ma20 DOUBLE,
-                ma60 DOUBLE,
-                ret_5 DOUBLE,
-                ret_20 DOUBLE,
-                amount_ma20 DOUBLE,
-                pos_20 DOUBLE,
-                dd_20 DOUBLE,
-                vol_ratio_20 DOUBLE,
-                rsi_14 DOUBLE,
-                atr_pct_14 DOUBLE,
-                vol_20 DOUBLE,
-                high_20 DOUBLE,
-                low_20 DOUBLE
+                CREATE TABLE factors (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    adj_close DOUBLE,
+                    ma5 DOUBLE,
+                    ma20 DOUBLE,
+                    ma60 DOUBLE,
+                    ret_5 DOUBLE,
+                    ret_20 DOUBLE,
+                    ret_60 DOUBLE,
+                    amount_ma20 DOUBLE,
+                    pos_20 DOUBLE,
+                    pos_60 DOUBLE,
+                    dd_20 DOUBLE,
+                    vol_ratio_20 DOUBLE,
+                    rsi_14 DOUBLE,
+                    atr_pct_14 DOUBLE,
+                    vol_20 DOUBLE,
+                    vol_60 DOUBLE,
+                    high_20 DOUBLE,
+                    low_20 DOUBLE
+                )
+                """
             )
-            """
-        )
         self.con.execute(
             """
             CREATE TABLE adj_daily (
@@ -93,7 +96,11 @@ class StrategyLogicTest(unittest.TestCase):
     def _insert_rows(self, factors_rows: list[tuple], adj_rows: list[tuple]) -> None:
         self.con.executemany(
             """
-            INSERT INTO factors VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO factors (
+                market, symbol, trade_date, adj_close, ma5, ma20, ma60,
+                ret_5, ret_20, amount_ma20, pos_20, dd_20, vol_ratio_20,
+                rsi_14, atr_pct_14, vol_20, high_20, low_20
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             factors_rows,
         )
@@ -403,8 +410,10 @@ class StrategyLogicTest(unittest.TestCase):
             "ma60": 9.0,
             "ret_5": 0.03,
             "ret_20": 0.12,
+            "ret_60": 0.18,
             "amount_ma20": 200_000_000.0,
             "pos_20": 0.9,
+            "pos_60": 0.8,
             "dd_20": -0.01,
             "vol_ratio_20": 0.2,
             "rsi_14": 60.0,
@@ -423,6 +432,187 @@ class StrategyLogicTest(unittest.TestCase):
         self.assertIn("near_20d_high", risk_flags)
         self.assertIn("trend", score_breakdown)
         self.assertIn("突破", watch_plan)
+
+    def _insert_strategy_row(self, row: dict[str, object], trade_date: date = date(2024, 1, 4)) -> None:
+        self.con.execute(
+            """
+            INSERT INTO factors (
+                market, symbol, trade_date, adj_close, ma5, ma20, ma60,
+                ret_5, ret_20, ret_60, amount_ma20, pos_20, pos_60,
+                dd_20, vol_ratio_20, rsi_14, atr_pct_14, vol_20, vol_60,
+                high_20, low_20
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["market"],
+                row["symbol"],
+                trade_date,
+                row["adj_close"],
+                row["ma5"],
+                row["ma20"],
+                row["ma60"],
+                row["ret_5"],
+                row["ret_20"],
+                row["ret_60"],
+                row["amount_ma20"],
+                row["pos_20"],
+                row["pos_60"],
+                row["dd_20"],
+                row["vol_ratio_20"],
+                row["rsi_14"],
+                row["atr_pct_14"],
+                row["vol_20"],
+                row["vol_60"],
+                row["high_20"],
+                row["low_20"],
+            ),
+        )
+        self.con.execute(
+            "INSERT INTO adj_daily VALUES (?, ?, ?)",
+            (row["market"], row["symbol"], trade_date),
+        )
+        self.con.execute(
+            "INSERT INTO adj_daily VALUES (?, ?, ?)",
+            (row["market"], row["symbol"], date(2024, 1, 5)),
+        )
+
+    def _run_preset(self, strategy_name: str, params: StrategyParams | None = None):
+        fake_context = FakeContext(self.con, self.manifest)
+        with patch("tdx_stocks.strategies.presets.trend_strength.open_query_context", return_value=fake_context):
+            runner = get_strategy(strategy_name).runner
+            return runner(AppConfig(), params or StrategyParams())
+
+    def test_low_vol_breakout_preset_is_distinct(self) -> None:
+        self._insert_strategy_row(
+            {
+                "market": "sh",
+                "symbol": "600100",
+                "adj_close": 12.0,
+                "ma5": 11.7,
+                "ma20": 11.0,
+                "ma60": 10.2,
+                "ret_5": 0.02,
+                "ret_20": 0.11,
+                "ret_60": 0.16,
+                "amount_ma20": 220_000_000.0,
+                "pos_20": 0.93,
+                "pos_60": 0.88,
+                "dd_20": -0.01,
+                "vol_ratio_20": 0.28,
+                "rsi_14": 62.0,
+                "atr_pct_14": 0.03,
+                "vol_20": 0.02,
+                "vol_60": 0.025,
+                "high_20": 12.2,
+                "low_20": 10.8,
+            }
+        )
+
+        report = self._run_preset("low-vol-breakout")
+
+        self.assertEqual(report.summary["strategy"], "low-vol-breakout")
+        self.assertEqual(report.picks[0]["candidate_type"], "breakout_watch")
+        self.assertIn("low_volatility", report.picks[0]["tags"])
+        self.assertIn("低波收敛", report.picks[0]["reasons"])
+
+    def test_ma_pullback_preset_is_distinct(self) -> None:
+        self._insert_strategy_row(
+            {
+                "market": "sh",
+                "symbol": "600101",
+                "adj_close": 10.1,
+                "ma5": 10.0,
+                "ma20": 10.0,
+                "ma60": 9.5,
+                "ret_5": 0.01,
+                "ret_20": 0.06,
+                "ret_60": 0.11,
+                "amount_ma20": 160_000_000.0,
+                "pos_20": 0.52,
+                "pos_60": 0.61,
+                "dd_20": -0.04,
+                "vol_ratio_20": 0.08,
+                "rsi_14": 58.0,
+                "atr_pct_14": 0.025,
+                "vol_20": 0.02,
+                "vol_60": 0.021,
+                "high_20": 10.8,
+                "low_20": 9.7,
+            }
+        )
+
+        report = self._run_preset("ma-pullback")
+
+        self.assertEqual(report.summary["strategy"], "ma-pullback")
+        self.assertEqual(report.picks[0]["candidate_type"], "pullback_watch")
+        self.assertIn("回踩均线", report.picks[0]["reasons"])
+        self.assertIn("ma_bullish", report.picks[0]["tags"])
+
+    def test_relative_strength_preset_is_distinct(self) -> None:
+        self._insert_strategy_row(
+            {
+                "market": "sh",
+                "symbol": "600102",
+                "adj_close": 13.0,
+                "ma5": 12.5,
+                "ma20": 11.8,
+                "ma60": 10.9,
+                "ret_5": 0.03,
+                "ret_20": 0.14,
+                "ret_60": 0.18,
+                "amount_ma20": 180_000_000.0,
+                "pos_20": 0.78,
+                "pos_60": 0.76,
+                "dd_20": -0.02,
+                "vol_ratio_20": 0.12,
+                "rsi_14": 64.0,
+                "atr_pct_14": 0.03,
+                "vol_20": 0.02,
+                "vol_60": 0.02,
+                "high_20": 13.2,
+                "low_20": 11.5,
+            }
+        )
+
+        report = self._run_preset("relative-strength")
+
+        self.assertEqual(report.summary["strategy"], "relative-strength")
+        self.assertEqual(report.picks[0]["candidate_type"], "strong_trend")
+        self.assertIn("relative_strength", report.picks[0]["tags"])
+        self.assertIn("20日动量强", report.picks[0]["reasons"])
+
+    def test_volume_breakout_preset_is_distinct(self) -> None:
+        self._insert_strategy_row(
+            {
+                "market": "sh",
+                "symbol": "600103",
+                "adj_close": 9.6,
+                "ma5": 9.3,
+                "ma20": 9.0,
+                "ma60": 8.7,
+                "ret_5": 0.04,
+                "ret_20": 0.09,
+                "ret_60": 0.12,
+                "amount_ma20": 210_000_000.0,
+                "pos_20": 0.91,
+                "pos_60": 0.84,
+                "dd_20": -0.01,
+                "vol_ratio_20": 0.34,
+                "rsi_14": 66.0,
+                "atr_pct_14": 0.03,
+                "vol_20": 0.025,
+                "vol_60": 0.024,
+                "high_20": 9.8,
+                "low_20": 8.7,
+            }
+        )
+
+        report = self._run_preset("volume-breakout")
+
+        self.assertEqual(report.summary["strategy"], "volume-breakout")
+        self.assertEqual(report.picks[0]["candidate_type"], "breakout_watch")
+        self.assertIn("volume_breakout", report.picks[0]["tags"])
+        self.assertIn("放量突破", report.picks[0]["reasons"])
 
 
 class StrategyCliTest(unittest.TestCase):

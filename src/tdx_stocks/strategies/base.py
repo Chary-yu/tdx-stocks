@@ -24,10 +24,13 @@ HARD_REASON_ORDER = (
 )
 TAG_ORDER = (
     "breakout_watch",
+    "low_volatility",
     "trend_strong",
     "pullback_watch",
     "near_20d_high",
     "volume_expansion",
+    "volume_breakout",
+    "relative_strength",
     "active_amount",
     "ma_bullish",
 )
