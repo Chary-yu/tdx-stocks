@@ -8,6 +8,7 @@
 | `audit` | Audit and diagnostics commands. |
 | `query` | Read-only inspection and query commands. |
 | `strategy` | Strategy analysis commands. |
+| `portfolio` | Portfolio construction and risk commands. |
 | `factors` | Factor catalog and research commands. |
 | `init-config` | Write a default TOML config. |
 | `sync` | Synchronize export-derived data and rebuild. |
@@ -41,6 +42,7 @@
 | `audit` | Audit and diagnostics commands. |
 | `query` | Read-only inspection and query commands. |
 | `strategy` | Strategy analysis commands. |
+| `portfolio` | Portfolio construction and risk commands. |
 | `factors` | Factor catalog and research commands. |
 | `init-config` | Write a default TOML config. |
 | `sync` | Synchronize export-derived data and rebuild. |
@@ -240,6 +242,9 @@
 | 命令 | 功能 |
 | --- | --- |
 | `list` | List available strategy presets. |
+| `groups` | Show strategy distribution by group. |
+| `describe` | Describe a strategy preset. |
+| `explain` | Explain why a symbol matches a strategy. |
 | `run` | Run a strategy and emit a report. |
 | `compare` | Compare strategy candidates. |
 | `consensus` | Find strategy consensus candidates. |
@@ -249,6 +254,7 @@
 | `analyze-forward-returns` | Analyze forward returns after strategy hits. |
 | `analyze-risk-tags` | Analyze forward returns by risk tags. |
 | `backtest-consensus` | Backtest consensus hits across multiple strategies. |
+| `batch` | Run TOML-driven backtest experiments. |
 | `reports` | Manage saved strategy reports. |
 
 ##### `strategy list`
@@ -256,6 +262,37 @@
 | 参数 | 说明 |
 | --- | --- |
 | `--json` |  |
+
+##### `strategy groups`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--json` |  |
+
+##### `strategy describe`
+
+| 参数 | 说明 |
+| --- | --- |
+| `strategy` |  |
+| `--json` |  |
+
+##### `strategy explain`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `strategy` |  |
+| `symbol` |  |
+| `--as-of` | (default: latest) |
+| `--json` |  |
+| `--output, --to` |  |
+| `--market` |  |
+| `--limit` | (default: 20) |
+| `--min-score` | (default: 60.0) |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
 
 ##### `strategy run`
 
@@ -268,7 +305,11 @@
 | --- | --- |
 | `low-vol-breakout` | Generate a low-volatility breakout observation pool. |
 | `ma-pullback` | Generate a moving-average pullback observation pool. |
+| `mean-reversion` | Generate an oversold rebound observation pool. |
+| `multi-factor` | Generate a configurable multi-factor observation pool. |
+| `pairs-arb` | Generate a pairs-trading long/short signal set. |
 | `relative-strength` | Generate a relative-strength observation pool. |
+| `smart-money` | Generate a smart-money observation pool. |
 | `trend-strength` | Generate the short-term trend observation pool. |
 | `volume-breakout` | Generate a volume breakout observation pool. |
 
@@ -308,7 +349,89 @@
 | `--explain-symbol` |  |
 | `--output, --to` |  |
 
+###### `strategy run mean-reversion`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--save` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--output, --to` |  |
+| `--rsi-threshold` | (default: 25.0) |
+
+###### `strategy run multi-factor`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--save` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--output, --to` |  |
+| `--weight-mom` | (default: 0.4) |
+| `--weight-vol` | (default: -0.3) |
+| `--weight-liq` | (default: 0.3) |
+| `--weight-rs` | (default: 0.2) |
+| `--weight-trend` | (default: 0.1) |
+
+###### `strategy run pairs-arb`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--save` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--output, --to` |  |
+| `--symbols` | Comma-separated pair pool symbols. |
+| `--lookback` | (default: 20) |
+| `--zscore-threshold` | (default: 2.0) |
+| `--max-pairs` | (default: 10) |
+
 ###### `strategy run relative-strength`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--limit` | (default: 20) |
+| `--json` |  |
+| `--save` |  |
+| `--as-of` |  |
+| `--market` |  |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--min-score` | (default: 60.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
+| `--explain-symbol` |  |
+| `--output, --to` |  |
+
+###### `strategy run smart-money`
 
 | 参数 | 说明 |
 | --- | --- |
@@ -403,6 +526,14 @@
 | `--format` | (default: table) |
 | `--json` |  |
 | `--output` |  |
+| `--walk-forward` |  |
+| `--train-years` | (default: 3) |
+| `--test-years` | (default: 1) |
+| `--monte-carlo` |  |
+| `--iterations` | (default: 1000) |
+| `--seed` |  |
+| `--stress-test` |  |
+| `--stress-period` | (default: all) |
 | `strategy_name` |  |
 
 ##### `strategy backtest-compare`
@@ -502,6 +633,13 @@
 | `--json` |  |
 | `--output` |  |
 
+##### `strategy batch`
+
+| 参数 | 说明 |
+| --- | --- |
+| `-c, --config` | Path to the TOML config file. |
+| `--batch` | Expand [batch_search] into a grid search. |
+
 ##### `strategy reports`
 
 | 参数 | 说明 |
@@ -529,6 +667,130 @@
 | `strategy_name` |  |
 | `--as-of` | (default: latest) |
 | `--run-id` |  |
+| `--json` |  |
+
+#### `portfolio`
+
+| 参数 | 说明 |
+| --- | --- |
+
+#### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `build` | Build a target portfolio. |
+| `risk` | Inspect a saved portfolio report. |
+| `rebalance-plan` | Create a rebalance plan. |
+| `backtest` | Backtest a portfolio strategy. |
+| `report` | Manage saved portfolio reports. |
+
+##### `portfolio build`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--from` | (default: consensus) |
+| `--strategy` |  |
+| `--top` | (default: 20) |
+| `--weighting` | (default: equal) |
+| `--max-weight` | (default: 0.1) |
+| `--min-weight` |  |
+| `--max-risk-score` |  |
+| `--exclude-risk-tags` |  |
+| `--market` |  |
+| `--as-of` | (default: latest) |
+| `--json` |  |
+| `--output, --to` |  |
+| `--save` |  |
+
+##### `portfolio risk`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--portfolio` | (default: latest) |
+| `--path` |  |
+| `--json` |  |
+
+##### `portfolio rebalance-plan`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--from` | (default: consensus) |
+| `--strategy` |  |
+| `--top` | (default: 20) |
+| `--weighting` | (default: equal) |
+| `--max-weight` | (default: 0.1) |
+| `--min-weight` |  |
+| `--max-risk-score` |  |
+| `--exclude-risk-tags` |  |
+| `--market` |  |
+| `--as-of` | (default: latest) |
+| `--json` |  |
+| `--output, --to` |  |
+| `--save` |  |
+| `--current` |  |
+| `--min-trade-weight` |  |
+| `--max-turnover` |  |
+
+##### `portfolio backtest`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--from` | (default: consensus) |
+| `--strategy` |  |
+| `--top` | (default: 20) |
+| `--weighting` | (default: equal) |
+| `--max-weight` | (default: 0.1) |
+| `--min-weight` |  |
+| `--max-risk-score` |  |
+| `--exclude-risk-tags` |  |
+| `--market` |  |
+| `--as-of` | (default: latest) |
+| `--json` |  |
+| `--output, --to` |  |
+| `--save` |  |
+| `--from-date` |  |
+| `--to-date` |  |
+| `--rebalance-days` | (default: 5) |
+| `--fee-bps` |  |
+| `--slippage-bps` |  |
+
+##### `portfolio report`
+
+| 参数 | 说明 |
+| --- | --- |
+
+##### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `list` | List saved portfolio reports. |
+| `latest` | Show the latest portfolio report. |
+| `show` | Show a saved portfolio report by path. |
+
+###### `portfolio report list`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--json` |  |
+
+###### `portfolio report latest`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--json` |  |
+
+###### `portfolio report show`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `path` |  |
 | `--json` |  |
 
 #### `factors`

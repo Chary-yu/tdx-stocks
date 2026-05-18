@@ -202,11 +202,23 @@ def _table_exists(con, table: str) -> bool:
 register_strategy(
     StrategyDefinition(
         name="pairs-arb",
+        display_name="Pairs Arb",
         description="Generate a pairs-trading long/short signal set.",
         runner=run_pairs_strategy,
+        group="pair",
+        style="market_neutral",
         aliases=("pairs", "stat-arb"),
         required_fields=("adj_close",),
         default_params=PairsParams(),
+        param_schema={
+            "symbols": {"type": "list[str]", "description": "Pair universe symbols."},
+            "lookback": {"type": "int", "description": "Rolling ratio lookback window."},
+            "zscore_threshold": {"type": "float", "description": "Absolute z-score threshold."},
+            "max_pairs": {"type": "int", "description": "Maximum pair rows to emit."},
+        },
+        candidate_types=("pair_short", "pair_long"),
+        risk_tags=("pair_spread_risk",),
+        introduced_in="0.5.0",
         add_arguments=_add_arguments,
         params_builder=_build_params,
     )

@@ -50,8 +50,11 @@ def _add_arguments(parser) -> None:
 register_strategy(
     StrategyDefinition(
         name="mean-reversion",
+        display_name="Mean Reversion",
         description="Generate an oversold rebound observation pool.",
         runner=run_mean_reversion_strategy,
+        group="pullback",
+        style="short_term",
         aliases=("mean_reversion",),
         required_fields=(
             "adj_close",
@@ -64,7 +67,16 @@ register_strategy(
             "std_pctchg_20",
             "bb_lower_20",
         ),
+        optional_fields=("vol_ratio_5_60", "price_vol_corr_20"),
         default_params=MeanReversionParams(),
+        param_schema={
+            "rsi_threshold": {"type": "float", "description": "RSI oversold threshold."},
+            "limit": {"type": "int", "description": "Maximum candidates to return."},
+            "min_score": {"type": "float", "description": "Minimum score required to be selected."},
+        },
+        candidate_types=("oversold_rebound",),
+        risk_tags=("risk_factor_missing", "mild_volatility"),
+        introduced_in="0.5.0",
         add_arguments=_add_arguments,
         params_builder=_build_params,
     )

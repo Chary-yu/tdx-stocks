@@ -19,8 +19,11 @@ def run_smart_money_strategy(config: AppConfig, params: StrategyParams) -> Strat
 register_strategy(
     StrategyDefinition(
         name="smart-money",
+        display_name="Smart Money",
         description="Generate a smart-money observation pool.",
         runner=run_smart_money_strategy,
+        group="momentum",
+        style="swing",
         aliases=("smart_money",),
         required_fields=(
             "adj_close",
@@ -35,6 +38,11 @@ register_strategy(
             "price_vol_corr_20",
             "atr_pct_14_pct_rank",
         ),
+        optional_fields=("vol_ratio_5_60", "bb_lower_20"),
         default_params=StrategyParams(),
+        param_schema={},
+        candidate_types=("smart_money",),
+        risk_tags=("risk_factor_missing", "mild_volatility", "volume_expansion"),
+        introduced_in="0.5.0",
     )
 )

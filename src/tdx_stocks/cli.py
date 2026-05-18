@@ -36,6 +36,7 @@ from .commands.strategy import (
     cmd_strategy_run_trend_strength as _strategy_cmd_strategy_run_trend_strength,
     register_strategy_group,
 )
+from .commands.portfolio import register_portfolio_group
 from .commands.factors import (
     cmd_factors_describe as _factors_cmd_describe,
     cmd_factors_list as _factors_cmd_list,
@@ -138,6 +139,7 @@ def build_parser(*, load_default_plugins: bool = True) -> argparse.ArgumentParse
         cmd_strategy_list=cmd_strategy_list,
         cmd_strategy_run=cmd_strategy_run,
     )
+    register_portfolio_group(subparsers)
     register_factors_group(
         subparsers,
         cmd_factors_list=cmd_factors_list,

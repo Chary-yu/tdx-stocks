@@ -10,7 +10,7 @@ from datetime import date
 from datetime import datetime
 
 from ..config import load_config
-from ..console import print_json, print_table
+from ..console import print_json, print_key_values, print_table
 from ..pipeline import parse_iso_date
 from ..query import normalize_output_data
 from ..strategies.base import StrategyParams
@@ -108,6 +108,31 @@ def register_strategy_group(
     list_parser = strategy_subparsers.add_parser("list", help="List available strategy presets.")
     list_parser.add_argument("--json", action="store_true")
     list_parser.set_defaults(func=cmd_strategy_list)
+
+    groups_parser = strategy_subparsers.add_parser("groups", help="Show strategy distribution by group.")
+    groups_parser.add_argument("--json", action="store_true")
+    groups_parser.set_defaults(func=cmd_strategy_groups)
+
+    describe_parser = strategy_subparsers.add_parser("describe", help="Describe a strategy preset.")
+    describe_parser.add_argument("strategy")
+    describe_parser.add_argument("--json", action="store_true")
+    describe_parser.set_defaults(func=cmd_strategy_describe)
+
+    explain_parser = strategy_subparsers.add_parser("explain", help="Explain why a symbol matches a strategy.")
+    add_config_arg(explain_parser)
+    explain_parser.add_argument("strategy")
+    explain_parser.add_argument("symbol")
+    explain_parser.add_argument("--as-of", default="latest")
+    explain_parser.add_argument("--json", action="store_true")
+    explain_parser.add_argument("--output", "--to", dest="output", type=Path)
+    explain_parser.add_argument("--market", choices=("sh", "sz", "bj"))
+    explain_parser.add_argument("--limit", type=int, default=20)
+    explain_parser.add_argument("--min-score", type=float, default=60.0)
+    explain_parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
+    explain_parser.add_argument("--candidate-type")
+    explain_parser.add_argument("--include-excluded", action="store_true")
+    explain_parser.add_argument("--show-excluded-limit", type=int, default=20)
+    explain_parser.set_defaults(func=cmd_strategy_explain)
 
     run_parser = strategy_subparsers.add_parser("run", help="Run a strategy and emit a report.")
     run_subparsers = run_parser.add_subparsers(dest="strategy_name", required=True)
@@ -640,15 +665,97 @@ def cmd_strategy_list(args: argparse.Namespace) -> int:
     strategies = [
         {
             "name": definition.name,
+            "group": definition.group,
+            "style": definition.style,
             "description": definition.description,
             "aliases": ", ".join(definition.aliases),
+            "introduced_in": definition.introduced_in,
         }
         for definition in list_strategies()
     ]
     if getattr(args, "json", False):
         print_json(normalize_output_data(strategies))
     else:
-        print_table(["name", "aliases", "description"], strategies)
+        print_table(["name", "group", "style", "aliases", "introduced_in", "description"], strategies)
+    return 0
+
+
+def cmd_strategy_groups(args: argparse.Namespace) -> int:
+    groups: dict[str, dict[str, object]] = {}
+    for definition in list_strategies():
+        item = groups.setdefault(
+            definition.group,
+            {
+                "group": definition.group,
+                "strategy_count": 0,
+                "strategies": [],
+                "description": _group_description(definition.group),
+            },
+        )
+        item["strategy_count"] = int(item["strategy_count"]) + 1
+        item["strategies"].append(definition.name)
+    rows = sorted(groups.values(), key=lambda row: str(row["group"]))
+    for row in rows:
+        row["strategies"] = ", ".join(sorted(row["strategies"]))
+    if getattr(args, "json", False):
+        print_json(normalize_output_data(rows))
+    else:
+        print_table(["group", "strategy_count", "strategies", "description"], rows)
+    return 0
+
+
+def cmd_strategy_describe(args: argparse.Namespace) -> int:
+    definition = get_strategy(args.strategy)
+    payload = _strategy_description_payload(definition)
+    if getattr(args, "json", False):
+        print_json(normalize_output_data(payload))
+    else:
+        print_key_values(
+            f"strategy: {definition.name}",
+            [
+                ("策略名称", definition.display_name or definition.name),
+                ("策略分组", definition.group),
+                ("策略风格", definition.style),
+                ("策略说明", definition.description),
+                ("依赖因子", ", ".join(definition.required_fields) or "无"),
+                ("可选因子", ", ".join(definition.optional_fields) or "无"),
+                ("默认参数", json.dumps(definition.default_params.to_dict(), ensure_ascii=False, default=str)),
+                ("可调参数", json.dumps(definition.param_schema, ensure_ascii=False, default=str)),
+                ("候选类型", ", ".join(definition.candidate_types) or "无"),
+                ("风险标签", ", ".join(definition.risk_tags) or "无"),
+                ("支持的研究能力", ", ".join(definition.research_capabilities())),
+                ("别名", ", ".join(definition.aliases) or "无"),
+                ("首次引入", definition.introduced_in),
+            ],
+        )
+    return 0
+
+
+def cmd_strategy_explain(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    definition = get_strategy(args.strategy)
+    params = _build_explain_params(args, definition)
+    report = definition.runner(config, params)
+    payload = _normalize_explain_payload(definition, params, report, args.symbol)
+    output_path = getattr(args, "output", None) or getattr(args, "to", None)
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    if getattr(args, "json", False):
+        print_json(normalize_output_data(payload))
+    else:
+        print_key_values(
+            f"strategy explain: {definition.name} {args.symbol}",
+            [
+                ("是否入选", payload.get("selected")),
+                ("总分", payload.get("total_score")),
+                ("未入选原因", payload.get("not_selected_reason")),
+                ("风险标签", ", ".join(payload.get("risk_tags") or []) or "无"),
+                ("缺失字段", ", ".join(payload.get("missing_fields") or []) or "无"),
+                ("关键因子值", json.dumps(payload.get("key_factors"), ensure_ascii=False, default=str)),
+            ],
+        )
+        print_table(["name", "passed", "detail"], payload.get("rule_checks") or [])
     return 0
 
 
@@ -679,6 +786,99 @@ def cmd_strategy_reports_show(args: argparse.Namespace) -> int:
     else:
         print_json(report)
     return 0
+
+
+def _strategy_description_payload(definition) -> dict[str, object]:
+    return {
+        **definition.to_dict(),
+        "supported_research_capabilities": list(definition.research_capabilities()),
+    }
+
+
+def _group_description(group: str) -> str:
+    return {
+        "trend": "趋势与突破类策略",
+        "momentum": "动量与强势类策略",
+        "pullback": "回调与反转类策略",
+        "breakout": "突破类策略",
+        "pair": "配对与对冲类策略",
+    }.get(group, "其他策略")
+
+
+def _build_explain_params(args: argparse.Namespace, definition) -> StrategyParams:
+    setattr(args, "explain_symbol", args.symbol)
+    if definition.params_builder is not None:
+        params = definition.params_builder(args)
+    else:
+        params = StrategyParams(
+            limit=args.limit,
+            min_score=args.min_score,
+            min_amount_ma20=args.min_amount_ma20,
+            market=args.market,
+            candidate_type=args.candidate_type,
+            include_excluded=args.include_excluded,
+            show_excluded_limit=args.show_excluded_limit,
+            explain_symbol=args.symbol,
+            as_of=_parse_as_of(args.as_of),
+        )
+    return params
+
+
+def _normalize_explain_payload(
+    definition,
+    params: StrategyParams,
+    report,
+    symbol: str,
+) -> dict[str, object]:
+    explain = report.explain or {}
+    pick = explain.get("pick") or {}
+    selected = explain.get("status") == "picked"
+    factor_values = dict(pick.get("factor_values") or {})
+    required_fields = tuple(getattr(definition, "required_fields", ()) or ())
+    missing_fields = [
+        field
+        for field in required_fields
+        if factor_values.get(field) is None
+    ]
+    rule_checks = [
+        {
+            "name": "selected",
+            "passed": selected,
+            "detail": explain.get("message") or explain.get("status"),
+        },
+        {
+            "name": "candidate_type",
+            "passed": bool(pick.get("candidate_type")),
+            "detail": pick.get("candidate_type") or "无候选类型",
+        },
+        {
+            "name": "min_score",
+            "passed": pick.get("score") is None or float(pick.get("score") or 0.0) >= float(params.min_score or 0.0),
+            "detail": f"min_score={params.min_score}",
+        },
+        {
+            "name": "missing_fields",
+            "passed": not missing_fields,
+            "detail": ", ".join(missing_fields) or "无",
+        },
+    ]
+    return {
+        "strategy": getattr(definition, "name", "unknown"),
+        "symbol": symbol,
+        "selected": selected,
+        "total_score": pick.get("score"),
+        "not_selected_reason": None if selected else (explain.get("excluded_reason") or explain.get("message")),
+        "rule_checks": rule_checks,
+        "score_breakdown": pick.get("score_breakdown"),
+        "key_factors": factor_values,
+        "risk_tags": pick.get("risk_flags") or [],
+        "missing_fields": missing_fields,
+        "candidate_type": pick.get("candidate_type"),
+        "tags": pick.get("tags") or [],
+        "watch_plan": pick.get("watch_plan"),
+        "as_of": params.as_of.isoformat() if params.as_of else "latest",
+        "detail": explain,
+    }
 
 
 def cmd_strategy_compare(args: argparse.Namespace) -> int:

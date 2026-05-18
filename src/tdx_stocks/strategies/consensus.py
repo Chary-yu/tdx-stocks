@@ -19,6 +19,7 @@ class ConsensusRow:
     strategies: list[str]
     avg_score: float
     max_score: float
+    risk_score: float | None
     candidate_types: list[str]
     tags: list[str]
     risk_flags: list[str]
@@ -32,6 +33,7 @@ class ConsensusRow:
             "strategies": self.strategies,
             "avg_score": self.avg_score,
             "max_score": self.max_score,
+            "risk_score": self.risk_score,
             "candidate_types": self.candidate_types,
             "tags": self.tags,
             "risk_flags": self.risk_flags,
@@ -83,17 +85,21 @@ def build_consensus(
                 {
                     "market": market,
                     "symbol": symbol,
-                    "strategies": set(),
-                    "scores": [],
-                    "candidate_types": set(),
-                    "tags": set(),
-                    "risk_flags": set(),
-                    "reasons": set(),
-                },
+                "strategies": set(),
+                "scores": [],
+                "risk_scores": [],
+                "candidate_types": set(),
+                "tags": set(),
+                "risk_flags": set(),
+                "reasons": set(),
+            },
             )
             item["strategies"].add(strategy_name)
             if candidate.get("score") is not None:
                 item["scores"].append(float(candidate["score"]))
+            risk_score = candidate.get("risk_score")
+            if risk_score is not None:
+                item["risk_scores"].append(float(risk_score))
             if candidate.get("candidate_type"):
                 item["candidate_types"].add(str(candidate["candidate_type"]))
             for field in ("tags", "risk_flags", "reasons"):
@@ -114,6 +120,7 @@ def build_consensus(
                 strategies=sorted(item["strategies"]),
                 avg_score=round(mean(scores), 2) if scores else 0.0,
                 max_score=round(max(scores), 2) if scores else 0.0,
+                risk_score=round(mean(item["risk_scores"]), 4) if item["risk_scores"] else None,
                 candidate_types=sorted(item["candidate_types"]),
                 tags=sorted(item["tags"]),
                 risk_flags=sorted(item["risk_flags"]),

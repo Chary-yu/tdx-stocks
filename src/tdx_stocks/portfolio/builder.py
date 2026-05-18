@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime, date
+from typing import Any
+
+from ..config import AppConfig
+from ..pipeline import parse_iso_date
+from ..strategies.consensus import build_consensus
+from ..strategies.registry import get_strategy, list_strategies
+from ..strategies.storage import load_saved_report
+from .models import Holding, PortfolioReport
+from .risk import check_portfolio_risk
+from .weights import build_portfolio_weights
+
+
+def build_portfolio(
+    config: AppConfig,
+    *,
+    source: str = "consensus",
+    strategy: str | None = None,
+    top: int = 20,
+    weighting: str = "equal",
+    max_weight: float = 0.10,
+    min_weight: float = 0.0,
+    max_risk_score: float | None = None,
+    exclude_risk_tags: tuple[str, ...] = (),
+    market: str | None = None,
+    as_of: date | None = None,
+) -> PortfolioReport:
+    candidates, data_run_id, resolved_as_of = _load_candidates(config, source, strategy, as_of)
+    filtered_candidates: list[dict[str, Any]] = []
+    excluded_count = 0
+    for candidate in candidates:
+        if market and str(candidate.get("market") or "").lower() != market.lower():
+            excluded_count += 1
+            continue
+        risk_flags = [str(flag) for flag in candidate.get("risk_flags") or []]
+        tags = [str(tag) for tag in candidate.get("tags") or []]
+        if exclude_risk_tags and set(exclude_risk_tags) & (set(risk_flags) | set(tags)):
+            excluded_count += 1
+            continue
+        risk_score = _float_or_none(candidate.get("risk_score"))
+        if max_risk_score is not None and risk_score is not None and risk_score > max_risk_score:
+            excluded_count += 1
+            continue
+        filtered_candidates.append(candidate)
+
+    filtered_candidates = sorted(
+        filtered_candidates,
+        key=lambda item: (
+            -_float_or_zero(item.get("score")),
+            len(item.get("risk_flags") or []),
+            str(item.get("market") or ""),
+            str(item.get("symbol") or ""),
+        ),
+    )[:top]
+
+    if not filtered_candidates:
+        holdings: list[Holding] = []
+    else:
+        weights = build_portfolio_weights(
+            filtered_candidates,
+            weighting,
+            max_weight=max_weight,
+            min_weight=min_weight,
+            normalize=True,
+        )
+        holdings = [
+            _candidate_to_holding(candidate, weight, source, strategy)
+            for candidate, weight in zip(filtered_candidates, weights, strict=True)
+        ]
+
+    risk = check_portfolio_risk(holdings, max_weight=max_weight)
+    summary = {
+        "source": source,
+        "strategy": strategy,
+        "candidate_count": len(candidates),
+        "selected_count": len(holdings),
+        "excluded_count": excluded_count,
+        "weighting": weighting,
+        "max_weight": max_weight,
+        "min_weight": min_weight,
+        "max_risk_score": max_risk_score,
+        "market": market,
+    }
+    diagnostics = {
+        "source_candidate_count": len(candidates),
+        "filtered_candidate_count": len(filtered_candidates),
+        "risk_check": risk.to_dict(),
+    }
+    return PortfolioReport.build(
+        generated_at=datetime.now(),
+        as_of=resolved_as_of or "latest",
+        data_run_id=data_run_id,
+        source=source,
+        params={
+            "source": source,
+            "strategy": strategy,
+            "top": top,
+            "weighting": weighting,
+            "max_weight": max_weight,
+            "min_weight": min_weight,
+            "max_risk_score": max_risk_score,
+            "exclude_risk_tags": list(exclude_risk_tags),
+            "market": market,
+            "as_of": as_of.isoformat() if as_of else None,
+        },
+        holdings=holdings,
+        summary=summary,
+        risk_summary=risk.to_dict(),
+        diagnostics=diagnostics,
+    )
+
+
+def _load_candidates(
+    config: AppConfig,
+    source: str,
+    strategy: str | None,
+    as_of: date | None,
+) -> tuple[list[dict[str, Any]], str | None, str | date]:
+    if source == "consensus":
+        strategy_names = [definition.name for definition in list_strategies()]
+        result = build_consensus(config, strategy_names, as_of=as_of, min_hit=2)
+        rows = []
+        for row in result.rows:
+            rows.append(
+                {
+                    "market": row.market,
+                    "symbol": row.symbol,
+                    "score": row.avg_score,
+                    "candidate_type": row.candidate_types[0] if row.candidate_types else None,
+                    "source_strategy": "consensus",
+                    "source_strategies": row.strategies,
+                    "risk_flags": row.risk_flags,
+                    "tags": row.tags,
+                    "reason": ", ".join(row.reasons) or "consensus",
+                    "risk_score": row.risk_score,
+                }
+            )
+        return rows, None, result.as_of
+
+    if not strategy:
+        raise ValueError("strategy is required when source is not consensus")
+    if source == "strategy":
+        definition = get_strategy(strategy)
+        report = definition.runner(config, definition.default_params if as_of is None else replace(definition.default_params, as_of=as_of))
+        candidates = list(report.picks)
+        return candidates, str(report.summary.get("dataset_run_id") or None), as_of or "latest"
+
+    if source == "report":
+        doc = load_saved_report(
+            config.paths.data_root,
+            strategy,
+            as_of=as_of.isoformat() if as_of else "latest",
+        )
+        if doc is None:
+            raise FileNotFoundError(f"saved strategy report not found for {strategy!r}")
+        return list(doc.get("candidates") or []), str(doc.get("data_run_id") or None), str(doc.get("as_of") or "latest")
+    raise ValueError(f"unknown portfolio source: {source}")
+
+
+def _candidate_to_holding(candidate: dict[str, Any], weight: float, source: str, strategy: str | None) -> Holding:
+    factor_values = dict(candidate.get("factor_values") or {})
+    source_strategies = candidate.get("source_strategies")
+    if not isinstance(source_strategies, list):
+        source_strategies = []
+    return Holding(
+        market=str(candidate.get("market") or "").lower(),
+        symbol=str(candidate.get("symbol") or ""),
+        weight=round(weight, 6),
+        score=_float_or_none(candidate.get("score")),
+        source_strategy=str(candidate.get("source_strategy") or strategy or source),
+        source_strategies=[str(item) for item in source_strategies],
+        candidate_type=str(candidate.get("candidate_type")) if candidate.get("candidate_type") else None,
+        risk_flags=[str(item) for item in candidate.get("risk_flags") or []],
+        tags=[str(item) for item in candidate.get("tags") or []],
+        reason=str(candidate.get("reason") or candidate.get("reasons") or ""),
+        risk_score=_float_or_none(candidate.get("risk_score")),
+        factor_values=factor_values,
+    )
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_zero(value: Any) -> float:
+    result = _float_or_none(value)
+    return result if result is not None else 0.0

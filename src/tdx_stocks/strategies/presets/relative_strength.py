@@ -18,8 +18,11 @@ def run_relative_strength_strategy(config: AppConfig, params: StrategyParams) ->
 register_strategy(
     StrategyDefinition(
         name="relative-strength",
+        display_name="Relative Strength",
         description="Generate a relative-strength observation pool.",
         runner=run_relative_strength_strategy,
+        group="momentum",
+        style="medium_term",
         aliases=("relative_strength",),
         required_fields=(
             "adj_close",
@@ -40,6 +43,11 @@ register_strategy(
             "high_20",
             "low_20",
         ),
+        optional_fields=("vol_ratio_5_60", "price_vol_corr_20"),
         default_params=StrategyParams(),
+        param_schema={},
+        candidate_types=("strong_trend",),
+        risk_tags=("risk_factor_missing", "ret_5_strong", "mild_volatility"),
+        introduced_in="0.5.0",
     )
 )

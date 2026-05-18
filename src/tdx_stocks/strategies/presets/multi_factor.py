@@ -48,8 +48,11 @@ def run_multi_factor_strategy(config: AppConfig, params: MultiFactorParams) -> S
 register_strategy(
     StrategyDefinition(
         name="multi-factor",
+        display_name="Multi Factor",
         description="Generate a configurable multi-factor observation pool.",
         runner=run_multi_factor_strategy,
+        group="momentum",
+        style="medium_term",
         aliases=("multi_factor",),
         required_fields=(
             "rs_score",
@@ -60,7 +63,18 @@ register_strategy(
             "atr_pct_14_pct_rank",
             "ma_cross_20_60",
         ),
+        optional_fields=("price_vol_corr_20", "bb_lower_20"),
         default_params=MultiFactorParams(),
+        param_schema={
+            "weight_mom": {"type": "float", "description": "Momentum factor weight."},
+            "weight_vol": {"type": "float", "description": "Volatility factor weight."},
+            "weight_liq": {"type": "float", "description": "Liquidity factor weight."},
+            "weight_rs": {"type": "float", "description": "Relative strength factor weight."},
+            "weight_trend": {"type": "float", "description": "Trend factor weight."},
+        },
+        candidate_types=("strong_trend",),
+        risk_tags=("risk_factor_missing", "mild_volatility", "ret_5_strong"),
+        introduced_in="0.5.0",
         add_arguments=_add_arguments,
         params_builder=_build_params,
     )

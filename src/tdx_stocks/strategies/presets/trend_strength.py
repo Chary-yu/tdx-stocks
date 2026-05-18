@@ -30,6 +30,27 @@ from ..universe import display_symbol, float_or_none, hard_exclusion_reason
 
 OpenQueryContextFn = Callable[[AppConfig], Any]
 
+KEY_FACTOR_FIELDS = (
+    "adj_close",
+    "ma20",
+    "ma60",
+    "ret_5",
+    "ret_20",
+    "ret_60",
+    "amount_ma20",
+    "pos_20",
+    "pos_60",
+    "dd_20",
+    "vol_ratio_20",
+    "rsi_14",
+    "atr_pct_14",
+    "vol_20",
+    "vol_60",
+    "high_20",
+    "low_20",
+    "risk_score",
+)
+
 
 def run_trend_strength_strategy(
     config: AppConfig,
@@ -135,6 +156,7 @@ def _analyze_row(
             "amount_ma20": float_or_none(row.get("amount_ma20")),
             "display_symbol": display_symbol_value,
             "score": None,
+            "risk_score": float_or_none(row.get("risk_score")),
             "score_breakdown": None,
             "candidate_type": None,
             "tags": [],
@@ -142,6 +164,7 @@ def _analyze_row(
             "reasons": [],
             "risk_flags": [],
             "watch_plan": build_trend_watch_plan(None, [], strategy_name=strategy_name),
+            "factor_values": {field: float_or_none(row.get(field)) for field in KEY_FACTOR_FIELDS},
             "dataset_run_id": dataset_run_id,
             "factor_version": factor_version,
             "excluded": True,
@@ -151,69 +174,8 @@ def _analyze_row(
     candidate_type, tags, reasons = classify_trend_candidate(row, params, strategy_name=strategy_name)
     risk_flags = build_trend_risk_flags(row, strategy_name=strategy_name)
     score = 0.0
-    if strategy_name == "multi-factor" and isinstance(params, MultiFactorParams):
-        score_breakdown = calculate_multi_factor_score(row, params.weights)
-    else:
-        score_breakdown = build_trend_score_breakdown(
-            row,
-            params.min_amount_ma20,
-            risk_flags,
-            strategy_name=strategy_name,
-        )
-    if strategy_name == "multi-factor":
-        if "total" in score_breakdown:
-            score = _clamp(score_breakdown["total"] * 100.0, 0.0, 100.0)
-        else:
-            score = _clamp(sum(score_breakdown.values()), 0.0, 100.0)
-    elif strategy_name == "low-vol-breakout":
-        score = _clamp(
-            score_breakdown["trend"]
-            + score_breakdown["breakout"]
-            + score_breakdown["low_volatility"]
-            + score_breakdown["liquidity"]
-            + score_breakdown["risk_penalty"],
-            0.0,
-            100.0,
-        )
-    elif strategy_name == "ma-pullback":
-        score = _clamp(
-            score_breakdown["trend"]
-            + score_breakdown["pullback"]
-            + score_breakdown["liquidity"]
-            + score_breakdown["risk_penalty"],
-            0.0,
-            100.0,
-        )
-    elif strategy_name == "relative-strength":
-        score = _clamp(
-            score_breakdown["trend"]
-            + score_breakdown["momentum"]
-            + score_breakdown["position"]
-            + score_breakdown["liquidity"]
-            + score_breakdown["risk_penalty"],
-            0.0,
-            100.0,
-        )
-    elif strategy_name == "volume-breakout":
-        score = _clamp(
-            score_breakdown["trend"]
-            + score_breakdown["breakout"]
-            + score_breakdown["volume"]
-            + score_breakdown["liquidity"]
-            + score_breakdown["risk_penalty"],
-            0.0,
-            100.0,
-        )
-    else:
-        score = _clamp(
-            score_breakdown["trend"]
-            + score_breakdown["liquidity"]
-            + score_breakdown["position"]
-            + score_breakdown["short_strength"]
-            + score_breakdown["risk_penalty"],
-            0.0,
-            100.0,
-        )
+    score_breakdown = _build_score_breakdown(row, params, risk_flags, strategy_name)
+    score = _score_from_breakdown(score_breakdown, strategy_name)
     score = round(score, 2)
     priority_weight = round(score / 100.0, 4)
     watch_plan = build_trend_watch_plan(candidate_type, risk_flags, strategy_name=strategy_name)
@@ -235,6 +197,7 @@ def _analyze_row(
         "amount_ma20": float_or_none(row.get("amount_ma20")),
         "display_symbol": display_symbol_value,
         "score": score,
+        "risk_score": float_or_none(row.get("risk_score")),
         "score_breakdown": score_breakdown,
         "candidate_type": candidate_type,
         "tags": tags,
@@ -242,11 +205,44 @@ def _analyze_row(
         "reasons": reasons,
         "risk_flags": risk_flags,
         "watch_plan": watch_plan,
+        "factor_values": {field: float_or_none(row.get(field)) for field in KEY_FACTOR_FIELDS},
         "dataset_run_id": dataset_run_id,
         "factor_version": factor_version,
         "excluded": excluded,
         "excluded_reason": excluded_reason,
     }
+
+
+def _build_score_breakdown(
+    row: dict[str, Any],
+    params: StrategyParams,
+    risk_flags: list[str],
+    strategy_name: str,
+) -> dict[str, float]:
+    if strategy_name == "multi-factor" and isinstance(params, MultiFactorParams):
+        return calculate_multi_factor_score(row, params.weights)
+    return build_trend_score_breakdown(
+        row,
+        params.min_amount_ma20,
+        risk_flags,
+        strategy_name=strategy_name,
+    )
+
+
+def _score_from_breakdown(score_breakdown: dict[str, float], strategy_name: str) -> float:
+    score_fields: dict[str, tuple[str, ...]] = {
+        "multi-factor": ("total",),
+        "low-vol-breakout": ("trend", "breakout", "low_volatility", "liquidity", "risk_penalty"),
+        "ma-pullback": ("trend", "pullback", "liquidity", "risk_penalty"),
+        "relative-strength": ("trend", "momentum", "position", "liquidity", "risk_penalty"),
+        "volume-breakout": ("trend", "breakout", "volume", "liquidity", "risk_penalty"),
+        "mean-reversion": ("trend", "oversold", "band_reclaim", "liquidity", "risk_penalty"),
+        "smart-money": ("trend", "smart_volume", "stability", "liquidity", "risk_penalty"),
+    }
+    fields = score_fields.get(strategy_name, ("trend", "liquidity", "position", "short_strength", "risk_penalty"))
+    if fields == ("total",):
+        return _clamp(score_breakdown["total"] * 100.0, 0.0, 100.0)
+    return _clamp(sum(score_breakdown.get(field, 0.0) for field in fields), 0.0, 100.0)
 
 
 def _build_summary(
@@ -469,6 +465,7 @@ def _pick_view(row: dict[str, Any], rank: int) -> dict[str, object]:
         "symbol": row["symbol"],
         "display_symbol": row["display_symbol"],
         "score": row["score"],
+        "risk_score": row.get("risk_score"),
         "score_breakdown": row["score_breakdown"],
         "rank": rank,
         "candidate_type": row["candidate_type"],
@@ -477,6 +474,7 @@ def _pick_view(row: dict[str, Any], rank: int) -> dict[str, object]:
         "reasons": row["reasons"],
         "risk_flags": row["risk_flags"],
         "watch_plan": row["watch_plan"],
+        "factor_values": row.get("factor_values"),
         "dataset_run_id": row["dataset_run_id"],
         "factor_version": row["factor_version"],
         "excluded": row["excluded"],
@@ -492,6 +490,7 @@ def _excluded_view(row: dict[str, Any]) -> dict[str, object]:
         "symbol": row["symbol"],
         "display_symbol": row["display_symbol"],
         "score": row["score"],
+        "risk_score": row.get("risk_score"),
         "score_breakdown": row["score_breakdown"],
         "candidate_type": row["candidate_type"],
         "tags": row["tags"],
@@ -499,6 +498,7 @@ def _excluded_view(row: dict[str, Any]) -> dict[str, object]:
         "reasons": row["reasons"],
         "risk_flags": row["risk_flags"],
         "watch_plan": row["watch_plan"],
+        "factor_values": row.get("factor_values"),
         "dataset_run_id": row["dataset_run_id"],
         "factor_version": row["factor_version"],
         "excluded": row["excluded"],
@@ -519,6 +519,7 @@ def _explain_view(
         "symbol": row["symbol"],
         "display_symbol": row["display_symbol"],
         "score": row["score"],
+        "risk_score": row.get("risk_score"),
         "score_breakdown": row["score_breakdown"],
         "candidate_type": row["candidate_type"],
         "tags": row["tags"],
@@ -526,6 +527,7 @@ def _explain_view(
         "reasons": row["reasons"],
         "risk_flags": row["risk_flags"],
         "watch_plan": row["watch_plan"],
+        "factor_values": row.get("factor_values"),
         "dataset_run_id": dataset_run_id,
         "factor_version": factor_version,
         "excluded": row["excluded"],
@@ -562,8 +564,11 @@ def _clamp(value: float, minimum: float, maximum: float) -> float:
 register_strategy(
     StrategyDefinition(
         name="trend-strength",
+        display_name="Trend Strength",
         description="Generate the short-term trend observation pool.",
         runner=run_trend_strength_strategy,
+        group="trend",
+        style="short_term",
         aliases=("trend_strength",),
         required_fields=(
             "adj_close",
@@ -585,6 +590,23 @@ register_strategy(
             "high_20",
             "low_20",
         ),
+        optional_fields=(
+            "vol_ratio_5_60",
+            "price_vol_corr_20",
+            "std_pctchg_20",
+            "bb_lower_20",
+        ),
         default_params=StrategyParams(),
+        param_schema={
+            "limit": {"type": "int", "description": "Maximum candidates to return."},
+            "min_score": {"type": "float", "description": "Minimum score required to be selected."},
+            "min_amount_ma20": {"type": "float", "description": "Minimum 20-day average amount."},
+            "market": {"type": "str", "description": "Market filter."},
+            "candidate_type": {"type": "str", "description": "Force a specific candidate type."},
+            "as_of": {"type": "date", "description": "Trade date snapshot."},
+        },
+        candidate_types=("strong_trend", "breakout_watch", "pullback_watch"),
+        risk_tags=("ret_5_strong", "rsi_high", "mild_volatility", "near_20d_high", "risk_factor_missing"),
+        introduced_in="0.1.0",
     )
 )

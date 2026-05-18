@@ -52,6 +52,15 @@ python -m pip install -e .
 
 CLI 手册见 `docs/cli_manual.md`，摘要版可用 `tdx-stocks help-summary` 或 `tools/generate_cli_help_summary.py` 生成到 `docs/cli_help_summary.md`。
 
+Strategy and portfolio docs:
+
+- `docs/strategies.md`
+- `docs/strategy_explain.md`
+- `docs/portfolio.md`
+- `docs/portfolio_backtest.md`
+- `docs/rebalance.md`
+- `docs/risk.md`
+
 Create a config file:
 
 ```bash
@@ -115,6 +124,13 @@ specific TDX export file from tooling or `jq`.
 Internally the factor build now runs in staged DuckDB temp tables so the heavy
 rolling-window and recursive calculations stay easier to debug and less memory
 hungry than one giant query.
+
+The new portfolio layer is research-only:
+
+- It can build target baskets from strategy or consensus candidates.
+- It can generate rebalance plans and portfolio backtests.
+- It does not connect to broker APIs.
+- It does not place automatic trades.
 
 ## Test Map
 

@@ -17,12 +17,47 @@ class StrategyDefinition:
     name: str
     description: str
     runner: Callable[[AppConfig, StrategyParams], StrategyReport]
-    aliases: tuple[str, ...] = ()
+    display_name: str = ""
+    group: str = "other"
+    style: str = "other"
     required_fields: tuple[str, ...] = ()
     optional_fields: tuple[str, ...] = ()
     default_params: StrategyParams = field(default_factory=StrategyParams)
+    param_schema: dict[str, object] = field(default_factory=dict)
+    candidate_types: tuple[str, ...] = ()
+    risk_tags: tuple[str, ...] = ()
+    introduced_in: str = "0.5.0"
+    aliases: tuple[str, ...] = ()
     add_arguments: Callable[[argparse.ArgumentParser], None] | None = None
     params_builder: Callable[[argparse.Namespace], StrategyParams] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "display_name": self.display_name,
+            "description": self.description,
+            "group": self.group,
+            "style": self.style,
+            "required_fields": list(self.required_fields),
+            "optional_fields": list(self.optional_fields),
+            "default_params": self.default_params.to_dict(),
+            "param_schema": self.param_schema,
+            "candidate_types": list(self.candidate_types),
+            "risk_tags": list(self.risk_tags),
+            "introduced_in": self.introduced_in,
+            "aliases": list(self.aliases),
+        }
+
+    def research_capabilities(self) -> tuple[str, ...]:
+        return (
+            "run",
+            "compare",
+            "consensus",
+            "backtest",
+            "tune",
+            "analyze_forward_returns",
+            "analyze_risk_tags",
+        )
 
 
 _REGISTRY: dict[str, StrategyDefinition] = {}

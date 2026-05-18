@@ -18,8 +18,11 @@ def run_ma_pullback_strategy(config: AppConfig, params: StrategyParams) -> Strat
 register_strategy(
     StrategyDefinition(
         name="ma-pullback",
+        display_name="MA Pullback",
         description="Generate a moving-average pullback observation pool.",
         runner=run_ma_pullback_strategy,
+        group="pullback",
+        style="swing",
         aliases=("ma_pullback",),
         required_fields=(
             "adj_close",
@@ -40,6 +43,11 @@ register_strategy(
             "high_20",
             "low_20",
         ),
+        optional_fields=("vol_ratio_5_60", "price_vol_corr_20"),
         default_params=StrategyParams(),
+        param_schema={},
+        candidate_types=("pullback_watch",),
+        risk_tags=("risk_factor_missing", "mild_volatility", "ret_5_strong"),
+        introduced_in="0.5.0",
     )
 )

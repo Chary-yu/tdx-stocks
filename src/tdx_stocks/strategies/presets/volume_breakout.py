@@ -18,8 +18,11 @@ def run_volume_breakout_strategy(config: AppConfig, params: StrategyParams) -> S
 register_strategy(
     StrategyDefinition(
         name="volume-breakout",
+        display_name="Volume Breakout",
         description="Generate a volume breakout observation pool.",
         runner=run_volume_breakout_strategy,
+        group="breakout",
+        style="short_term",
         aliases=("volume_breakout",),
         required_fields=(
             "adj_close",
@@ -40,6 +43,11 @@ register_strategy(
             "high_20",
             "low_20",
         ),
+        optional_fields=("vol_ratio_5_60", "price_vol_corr_20"),
         default_params=StrategyParams(),
+        param_schema={},
+        candidate_types=("breakout_watch",),
+        risk_tags=("ret_5_strong", "rsi_high", "mild_volatility", "near_20d_high"),
+        introduced_in="0.5.0",
     )
 )
