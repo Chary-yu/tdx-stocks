@@ -3,7 +3,7 @@ from __future__ import annotations
 import statistics
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -403,6 +403,16 @@ class QueryHelpersTest(unittest.TestCase):
     def test_build_stock_sql_supports_adjust_modes(self) -> None:
         con = duckdb.connect(":memory:")
         try:
+            con.execute(
+                """
+                CREATE TABLE factors (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    trade_year BIGINT
+                )
+                """
+            )
             sql_raw = build_stock_sql(con, "600519.SH", adjust="raw")
             sql_hfq = build_stock_sql(con, "600519.SH", adjust="hfq")
             self.assertIn("LEFT JOIN raw_daily AS adj", sql_raw)
@@ -514,12 +524,31 @@ class QueryHelpersTest(unittest.TestCase):
             )
             con.execute(
                 """
-                INSERT INTO factors VALUES
-                    ('sh', '600519', DATE '2024-01-04', 2024, 0.01, 0.01, 0.02,
-                     101, 101, 101, 101, 101, 101, 1000, 1000, 0.02,
-                     102, 100, 0.02, -0.01, 0.5, 0.03, 0.1, 60, 0.01,
-                     48, 52, 54, 54, 55, 56, 57, 1100, 1200, 0.1, 0.02,
-                     0.01, 0.01, 101.2, 0.02, 0.02, 100.8, 100.2, 0.6, 0.01)
+                INSERT INTO factors (
+                    market, symbol, trade_date, trade_year,
+                    pct_chg, ret_1, ret_20,
+                    ma5, ma10, ma20, ma60, ma120, ma250,
+                    vol_ma5, vol_ma20, vol_20,
+                    high_20, low_20, range_20, dd_20, pos_20,
+                    atr_pct_14, bb_width_20, rsi_14, bias_20,
+                    plus_di_14, minus_di_14, adx_14,
+                    rsv_9, k_9, d_9, j_9,
+                    amount_ma20, amount_ma60, vol_ratio_20,
+                    macd_dif, macd_dea, macd_hist,
+                    ma7, ret_7, pos_7
+                ) VALUES (
+                    'sh', '600519', DATE '2024-01-04', 2024,
+                    0.01, 0.01, 0.02,
+                    101, 101, 101, 101, 101, 101,
+                    1000, 1000, 0.02,
+                    102, 100, 0.02, -0.01, 0.5,
+                    0.03, 0.1, 60, 0.01,
+                    48, 52, 54,
+                    54, 55, 56, 57,
+                    1100, 1200, 0.1,
+                    0.02, 0.01, 0.01,
+                    101.2, 0.02, 0.6
+                )
                 """
             )
             register_query_macros(con)
@@ -529,6 +558,7 @@ class QueryHelpersTest(unittest.TestCase):
             self.assertIn("factors.ret_7", sql)
             self.assertIn("factors.vol_7", sql)
             self.assertIn("factors.pos_7", sql)
+            self.assertIn("factors.macd_hist,\n    factors.ma7", sql)
 
             result = con.execute(sql)
             row = result.fetchone()
@@ -609,6 +639,7 @@ class QueryHelpersTest(unittest.TestCase):
                     f"""
                     SELECT
                         trade_date,
+                        adj_close,
                         pct_chg,
                         ret_1,
                         ret_20,
@@ -645,6 +676,7 @@ class QueryHelpersTest(unittest.TestCase):
 
                 columns = [
                     "trade_date",
+                    "adj_close",
                     "pct_chg",
                     "ret_1",
                     "ret_20",
@@ -675,6 +707,7 @@ class QueryHelpersTest(unittest.TestCase):
                 row = dict(zip(columns, result_rows[-1], strict=True))
                 closes = [10.0 + i for i in range(25)]
                 pct_chgs = [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
+                self.assertEqual(row["adj_close"], closes[-1])
                 self.assertAlmostEqual(row["pct_chg"], closes[-1] / closes[-2] - 1, places=12)
                 self.assertAlmostEqual(row["ret_1"], closes[-1] / closes[-2] - 1, places=12)
                 self.assertAlmostEqual(row["ret_20"], closes[-1] / closes[-21] - 1, places=12)
@@ -748,8 +781,18 @@ class QueryHelpersTest(unittest.TestCase):
         self.assertEqual(spec.configured_windows, (7, 20, 30))
         report = factor_build_report(spec)
         self.assertEqual(report["configured_windows"], [7, 20, 30])
-        self.assertEqual(report["effective_ma_windows"], [5, 7, 10, 20, 30, 60, 120, 250])
-        sql = render_build_factors_sql(Path("/tmp/in"), Path("/tmp/out"), "zstd", factor_windows=(7, 30))
+        self.assertEqual(report["generated_ma_windows"], [5, 7, 10, 20, 30, 60, 120, 250])
+        self.assertEqual(report["generated_ret_windows"], [1, 5, 7, 10, 20, 30, 60, 120, 250])
+        self.assertEqual(report["generated_vol_windows"], [5, 7, 10, 20, 30, 60])
+        self.assertEqual(report["generated_range_windows"], [7, 20, 30])
+        self.assertEqual(report["generated_pos_windows"], [7, 20, 30, 60])
+        self.assertEqual(report["generated_drawdown_windows"], [7, 20, 30, 60])
+        sql = render_build_factors_sql(
+            Path("/tmp/in"),
+            Path("/tmp/out"),
+            "zstd",
+            factor_windows=(7, 30),
+        )
         self.assertIn("AS ma7", sql)
         self.assertIn("AS ret_7", sql)
         self.assertIn("AS vol_7", sql)
@@ -757,6 +800,93 @@ class QueryHelpersTest(unittest.TestCase):
         self.assertIn("AS ma30", sql)
         self.assertIn("AS ret_30", sql)
         self.assertIn("AS pos_30", sql)
+        self.assertNotIn("OVER (7)", sql)
+        self.assertNotIn("OVER (30)", sql)
+        self.assertIn("ROWS BETWEEN 6 PRECEDING AND CURRENT ROW", sql)
+        self.assertIn("ROWS BETWEEN 29 PRECEDING AND CURRENT ROW", sql)
+
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_build_factors_supports_configured_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            input_dir = tmp_path / "adj_daily"
+            output_dir = tmp_path / "factors"
+            con = duckdb.connect(":memory:")
+            try:
+                input_rows = []
+                base_date = date(2024, 1, 2)
+                for offset in range(40):
+                    close = 20.0 + offset
+                    input_rows.append(
+                        (
+                            "sh",
+                            "600519",
+                            base_date + timedelta(days=offset),
+                            2024,
+                            close,
+                            close + 1.0,
+                            close - 1.0,
+                            close,
+                            1000,
+                            1000.0 * close,
+                            1.0,
+                        )
+                    )
+                values_sql = ",\n".join(
+                    (
+                        f"    ('{market}', '{symbol}', DATE '{trade_date.isoformat()}', "
+                        f"{trade_year}, {adj_open}, {adj_high}, {adj_low}, {adj_close}, "
+                        f"{volume}, {amount}, {adj_factor})"
+                    )
+                    for (
+                        market,
+                        symbol,
+                        trade_date,
+                        trade_year,
+                        adj_open,
+                        adj_high,
+                        adj_low,
+                        adj_close,
+                        volume,
+                        amount,
+                        adj_factor,
+                    ) in input_rows
+                )
+                con.execute(
+                    f"""
+                    COPY (
+                        SELECT *
+                        FROM (
+                            VALUES
+{values_sql}
+                        ) AS t(
+                            market, symbol, trade_date, trade_year, adj_open, adj_high,
+                            adj_low, adj_close, volume, amount, adj_factor
+                        )
+                    )
+                    TO '{input_dir.as_posix()}'
+                    (FORMAT PARQUET, PARTITION_BY (trade_year, market))
+                    """
+                )
+
+                build_factors(con, input_dir, output_dir, "zstd", factor_windows=(7, 30))
+
+                row = con.execute(
+                    f"""
+                    SELECT ma7, ret_7, vol_7, pos_7, ma30, ret_30, vol_30, pos_30
+                    FROM read_parquet(
+                        '{output_dir.as_posix()}/**/*.parquet',
+                        hive_partitioning=true
+                    )
+                    ORDER BY trade_date DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(len(row), 8)
+                self.assertTrue(all(value is not None for value in row))
+            finally:
+                con.close()
 
 
 if __name__ == "__main__":

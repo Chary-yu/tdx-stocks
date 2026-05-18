@@ -10,14 +10,18 @@ from pathlib import Path
 WINDOW_SPEC = "PARTITION BY market, symbol ORDER BY trade_date"
 DEFAULT_FACTOR_WINDOWS = (5, 10, 20, 60)
 DEFAULT_REQUIRED_WINDOWS = (5, 10, 20, 60, 120, 250)
-DEFAULT_TECHNICAL_WINDOWS = (9, 14)
+DEFAULT_FIXED_RET_WINDOWS = (1, 5, 10, 20, 60, 120, 250)
+DEFAULT_FIXED_MA_WINDOWS = (5, 10, 20, 60, 120, 250)
+DEFAULT_FIXED_VOL_WINDOWS = (5, 10, 20, 60)
+DEFAULT_FIXED_RANGE_WINDOWS = (20,)
+DEFAULT_FIXED_POS_WINDOWS = (20, 60)
+DEFAULT_FIXED_DD_WINDOWS = (20, 60)
 
 
 @dataclass(frozen=True)
 class FactorSpec:
     configured_windows: tuple[int, ...] = DEFAULT_FACTOR_WINDOWS
     required_windows: tuple[int, ...] = DEFAULT_REQUIRED_WINDOWS
-    technical_windows: tuple[int, ...] = DEFAULT_TECHNICAL_WINDOWS
 
     @property
     def extra_windows(self) -> tuple[int, ...]:
@@ -51,13 +55,26 @@ def build_factor_spec(factor_windows: Iterable[int] | None = None) -> FactorSpec
 
 
 def factor_build_report(spec: FactorSpec) -> dict[str, object]:
+    extra_windows = list(spec.extra_windows)
+    generated_ma_windows = sorted(set(DEFAULT_FIXED_MA_WINDOWS).union(extra_windows))
+    generated_ret_windows = sorted(set(DEFAULT_FIXED_RET_WINDOWS).union(extra_windows))
+    generated_vol_windows = sorted(set(DEFAULT_FIXED_VOL_WINDOWS).union(extra_windows))
+    generated_range_windows = sorted(set(DEFAULT_FIXED_RANGE_WINDOWS).union(extra_windows))
+    generated_pos_windows = sorted(set(DEFAULT_FIXED_POS_WINDOWS).union(extra_windows))
+    generated_drawdown_windows = sorted(set(DEFAULT_FIXED_DD_WINDOWS).union(extra_windows))
     return {
         "factor_version": "windowed-v1",
         "configured_windows": list(spec.configured_windows),
-        "effective_ma_windows": list(spec.effective_ma_windows),
-        "effective_ret_windows": list(spec.effective_ret_windows),
-        "effective_range_windows": list(spec.effective_range_windows),
-        "effective_vol_windows": list(spec.effective_vol_windows),
+        "generated_ma_windows": generated_ma_windows,
+        "generated_ret_windows": generated_ret_windows,
+        "generated_range_windows": generated_range_windows,
+        "generated_pos_windows": generated_pos_windows,
+        "generated_drawdown_windows": generated_drawdown_windows,
+        "generated_vol_windows": generated_vol_windows,
+        "effective_ma_windows": generated_ma_windows,
+        "effective_ret_windows": generated_ret_windows,
+        "effective_range_windows": generated_range_windows,
+        "effective_vol_windows": generated_vol_windows,
     }
 
 
@@ -98,25 +115,26 @@ def _extra_windows(factor_spec: FactorSpec | None) -> tuple[int, ...]:
     return factor_spec.extra_windows if factor_spec is not None else ()
 
 
-def _window_alias(window: int, prefix: str, expr: str) -> tuple[str, str]:
-    return (f"{prefix}{window}", expr.format(window=window))
-
-
 def _extra_window_metrics(window: int) -> list[tuple[str, str]]:
+    window_spec = _window(window)
     return [
-        (f"lag_close_{window}", "lag(adj_close, {window}) OVER ({window_spec})".format(window=window, window_spec=WINDOW_SPEC)),
-        (f"cnt_{window}", "count(*) OVER ({window_spec})".format(window_spec=_window(window))),
-        (f"ret_cnt_{window}", "count(pct_chg) OVER ({window_spec})".format(window_spec=_window(window))),
-        _window_alias(window, "ma", "avg(adj_close) OVER ({window})"),
-        _window_alias(window, "vol_ma", "avg(volume) OVER ({window})"),
-        _window_alias(window, "high_", "max(adj_high) OVER ({window})"),
-        _window_alias(window, "low_", "min(adj_low) OVER ({window})"),
-        _window_alias(window, "std_pctchg_", "stddev_samp(pct_chg) OVER ({window})"),
+        (f"lag_close_{window}", f"lag(adj_close, {window}) OVER ({WINDOW_SPEC})"),
+        (f"cnt_{window}", f"count(*) OVER ({window_spec})"),
+        (f"ret_cnt_{window}", f"count(pct_chg) OVER ({window_spec})"),
+        (f"ma{window}", f"avg(adj_close) OVER ({window_spec})"),
+        (f"vol_ma{window}", f"avg(volume) OVER ({window_spec})"),
+        (f"high_{window}", f"max(adj_high) OVER ({window_spec})"),
+        (f"low_{window}", f"min(adj_low) OVER ({window_spec})"),
+        (f"std_pctchg_{window}", f"stddev_samp(pct_chg) OVER ({window_spec})"),
     ]
 
 
 def _extra_window_technical_items(window: int) -> list[tuple[str, str]]:
     return [
+        (f"ma{window}", f"ma{window}"),
+        (f"vol_ma{window}", f"vol_ma{window}"),
+        (f"high_{window}", f"high_{window}"),
+        (f"low_{window}", f"low_{window}"),
         (f"ret_{window}", f"CASE WHEN lag_close_{window} IS NULL THEN NULL ELSE adj_close / lag_close_{window} - 1 END"),
         (f"vol_{window}", f"CASE WHEN ret_cnt_{window} < {window} THEN NULL ELSE std_pctchg_{window} END"),
         (f"bias_{window}", f"CASE WHEN cnt_{window} < {window} OR ma{window} IS NULL OR ma{window} = 0 THEN NULL ELSE adj_close / ma{window} - 1 END"),
@@ -459,6 +477,7 @@ def render_create_rolling_stats_sql(factor_spec: FactorSpec | None = None) -> st
         "    symbol,",
         "    trade_date,",
         "    trade_year,",
+        "    adj_close,",
         "    rn,",
         "    pct_chg,",
         "    ret_1,",
@@ -665,6 +684,7 @@ def render_copy_factors_sql(
         "symbol",
         "trade_date",
         "trade_year",
+        "adj_close",
         "pct_chg",
         "ret_1",
         "ret_5",

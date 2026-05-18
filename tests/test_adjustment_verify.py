@@ -119,7 +119,10 @@ class AdjustmentVerifyTest(unittest.TestCase):
                 threshold=0.01,
                 json=False,
             )
-            with patch("tdx_stocks.cli.load_config", return_value=config), contextlib.redirect_stdout(buf):
+            with patch(
+                "tdx_stocks.commands.audit.load_config",
+                return_value=config,
+            ), contextlib.redirect_stdout(buf):
                 self.assertEqual(cmd_verify_adjustment(args), 0)
             output = buf.getvalue()
             self.assertIn("ok=True", output)
@@ -218,7 +221,10 @@ class AdjustmentVerifyTest(unittest.TestCase):
                 threshold=0.01,
                 json=False,
             )
-            with patch("tdx_stocks.cli.load_config", return_value=config), contextlib.redirect_stdout(buf):
+            with patch(
+                "tdx_stocks.commands.audit.load_config",
+                return_value=config,
+            ), contextlib.redirect_stdout(buf):
                 self.assertEqual(cmd_verify_adjustment(args), 3)
             output = buf.getvalue()
             self.assertIn("ok=False", output)

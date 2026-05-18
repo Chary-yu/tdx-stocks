@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 
 DEFAULT_MARKETS = ("sh", "sz")
 DEFAULT_LIMIT = 20
@@ -54,8 +53,6 @@ class StrategyParams:
     show_excluded_limit: int = DEFAULT_SHOW_EXCLUDED_LIMIT
     explain_symbol: str | None = None
     as_of: date | None = None
-    to: Path | None = None
-    json: bool = False
 
 
 @dataclass(frozen=True)

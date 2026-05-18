@@ -29,17 +29,23 @@ silent fallback.
 The long-term goal is to let configured windows add extra factors without
 removing required ones. The safe model is:
 
-`configured windows ∪ required windows ∪ technical windows`
+`configured windows ∪ required windows ∪ fixed generated windows`
 
 This keeps preset behavior stable while still allowing new fields to be added
 without editing every strategy by hand.
 
 ## Build report
 
-The build report now records:
+The build report now records the windows that are actually generated:
 
 - `factor_version`
 - `configured_windows`
+- `generated_ma_windows`
+- `generated_ret_windows`
+- `generated_range_windows`
+- `generated_pos_windows`
+- `generated_drawdown_windows`
+- `generated_vol_windows`
 - `effective_ma_windows`
 - `effective_ret_windows`
 - `effective_range_windows`

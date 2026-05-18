@@ -2,9 +2,95 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
+from ..config import load_config
+from ..console import print_json, print_key_values
+from ..query import normalize_output_data
+from ..exit_codes import VerificationFailedError
+from ..adjustment_verify import build_adjustment_verification_report
+from ..tdx_day import iter_day_files
 from .common import add_config_arg
+from .common import legacy_notice as _legacy_notice
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    items: list[tuple[str, object]] = [
+        ("tdx_vipdoc", config.paths.tdx_vipdoc),
+        ("tdx_export", config.paths.tdx_export),
+        ("data_root", config.paths.data_root),
+        ("tdx_vipdoc_exists", config.paths.tdx_vipdoc.exists()),
+        ("tdx_export_exists", config.paths.tdx_export.exists()),
+        ("data_root_exists", config.paths.data_root.exists()),
+    ]
+    files = list(
+        iter_day_files(
+            config.paths.tdx_vipdoc,
+            markets=config.build.markets,
+            universe=config.build.universe,
+        )
+    )
+    items.append(("day_files", len(files)))
+    for index, path in enumerate(files[:5], start=1):
+        items.append((f"sample_{index}", path))
+
+    for module in ("duckdb", "pyarrow"):
+        try:
+            imported = __import__(module)
+        except ModuleNotFoundError:
+            items.append((module, "missing"))
+        else:
+            items.append((module, getattr(imported, "__version__", "installed")))
+    print_key_values("doctor", items)
+    return 0
+
+
+def cmd_verify_adjustment(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    report = build_adjustment_verification_report(
+        config,
+        args.symbol,
+        input_path=args.input,
+        from_date=args.from_date,
+        to_date=args.to_date,
+        threshold=args.threshold,
+    )
+    if args.json:
+        print_json(normalize_output_data(report))
+    else:
+        print_key_values(
+            "verify adjustment",
+            [
+                ("symbol", report["symbol"]),
+                ("export_path", report["export_path"]),
+                ("threshold", report["threshold"]),
+                ("export_rows", report["export_rows"]),
+                ("adj_rows", report["adj_rows"]),
+                ("common_rows", report["common_rows"]),
+                ("export_only_rows", report["export_only_rows"]),
+                ("adj_only_rows", report["adj_only_rows"]),
+                ("max_abs_error", report["max_abs_error"]),
+                ("max_abs_error_date", report["max_abs_error_date"]),
+                ("mean_abs_error", report["mean_abs_error"]),
+                ("mismatch_count", report["mismatch_count"]),
+                ("ok", report["ok"]),
+            ],
+        )
+        if report["mismatch_samples"]:
+            print("mismatch_samples:")
+            for item in report["mismatch_samples"][:10]:
+                print(
+                    f"- {item['trade_date']}: export={item['export_close']} adj={item['adj_close']} "
+                    f"abs_error={item['abs_error']}"
+                )
+        if report["export_only_dates"]:
+            print(f"export_only_dates={', '.join(report['export_only_dates'][:10])}")
+        if report["adj_only_dates"]:
+            print(f"adj_only_dates={', '.join(report['adj_only_dates'][:10])}")
+    return 0 if report["ok"] else int(VerificationFailedError.code)
 
 
 def register_legacy_audit_aliases(

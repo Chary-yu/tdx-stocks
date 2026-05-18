@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
 
 from ..config import AppConfig
 from .base import StrategyParams, StrategyReport
@@ -13,6 +13,8 @@ class StrategyDefinition:
     description: str
     runner: Callable[[AppConfig, StrategyParams], StrategyReport]
     aliases: tuple[str, ...] = ()
+    required_fields: tuple[str, ...] = ()
+    optional_fields: tuple[str, ...] = ()
     default_params: StrategyParams = field(default_factory=StrategyParams)
 
 

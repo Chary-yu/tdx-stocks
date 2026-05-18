@@ -10,7 +10,14 @@ from pathlib import Path
 from .config import AppConfig
 from .duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 
-TABLES = ("raw_daily", "corporate_actions", "adjustment_factors", "adj_daily", "hfq_daily", "factors")
+TABLES = (
+    "raw_daily",
+    "corporate_actions",
+    "adjustment_factors",
+    "adj_daily",
+    "hfq_daily",
+    "factors",
+)
 SCALED_COLUMNS = {"volume", "amount"}
 SQL_COMMENT_RE = re.compile(r"(--[^\n]*|/\*.*?\*/)", re.DOTALL)
 SQL_BLOCKLIST_RE = re.compile(
@@ -281,10 +288,15 @@ def build_stock_sql(
             "adj_factor",
         }
     ]
-    fixed_factor_columns = {
+    preferred_factor_columns = [
         "pct_chg",
         "ret_1",
+        "ret_5",
+        "ret_10",
         "ret_20",
+        "ret_60",
+        "ret_120",
+        "ret_250",
         "ma5",
         "ma10",
         "ma20",
@@ -293,31 +305,55 @@ def build_stock_sql(
         "ma250",
         "vol_ma5",
         "vol_ma20",
+        "vol_5",
+        "vol_10",
         "vol_20",
+        "vol_60",
+        "vol_ratio_20",
         "high_20",
         "low_20",
         "range_20",
         "dd_20",
+        "dd_60",
         "pos_20",
+        "pos_60",
+        "atr_14",
         "atr_pct_14",
+        "bb_mid_20",
+        "bb_std_20",
+        "bb_upper_20",
+        "bb_lower_20",
         "bb_width_20",
+        "bb_z_20",
+        "rsi_6",
         "rsi_14",
+        "bias_5",
+        "bias_10",
         "bias_20",
-        "plus_di_14",
-        "minus_di_14",
-        "adx_14",
+        "bias_60",
+        "ma_cross_5_20",
+        "ma_cross_20_60",
         "rsv_9",
         "k_9",
         "d_9",
         "j_9",
+        "plus_di_14",
+        "minus_di_14",
+        "adx_14",
         "amount_ma20",
         "amount_ma60",
-        "vol_ratio_20",
+        "amp_1",
+        "cci_20",
         "macd_dif",
         "macd_dea",
         "macd_hist",
-    }
-    extra_factor_columns = [column for column in factor_columns if column not in fixed_factor_columns]
+    ]
+    selected_factor_columns = [
+        column for column in preferred_factor_columns if column in factor_columns
+    ]
+    selected_factor_columns.extend(
+        column for column in factor_columns if column not in selected_factor_columns
+    )
     where = [
         f"raw.symbol = {code_expr}",
         f"({market_expr} IS NULL OR raw.market = {market_expr})",
@@ -340,44 +376,10 @@ def build_stock_sql(
         "    raw.volume,",
         "    raw.amount,",
         *adjusted_columns,
-        "    factors.pct_chg,",
-        "    factors.ret_1,",
-        "    factors.ret_20,",
-        "    factors.ma5,",
-        "    factors.ma10,",
-        "    factors.ma20,",
-        "    factors.ma60,",
-        "    factors.ma120,",
-        "    factors.ma250,",
-        "    factors.vol_ma5,",
-        "    factors.vol_ma20,",
-        "    factors.vol_20,",
-        "    factors.high_20,",
-        "    factors.low_20,",
-        "    factors.range_20,",
-        "    factors.dd_20,",
-        "    factors.pos_20,",
-        "    factors.atr_pct_14,",
-        "    factors.bb_width_20,",
-        "    factors.rsi_14,",
-        "    factors.bias_20,",
-        "    factors.plus_di_14,",
-        "    factors.minus_di_14,",
-        "    factors.adx_14,",
-        "    factors.rsv_9,",
-        "    factors.k_9,",
-        "    factors.d_9,",
-        "    factors.j_9,",
-        "    factors.amount_ma20,",
-        "    factors.amount_ma60,",
-        "    factors.vol_ratio_20,",
-        "    factors.macd_dif,",
-        "    factors.macd_dea,",
-        "    factors.macd_hist",
+        *[f"    factors.{column}," for column in selected_factor_columns],
     ]
-    for column in extra_factor_columns:
-        sql.append(f"    factors.{column},")
-    sql[-1] = sql[-1].rstrip(",")
+    if sql[-1].endswith(","):
+        sql[-1] = sql[-1].rstrip(",")
     sql.extend(
         [
             "FROM raw_daily AS raw",

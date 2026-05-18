@@ -132,7 +132,7 @@ def copy_parquet_dataset(con, source_dir: Path, output_dir: Path, compression: s
             SELECT *
             FROM read_parquet('{sql_literal(parquet_glob(source_dir))}', hive_partitioning=true)
         )
-        TO '{sql_literal(output_dir.as_posix())}'
+        TO '{sql_literal((output_dir / "data.parquet").as_posix())}'
         (FORMAT PARQUET, COMPRESSION {compression.upper()})
         """
     )

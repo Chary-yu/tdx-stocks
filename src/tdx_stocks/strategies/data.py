@@ -4,8 +4,9 @@ from datetime import date
 from typing import Any
 
 from ..config import AppConfig
-from ..duckdb_ops import sql_literal
 from ..exit_codes import NoDataError
+from ..duckdb_ops import sql_literal
+from ..query import table_column_names
 from .base import DEFAULT_MARKETS
 
 
@@ -57,12 +58,19 @@ def resolve_execute_date(con, markets: tuple[str, ...], trade_date: date) -> dat
     return row[0] if row and row[0] is not None else None
 
 
-def fetch_strategy_rows(con, markets: tuple[str, ...], trade_date: date) -> list[dict[str, Any]]:
+def fetch_strategy_rows(
+    con,
+    markets: tuple[str, ...],
+    trade_date: date,
+    *,
+    required_fields: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
     return _fetch_rows(
         con,
         markets,
         trade_date,
         symbol=None,
+        required_fields=required_fields,
     )
 
 
@@ -71,8 +79,10 @@ def fetch_strategy_rows_for_symbol(
     markets: tuple[str, ...],
     trade_date: date,
     symbol: str,
+    *,
+    required_fields: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
-    return _fetch_rows(con, markets, trade_date, symbol=symbol)
+    return _fetch_rows(con, markets, trade_date, symbol=symbol, required_fields=required_fields)
 
 
 def _fetch_rows(
@@ -80,6 +90,7 @@ def _fetch_rows(
     markets: tuple[str, ...],
     trade_date: date,
     symbol: str | None,
+    required_fields: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     columns = [
         "market",
@@ -104,6 +115,21 @@ def _fetch_rows(
         "high_20",
         "low_20",
     ]
+    available_columns = table_column_names(con, "factors")
+    missing_columns = [column for column in columns if column not in available_columns]
+    missing_required_fields = [column for column in required_fields if column not in available_columns]
+    if missing_columns:
+        raise ValueError(
+            "factors table is missing required columns: "
+            + ", ".join(missing_columns)
+            + "; rebuild the dataset with a compatible factor version"
+        )
+    if missing_required_fields:
+        raise ValueError(
+            "strategy requires factors fields: "
+            + ", ".join(missing_required_fields)
+            + "; rebuild the dataset with a compatible factor version"
+        )
     where_sql = [market_clause_sql(markets), f"trade_date = DATE '{trade_date.isoformat()}'"]
     if symbol is not None:
         where_sql.append(f"symbol = '{sql_literal(symbol)}'")
@@ -114,7 +140,10 @@ def _fetch_rows(
         ORDER BY market, symbol
     """
     result = con.execute(sql)
-    return [dict(zip((desc[0] for desc in result.description), row, strict=True)) for row in result.fetchall()]
+    return [
+        dict(zip((desc[0] for desc in result.description), row, strict=True))
+        for row in result.fetchall()
+    ]
 
 
 def market_clause_sql(markets: tuple[str, ...]) -> str:

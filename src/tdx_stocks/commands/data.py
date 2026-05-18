@@ -1,10 +1,54 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
+from ..config import load_config
+from ..console import print_json, print_key_values
+from ..duckdb_ops import connect_duckdb, parquet_glob, sql_literal
+from ..pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
+from ..query import normalize_output_data
 from .common import add_build_args, add_config_arg
+from .common import legacy_notice as _legacy_notice
+from .common import stderr_progress, write_lock as _write_lock
+
+
+def summarize_cached_table(con, root: Path, date_column: str) -> dict[str, object]:
+    files = sorted(root.rglob("*.parquet")) if root.exists() else []
+    summary: dict[str, object] = {
+        "exists": bool(files),
+        "parquet_files": len(files),
+        "rows": 0,
+        "symbols": 0,
+        "min_date": None,
+        "max_date": None,
+        "cache_path": root.as_posix(),
+    }
+    if not files:
+        return summary
+
+    source = f"read_parquet('{sql_literal(parquet_glob(root))}', hive_partitioning=true)"
+    row = con.execute(
+        f"""
+        SELECT
+            count(*) AS rows,
+            count(DISTINCT market || ':' || symbol) AS symbols,
+            min({date_column}) AS min_date,
+            max({date_column}) AS max_date
+        FROM {source}
+        """
+    ).fetchone()
+    summary.update(
+        {
+            "rows": row[0],
+            "symbols": row[1],
+            "min_date": str(row[2]) if row[2] is not None else None,
+            "max_date": str(row[3]) if row[3] is not None else None,
+        }
+    )
+    return summary
 
 
 def register_data_group(
@@ -103,3 +147,162 @@ def register_legacy_data_aliases(
     add_config_arg(actions_status_parser)
     actions_status_parser.add_argument("--json", action="store_true")
     actions_status_parser.set_defaults(func=cmd_actions_status)
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    with _write_lock(config, "data build"):
+        report = build_dataset(
+            config,
+            from_date=parse_iso_date(args.from_date),
+            to_date=parse_iso_date(args.to_date),
+            limit_symbols=args.limit_symbols,
+            overwrite_staging=args.overwrite_staging or None,
+            progress=stderr_progress,
+        )
+    print_json(normalize_output_data(report))
+    return 0
+
+
+def cmd_rebuild(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    with _write_lock(config, "data rebuild"):
+        report = rebuild_dataset(
+            config,
+            from_date=parse_iso_date(args.from_date),
+            to_date=parse_iso_date(args.to_date),
+            limit_symbols=args.limit_symbols,
+            overwrite_staging=args.overwrite_staging or None,
+            progress=stderr_progress,
+        )
+    print_json(normalize_output_data(report))
+    return 0
+
+
+def cmd_update_actions(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    lock_cm = None if args.dry_run else _write_lock(config, "data update")
+    if lock_cm is None:
+        report = update_actions(
+            config,
+            source=args.source,
+            input_path=args.input,
+            dry_run=args.dry_run,
+            progress=stderr_progress,
+            write_report=False,
+        )
+    else:
+        with lock_cm:
+            report = update_actions(
+                config,
+                source=args.source,
+                input_path=args.input,
+                dry_run=args.dry_run,
+                progress=stderr_progress,
+                write_report=True,
+            )
+    print_json(normalize_output_data(report))
+    return 0
+
+
+def cmd_actions_status(args: argparse.Namespace) -> int:
+    _legacy_notice(args)
+    config = load_config(args.config)
+    cache_root = config.paths.data_root / "cache"
+    con = connect_duckdb(config.paths.data_root / "duckdb" / "tmp", config.build.duckdb_memory_limit)
+    try:
+        report = {
+            "generated_at": None,
+            "data_root": config.paths.data_root.as_posix(),
+            "cache_root": cache_root.as_posix(),
+            "corporate_actions": summarize_cached_table(
+                con,
+                cache_root / "corporate_actions",
+                "ex_date",
+            ),
+            "adjustment_factors": summarize_cached_table(
+                con,
+                cache_root / "adjustment_factors",
+                "trade_date",
+            ),
+        }
+    finally:
+        con.close()
+
+    report_path = cache_root / "action_update_report.json"
+    if report_path.exists():
+        report["action_update_report"] = json.loads(report_path.read_text(encoding="utf-8"))
+        report["generated_at"] = report["action_update_report"].get("generated_at")
+    if args.json:
+        print_json(normalize_output_data(report))
+        return 0
+
+    rows = [
+        ("data_root", report["data_root"]),
+        ("cache_root", report["cache_root"]),
+    ]
+    print_key_values("actions status", rows)
+    for key in ("corporate_actions", "adjustment_factors"):
+        table = report[key]
+        print_key_values(
+            key,
+            [
+                (f"{key}.exists", table["exists"]),
+                (f"{key}.parquet_files", table["parquet_files"]),
+                (f"{key}.rows", table["rows"]),
+                (f"{key}.symbols", table["symbols"]),
+                (f"{key}.min_date", table["min_date"]),
+                (f"{key}.max_date", table["max_date"]),
+                (f"{key}.cache_path", table["cache_path"]),
+            ],
+        )
+    if "action_update_report" in report:
+        update_report = report["action_update_report"]
+        metrics = update_report.get("metrics", {})
+        rows = [
+            ("action_update_report.source", update_report.get("source")),
+            ("action_update_report.generated_at", update_report.get("generated_at")),
+            ("action_update_report.dry_run", update_report.get("dry_run")),
+            (
+                "action_update_report.total_scanned",
+                metrics.get("total_scanned") if isinstance(metrics, dict) else None,
+            ),
+            (
+                "action_update_report.successful",
+                metrics.get("successful") if isinstance(metrics, dict) else None,
+            ),
+            (
+                "action_update_report.skipped",
+                metrics.get("skipped") if isinstance(metrics, dict) else None,
+            ),
+            (
+                "action_update_report.bad_rows_dropped",
+                metrics.get("bad_rows_dropped") if isinstance(metrics, dict) else None,
+            ),
+            (
+                "action_update_report.adjustment_factors_state",
+                update_report.get("adjustment_factors_state"),
+            ),
+            (
+                "action_update_report.corporate_actions_state",
+                update_report.get("corporate_actions_state"),
+            ),
+            (
+                "action_update_report.adjustment_factors_rows",
+                update_report.get("adjustment_factors_rows"),
+            ),
+            (
+                "action_update_report.corporate_actions_rows",
+                update_report.get("corporate_actions_rows"),
+            ),
+        ]
+        if isinstance(metrics, dict):
+            date_range = metrics.get("date_range", {})
+            if isinstance(date_range, dict):
+                rows.append(("action_update_report.date_range.min", date_range.get("min")))
+                rows.append(("action_update_report.date_range.max", date_range.get("max")))
+        print_key_values("action update report", rows)
+    return 0

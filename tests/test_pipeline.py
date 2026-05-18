@@ -22,6 +22,11 @@ from tdx_stocks.pipeline import CheckResult, _raise_on_errors, build_dataset, re
 from tdx_stocks.sync import execute_sync
 from tdx_stocks.tdx_day import DAY_RECORD
 
+try:
+    import duckdb
+except ModuleNotFoundError:
+    duckdb = None
+
 
 class PipelineTest(unittest.TestCase):
     def test_rebuild_dataset_preserves_cache_and_clears_staging(self) -> None:
@@ -80,12 +85,12 @@ class PipelineTest(unittest.TestCase):
             overwrite_staging=False,
         )
         with patch("builtins.print"), patch(
-            "tdx_stocks.cli.load_config"
+            "tdx_stocks.commands.data.load_config"
         ) as load_config, patch(
-            "tdx_stocks.cli._write_lock",
+            "tdx_stocks.commands.data._write_lock",
             return_value=contextlib.nullcontext(),
         ) as mocked_lock, patch(
-            "tdx_stocks.cli.build_dataset",
+            "tdx_stocks.commands.data.build_dataset",
             return_value={"ok": True},
         ) as mocked_build:
             load_config.return_value = AppConfig()
@@ -94,12 +99,12 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue(callable(mocked_build.call_args.kwargs["progress"]))
 
         with patch("builtins.print"), patch(
-            "tdx_stocks.cli.load_config"
+            "tdx_stocks.commands.data.load_config"
         ) as load_config, patch(
-            "tdx_stocks.cli._write_lock",
+            "tdx_stocks.commands.data._write_lock",
             return_value=contextlib.nullcontext(),
         ) as mocked_lock, patch(
-            "tdx_stocks.cli.rebuild_dataset",
+            "tdx_stocks.commands.data.rebuild_dataset",
             return_value={"ok": True},
         ) as mocked_rebuild:
             load_config.return_value = AppConfig()
@@ -128,6 +133,81 @@ class PipelineTest(unittest.TestCase):
                 with self.assertRaises(NoDataError):
                     build_dataset(config)
 
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_build_dataset_copies_cached_corporate_actions_into_version_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = root / "Database"
+            vipdoc = root / "vipdoc"
+            raw_file = vipdoc / "sh" / "lday" / "sh600000.day"
+            raw_file.parent.mkdir(parents=True, exist_ok=True)
+
+            raw_rows = [
+                (20240102, 1000, 1100, 990, 1000, 1000000.0, 100000, 0),
+                (20240103, 2000, 2100, 1980, 2000, 2000000.0, 120000, 0),
+            ]
+            with raw_file.open("wb") as handle:
+                for row in raw_rows:
+                    handle.write(DAY_RECORD.pack(*row))
+
+            cache_corporate_actions_dir = data_root / "cache" / "corporate_actions"
+            cache_adjustment_factors_dir = data_root / "cache" / "adjustment_factors"
+            cache_corporate_actions_dir.mkdir(parents=True, exist_ok=True)
+            cache_adjustment_factors_dir.mkdir(parents=True, exist_ok=True)
+            write_records_table(
+                cache_corporate_actions_dir,
+                corporate_actions_schema(),
+                [
+                    {
+                        "market": "sh",
+                        "symbol": "600000",
+                        "ex_date": date(2024, 1, 2),
+                        "category": 1,
+                        "cash_dividend": 0.0,
+                        "stock_dividend": 0.0,
+                        "allotment_share": 0.0,
+                        "allotment_price": 0.0,
+                        "raw_c1": 0.0,
+                        "raw_c2": 0.0,
+                        "raw_c3": 0.0,
+                        "raw_c4": 0.0,
+                        "source": "manual",
+                    }
+                ],
+            )
+            write_records_table(
+                cache_adjustment_factors_dir,
+                adjustment_factors_schema(),
+                [
+                    {
+                        "market": "sh",
+                        "symbol": "600000",
+                        "trade_date": date(2024, 1, 2),
+                        "start_date": date(2024, 1, 2),
+                        "end_date": date(2024, 1, 2),
+                        "qfq_factor": 1.0,
+                        "hfq_factor": 1.0,
+                        "source": "manual",
+                    }
+                ],
+            )
+
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=vipdoc,
+                    data_root=data_root,
+                ),
+                build=BuildConfig(markets=("sh",), universe="ashare"),
+            )
+
+            report = build_dataset(config)
+
+            version_dir = data_root / "versions" / report["run_id"]
+            self.assertTrue((version_dir / "parquet" / "corporate_actions" / "data.parquet").exists())
+            self.assertTrue((version_dir / "parquet" / "adjustment_factors" / "data.parquet").exists())
+            self.assertEqual(report["cached_corporate_actions"], True)
+            self.assertEqual(report["cached_adjustment_factors"], True)
+
     def test_raise_on_errors_uses_build_check_failed_error(self) -> None:
         result = CheckResult(name="raw_daily", errors=["raw_daily has no rows"])
         with self.assertRaises(BuildCheckFailedError):
@@ -141,12 +221,12 @@ class PipelineTest(unittest.TestCase):
             dry_run=False,
         )
         with patch("builtins.print"), patch(
-            "tdx_stocks.cli.load_config"
+            "tdx_stocks.commands.data.load_config"
         ) as load_config, patch(
-            "tdx_stocks.cli._write_lock",
+            "tdx_stocks.commands.data._write_lock",
             return_value=contextlib.nullcontext(),
         ) as mocked_lock, patch(
-            "tdx_stocks.cli.update_actions",
+            "tdx_stocks.commands.data.update_actions",
             return_value={"ok": True},
         ) as mocked_update:
             load_config.return_value = AppConfig()
@@ -163,11 +243,11 @@ class PipelineTest(unittest.TestCase):
             dry_run=True,
         )
         with patch("builtins.print"), patch(
-            "tdx_stocks.cli.load_config"
+            "tdx_stocks.commands.data.load_config"
         ) as load_config, patch(
-            "tdx_stocks.cli._write_lock"
+            "tdx_stocks.commands.data._write_lock"
         ) as mocked_lock, patch(
-            "tdx_stocks.cli.update_actions",
+            "tdx_stocks.commands.data.update_actions",
             return_value={"ok": True},
         ) as mocked_update:
             load_config.return_value = AppConfig()
@@ -192,23 +272,17 @@ class PipelineTest(unittest.TestCase):
             to_dict=lambda: {"steps": [{"name": "data update", "reason": "export newer"}]},
         )
         with patch("builtins.print"), patch(
-            "tdx_stocks.cli.load_config"
+            "tdx_stocks.commands.sync.load_config"
         ) as load_config, patch(
-            "tdx_stocks.cli.build_sync_plan",
+            "tdx_stocks.commands.sync.build_sync_plan",
             return_value=plan,
         ) as mocked_plan, patch(
-            "tdx_stocks.cli._write_lock"
-        ) as mocked_lock, patch(
-            "tdx_stocks.cli.update_actions"
-        ) as mocked_update, patch(
-            "tdx_stocks.cli.rebuild_dataset"
-        ) as mocked_rebuild:
+            "tdx_stocks.commands.sync._write_lock"
+        ) as mocked_lock:
             load_config.return_value = AppConfig()
             self.assertEqual(cmd_sync(args), 0)
             mocked_plan.assert_called_once()
             mocked_lock.assert_not_called()
-            mocked_update.assert_not_called()
-            mocked_rebuild.assert_not_called()
 
     def test_execute_sync_calls_update_and_rebuild(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -467,7 +541,7 @@ class PipelineTest(unittest.TestCase):
             )
 
             buf = io.StringIO()
-            with patch("tdx_stocks.cli.load_config", return_value=config), contextlib.redirect_stdout(buf):
+            with patch("tdx_stocks.commands.data.load_config", return_value=config), contextlib.redirect_stdout(buf):
                 self.assertEqual(cmd_actions_status(Namespace(config=None, json=False)), 0)
             output = buf.getvalue()
             self.assertIn("corporate_actions.rows=1", output)

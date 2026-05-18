@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tdx_stocks.duckdb_ops import copy_adj_daily
+from tdx_stocks.duckdb_ops import copy_adj_daily, copy_parquet_dataset
 
 try:
     import duckdb
@@ -91,6 +91,31 @@ class CopyAdjDailyTest(unittest.TestCase):
             finally:
                 con.close()
 
+    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_copy_parquet_dataset_writes_file_under_output_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            con = duckdb.connect(":memory:")
+            try:
+                source_dir = tmp_path / "corporate_actions"
+                output_dir = tmp_path / "staging" / "corporate_actions"
+                _write_adjustment_factors(
+                    con,
+                    source_dir,
+                    [
+                        ("sh", "600000", "2024-01-02", "2024-01-02", 1.0, 1.0),
+                        ("sh", "600000", "2024-01-03", "2024-01-03", 1.0, 1.0),
+                    ],
+                )
+
+                copy_parquet_dataset(con, source_dir, output_dir, "zstd")
+
+                self.assertTrue((output_dir / "data.parquet").exists())
+                rows = _read_generic_parquet(con, output_dir)
+                self.assertEqual(len(rows), 2)
+            finally:
+                con.close()
+
 
 def _write_raw_daily(con, root: Path, rows: list[tuple]) -> None:
     con.execute(
@@ -171,6 +196,16 @@ def _read_adj_daily(con, root: Path) -> list[tuple]:
             """
         ).fetchall()
     ]
+
+
+def _read_generic_parquet(con, root: Path) -> list[tuple]:
+    return con.execute(
+        f"""
+        SELECT market, symbol, trade_date, start_date, end_date, qfq_factor, hfq_factor, source
+        FROM read_parquet('{root.as_posix()}/**/*.parquet', hive_partitioning=true)
+        ORDER BY trade_date
+        """
+    ).fetchall()
 
 
 def _read_exact_left_join_expected(con) -> list[tuple]:

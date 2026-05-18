@@ -22,7 +22,7 @@ from ..data import (
     resolve_factor_version,
     resolve_markets,
 )
-from ..registry import StrategyDefinition, register_strategy
+from ..registry import StrategyDefinition, get_strategy, register_strategy
 from ..scoring import build_trend_score_breakdown
 from ..signals import build_trend_risk_flags, build_trend_watch_plan, classify_trend_candidate
 from ..universe import display_symbol, float_or_none, hard_exclusion_reason
@@ -34,11 +34,14 @@ def run_trend_strength_strategy(
     config: AppConfig,
     params: StrategyParams,
     *,
-    open_query_context_fn: OpenQueryContextFn = open_query_context,
+    open_query_context_fn: OpenQueryContextFn | None = None,
     strategy_name: str = "trend-strength",
     preset_candidate_type: str | None = None,
 ) -> StrategyReport:
-    ctx = open_query_context_fn(config)
+    open_context = open_query_context_fn or open_query_context
+    definition = get_strategy(strategy_name)
+    required_fields = definition.required_fields
+    ctx = open_context(config)
     try:
         manifest = ctx.manifest
         dataset_run_id = str(manifest.get("run_id")) if manifest.get("run_id") is not None else None
@@ -48,7 +51,12 @@ def run_trend_strength_strategy(
         requested_as_of = params.as_of
         trade_date = resolve_as_of_date(ctx.con, markets, requested_as_of)
         execute_date = resolve_execute_date(ctx.con, markets, trade_date)
-        rows = fetch_strategy_rows(ctx.con, markets, trade_date)
+        rows = fetch_strategy_rows(
+            ctx.con,
+            markets,
+            trade_date,
+            required_fields=required_fields,
+        )
         analyzed_rows = _analyze_rows(rows, params, execute_date, dataset_run_id, factor_version, strategy_name)
         summary = _build_summary(
             analyzed_rows,
@@ -75,6 +83,7 @@ def run_trend_strength_strategy(
                 factor_version,
                 execute_date,
                 strategy_name,
+                required_fields,
             )
         else:
             explain = None
@@ -363,6 +372,7 @@ def _build_explain(
     factor_version: str | None,
     execute_date: date | None,
     strategy_name: str,
+    required_fields: tuple[str, ...],
 ) -> dict[str, object]:
     symbol_parts = _parse_symbol(explain_symbol)
     matching = []
@@ -382,6 +392,7 @@ def _build_explain(
             (symbol_parts["market"],),
             trade_date,
             symbol_parts["symbol"],
+            required_fields=required_fields,
         )
         if fetched:
             matching = [
@@ -542,6 +553,26 @@ register_strategy(
         description="Generate the short-term trend observation pool.",
         runner=run_trend_strength_strategy,
         aliases=("trend_strength",),
+        required_fields=(
+            "adj_close",
+            "ma5",
+            "ma20",
+            "ma60",
+            "ret_5",
+            "ret_20",
+            "ret_60",
+            "amount_ma20",
+            "pos_20",
+            "pos_60",
+            "dd_20",
+            "vol_ratio_20",
+            "rsi_14",
+            "atr_pct_14",
+            "vol_20",
+            "vol_60",
+            "high_20",
+            "low_20",
+        ),
         default_params=StrategyParams(),
     )
 )

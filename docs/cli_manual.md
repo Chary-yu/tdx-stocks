@@ -114,7 +114,7 @@ tdx-stocks audit verify 600519.SH --config tdx_stocks.toml
 
 常用参数：
 
-- `--source`：`local` / `official` / `file` / `export`
+- `--source`：`local` / `file` / `export`
 - `--input`：可选输入文件或目录
 - `--dry-run`：只生成报告，不写缓存
 

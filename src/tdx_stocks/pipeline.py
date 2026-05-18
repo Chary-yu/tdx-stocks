@@ -97,6 +97,7 @@ def build_dataset(
             parsed_files += 1
             if parsed_files == 1 or parsed_files == total_files or parsed_files % report_every == 0:
                 _progress(progress, f"Parsed {parsed_files}/{total_files} day files")
+        raw_writer.flush()
         if raw_writer.rows_written == 0:
             raise NoDataError("No raw_daily rows were parsed from the selected TDX day files")
         _progress(progress, f"Wrote {raw_writer.rows_written} raw rows")

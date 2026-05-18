@@ -11,8 +11,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_trend_strength
-from tdx_stocks.config import AppConfig
+from tdx_stocks.config import AppConfig, PathsConfig
 from tdx_stocks.exit_codes import NoDataError
+from tdx_stocks.strategies.data import fetch_strategy_rows
 from tdx_stocks.strategies.scoring import build_trend_score_breakdown
 from tdx_stocks.strategies.signals import (
     build_trend_risk_flags,
@@ -734,17 +735,89 @@ class StrategyCliTest(unittest.TestCase):
                 explain_symbol=None,
                 to=output_path,
             )
-            with patch("tdx_stocks.cli.load_config", return_value=AppConfig()):
-                with patch("tdx_stocks.cli.run_trend_strength_strategy", return_value=report):
+            with patch("tdx_stocks.commands.strategy.load_config", return_value=AppConfig()):
+                with patch("tdx_stocks.strategy.run_trend_strength_strategy", return_value=report):
                     stdout = io.StringIO()
                     with redirect_stdout(stdout):
                         cmd_strategy_run_trend_strength(args)
 
-            self.assertIn("rank", stdout.getvalue())
+            self.assertIn("排名", stdout.getvalue())
             self.assertTrue(output_path.exists())
             payload = output_path.read_text(encoding="utf-8")
             self.assertIn('"strategy": "trend-strength"', payload)
             self.assertIn('"display_symbol": "600000.SH"', payload)
+
+    def test_command_table_localizes_fields_and_resolves_stock_name(self) -> None:
+        report = StrategyReport(
+            summary={"strategy": "trend-strength", "picked": 1, "excluded_returned": 0},
+            picks=[
+                {
+                    "trade_date": "2024-01-04",
+                    "execute_date": "2024-01-05",
+                    "market": "sh",
+                    "symbol": "600000",
+                    "display_symbol": "600000.SH",
+                    "score": 88.5,
+                    "score_breakdown": {"trend": 35.0},
+                    "rank": 1,
+                    "candidate_type": "breakout_watch",
+                    "tags": ["breakout_watch", "trend_strong", "near_20d_high", "active_amount"],
+                    "priority_weight": 0.885,
+                    "reasons": ["趋势延续"],
+                    "risk_flags": ["ret_5_strong", "rsi_high"],
+                    "watch_plan": "watch plan",
+                    "dataset_run_id": "run-1",
+                    "factor_version": "v1",
+                    "excluded": False,
+                    "excluded_reason": None,
+                }
+            ],
+            excluded=[],
+            explain=None,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            export_dir = Path(tmpdir) / "export"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            (export_dir / "SH#600000.txt").write_text(
+                "\n".join(
+                    [
+                        "600000 测试银行 日线 前复权",
+                        "      日期\t    开盘\t    最高\t    最低\t    收盘\t    成交量\t    成交额",
+                        "2024/01/04\t12.00\t12.50\t11.90\t12.30\t100000\t1230000.00",
+                    ]
+                )
+                + "\n",
+                encoding="gbk",
+            )
+            args = SimpleNamespace(
+                config=None,
+                limit=1,
+                json=False,
+                as_of=None,
+                market=None,
+                min_amount_ma20=50_000_000.0,
+                min_score=60.0,
+                candidate_type=None,
+                include_excluded=False,
+                show_excluded_limit=20,
+                explain_symbol=None,
+                to=None,
+            )
+            config = AppConfig(paths=PathsConfig(tdx_export=export_dir))
+            with patch("tdx_stocks.commands.strategy.load_config", return_value=config):
+                with patch("tdx_stocks.strategy.run_trend_strength_strategy", return_value=report):
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        cmd_strategy_run_trend_strength(args)
+
+        rendered = stdout.getvalue()
+        self.assertIn("名称", rendered)
+        self.assertIn("测试银行", rendered)
+        self.assertIn("突破观察", rendered)
+        self.assertIn("趋势强", rendered)
+        self.assertIn("近20日高位", rendered)
+        self.assertIn("短线加速", rendered)
+        self.assertIn("RSI偏高", rendered)
 
     def test_command_json_output_uses_report_structure(self) -> None:
         report = StrategyReport(
@@ -787,8 +860,8 @@ class StrategyCliTest(unittest.TestCase):
             explain_symbol=None,
             to=None,
         )
-        with patch("tdx_stocks.cli.load_config", return_value=AppConfig()):
-            with patch("tdx_stocks.cli.run_trend_strength_strategy", return_value=report):
+        with patch("tdx_stocks.commands.strategy.load_config", return_value=AppConfig()):
+            with patch("tdx_stocks.strategy.run_trend_strength_strategy", return_value=report):
                 stdout = io.StringIO()
                 with redirect_stdout(stdout):
                     cmd_strategy_run_trend_strength(args)
@@ -841,7 +914,7 @@ class StrategyCliTest(unittest.TestCase):
             explain_symbol=None,
             to=None,
         )
-        with patch("tdx_stocks.cli.load_config", return_value=AppConfig()):
+        with patch("tdx_stocks.commands.strategy.load_config", return_value=AppConfig()):
             with patch("tdx_stocks.strategies.registry.get_strategy") as get_strategy:
                 get_strategy.return_value = SimpleNamespace(
                     name="trend-strength",
@@ -851,7 +924,49 @@ class StrategyCliTest(unittest.TestCase):
                 with redirect_stdout(stdout):
                     cmd_strategy_run(args)
 
-        self.assertIn("rank", stdout.getvalue())
+        self.assertIn("排名", stdout.getvalue())
+
+    def test_missing_required_strategy_fields_raise_clear_error(self) -> None:
+        con = duckdb.connect(":memory:")
+        try:
+            con.execute(
+                """
+                CREATE TABLE factors (
+                    market VARCHAR,
+                    symbol VARCHAR,
+                    trade_date DATE,
+                    adj_close DOUBLE,
+                    ma5 DOUBLE,
+                    ma20 DOUBLE,
+                    ma60 DOUBLE,
+                    ret_5 DOUBLE,
+                    ret_20 DOUBLE,
+                    ret_60 DOUBLE,
+                    amount_ma20 DOUBLE,
+                    pos_20 DOUBLE,
+                    pos_60 DOUBLE,
+                    dd_20 DOUBLE,
+                    vol_ratio_20 DOUBLE,
+                    rsi_14 DOUBLE,
+                    atr_pct_14 DOUBLE,
+                    vol_20 DOUBLE,
+                    vol_60 DOUBLE,
+                    high_20 DOUBLE,
+                    low_20 DOUBLE
+                )
+                """
+            )
+            with self.assertRaises(ValueError) as exc_info:
+                fetch_strategy_rows(
+                    con,
+                    ("sh",),
+                    date(2024, 1, 4),
+                    required_fields=("ma120",),
+                )
+        finally:
+            con.close()
+        self.assertIn("strategy requires factors fields", str(exc_info.exception))
+        self.assertIn("ma120", str(exc_info.exception))
 
 
 if __name__ == "__main__":

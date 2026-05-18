@@ -1,5 +1,6 @@
 [paths]
 tdx_vipdoc = "/mnt/d/ProgramFiles/Tdx/vipdoc"
+tdx_export = "/mnt/d/ProgramFiles/Tdx/T0002/export"
 data_root = "/mnt/d/Zcyu/Chary-codex/tdx-stocks/Database"
 
 [build]
