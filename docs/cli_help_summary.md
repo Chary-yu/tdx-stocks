@@ -231,6 +231,10 @@
 | --- | --- |
 | `list` | List available strategy presets. |
 | `run` | Run a strategy and emit a report. |
+| `compare` | Compare strategy candidates. |
+| `consensus` | Find strategy consensus candidates. |
+| `backtest` | Backtest a strategy on historical dates. |
+| `reports` | Manage saved strategy reports. |
 
 ##### `strategy list`
 
@@ -260,6 +264,7 @@
 | `--config` |  |
 | `--limit` | (default: 20) |
 | `--json` |  |
+| `--save` |  |
 | `--as-of` |  |
 | `--market` |  |
 | `--min-amount-ma20` | (default: 50000000.0) |
@@ -277,6 +282,7 @@
 | `--config` |  |
 | `--limit` | (default: 20) |
 | `--json` |  |
+| `--save` |  |
 | `--as-of` |  |
 | `--market` |  |
 | `--min-amount-ma20` | (default: 50000000.0) |
@@ -294,6 +300,7 @@
 | `--config` |  |
 | `--limit` | (default: 20) |
 | `--json` |  |
+| `--save` |  |
 | `--as-of` |  |
 | `--market` |  |
 | `--min-amount-ma20` | (default: 50000000.0) |
@@ -311,6 +318,7 @@
 | `--config` |  |
 | `--limit` | (default: 20) |
 | `--json` |  |
+| `--save` |  |
 | `--as-of` |  |
 | `--market` |  |
 | `--min-amount-ma20` | (default: 50000000.0) |
@@ -328,6 +336,7 @@
 | `--config` |  |
 | `--limit` | (default: 20) |
 | `--json` |  |
+| `--save` |  |
 | `--as-of` |  |
 | `--market` |  |
 | `--min-amount-ma20` | (default: 50000000.0) |
@@ -337,6 +346,70 @@
 | `--show-excluded-limit` | (default: 20) |
 | `--explain-symbol` |  |
 | `--to` |  |
+
+##### `strategy compare`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--as-of` | (default: latest) |
+| `--strategies` | Comma-separated strategy names. Defaults to all registered strategies. |
+| `--json` |  |
+
+##### `strategy consensus`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--as-of` | (default: latest) |
+| `--strategies` | Comma-separated strategy names. Defaults to all registered strategies. |
+| `--min-hit` | (default: 2) |
+| `--json` |  |
+
+##### `strategy backtest`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--from` |  |
+| `--to` |  |
+| `--top` | (default: 20) |
+| `--hold-days` | (default: 5) |
+| `--fee-rate` |  |
+| `--slippage` |  |
+| `--market` |  |
+| `--min-score` | (default: 60.0) |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--candidate-type` |  |
+| `--json` |  |
+| `strategy_name` |  |
+
+##### `strategy reports`
+
+| 参数 | 说明 |
+| --- | --- |
+
+##### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `list` | List saved strategy reports. |
+| `show` | Show a saved strategy report. |
+
+###### `strategy reports list`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--json` |  |
+
+###### `strategy reports show`
+
+| 参数 | 说明 |
+| --- | --- |
+| `strategy_name` |  |
+| `--as-of` | (default: latest) |
+| `--run-id` |  |
+| `--json` |  |
 
 #### `init-config`
 

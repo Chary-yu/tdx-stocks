@@ -13,6 +13,9 @@ from unittest.mock import patch
 from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_trend_strength
 from tdx_stocks.config import AppConfig, PathsConfig
 from tdx_stocks.exit_codes import NoDataError
+from tdx_stocks.backtest import BacktestParams, run_backtest
+from tdx_stocks.strategies.compare import compare_strategies
+from tdx_stocks.strategies.consensus import build_consensus
 from tdx_stocks.strategies.data import fetch_strategy_rows
 from tdx_stocks.strategies.scoring import build_trend_score_breakdown
 from tdx_stocks.strategies.signals import (
@@ -21,6 +24,7 @@ from tdx_stocks.strategies.signals import (
     classify_trend_candidate,
 )
 from tdx_stocks.strategies.registry import get_strategy, list_strategies
+from tdx_stocks.strategies.storage import load_saved_report, save_report_document
 from tdx_stocks.strategy import StrategyParams, StrategyReport, run_trend_strength_strategy
 
 try:
@@ -691,6 +695,31 @@ class StrategyCliTest(unittest.TestCase):
         self.assertEqual(args.strategy_name, "volume-breakout")
         self.assertEqual(args.limit, 1)
 
+    def test_parser_contains_compare_consensus_backtest_reports(self) -> None:
+        args = build_parser().parse_args(["strategy", "compare", "--strategies", "trend-strength,low-vol-breakout"])
+        self.assertEqual(args.strategy_command, "compare")
+        self.assertEqual(args.strategies, "trend-strength,low-vol-breakout")
+
+        args = build_parser().parse_args(["strategy", "consensus", "--min-hit", "2"])
+        self.assertEqual(args.strategy_command, "consensus")
+        self.assertEqual(args.min_hit, 2)
+
+        args = build_parser().parse_args(["strategy", "backtest", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
+        self.assertEqual(args.strategy_command, "backtest")
+        self.assertEqual(args.strategy_name, "trend-strength")
+        self.assertEqual(args.from_date, "2024-01-01")
+        self.assertEqual(args.to_date, "2024-02-01")
+
+        args = build_parser().parse_args(["strategy", "reports", "list"])
+        self.assertEqual(args.strategy_command, "reports")
+        self.assertEqual(args.reports_command, "list")
+
+        args = build_parser().parse_args(["strategy", "reports", "show", "trend-strength", "--as-of", "latest"])
+        self.assertEqual(args.strategy_command, "reports")
+        self.assertEqual(args.reports_command, "show")
+        self.assertEqual(args.strategy_name, "trend-strength")
+        self.assertEqual(args.as_of, "latest")
+
     def test_command_writes_json_and_keeps_stdout_table(self) -> None:
         report = StrategyReport(
             summary={"strategy": "trend-strength", "picked": 1, "excluded_returned": 0},
@@ -967,6 +996,271 @@ class StrategyCliTest(unittest.TestCase):
             con.close()
         self.assertIn("strategy requires factors fields", str(exc_info.exception))
         self.assertIn("ma120", str(exc_info.exception))
+
+
+class StrategyReportStorageTest(unittest.TestCase):
+    def test_save_and_load_strategy_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_root = Path(tmpdir) / "Database"
+            report = StrategyReport(
+                summary={
+                    "strategy": "trend-strength",
+                    "trade_date": "2024-01-04",
+                    "dataset_run_id": "run-1",
+                    "factor_version": "v1",
+                    "eligible": 1,
+                    "excluded": 0,
+                    "risk_flag_counts": {"ret_5_strong": 1},
+                },
+                picks=[
+                    {
+                        "market": "sh",
+                        "symbol": "600000",
+                        "display_symbol": "600000.SH",
+                        "score": 88.5,
+                        "candidate_type": "breakout_watch",
+                        "tags": ["breakout_watch"],
+                        "risk_flags": ["ret_5_strong"],
+                        "watch_plan": "watch plan",
+                    }
+                ],
+                excluded=[],
+                explain=None,
+            )
+            document = save_report_document(
+                data_root,
+                "trend-strength",
+                {
+                    "schema_version": "strategy-report-v1",
+                    "app_version": "0.1.0",
+                    "strategy_name": "trend-strength",
+                    "as_of": "2024-01-04",
+                    "generated_at": "2024-01-05T09:00:00",
+                    "data_run_id": "run-1",
+                    "factor_version": "v1",
+                    "params": StrategyParams(as_of=date(2024, 1, 4)).to_dict(),
+                    "candidate_count": 1,
+                    "excluded_count": 0,
+                    "candidates": report.picks,
+                    "excluded_summary": {"total": 0, "reasons": {}},
+                    "risk_summary": {"ret_5_strong": 1},
+                    "diagnostics": {"summary": report.summary, "explain": None},
+                },
+            )
+            self.assertTrue((data_root / "reports" / "strategies" / "latest" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "reports" / "strategies" / "by_date" / "2024-01-04" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "reports" / "strategies" / "by_run_id" / "run-1" / "trend-strength.json").exists())
+            loaded = load_saved_report(data_root, "trend-strength", as_of="2024-01-04")
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded["strategy_name"], "trend-strength")
+            self.assertEqual(loaded["candidate_count"], 1)
+            self.assertEqual(document["latest"], (data_root / "reports" / "strategies" / "latest" / "trend-strength.json").as_posix())
+
+    def test_strategy_run_save_writes_all_report_copies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_root = Path(tmpdir) / "Database"
+            export_dir = Path(tmpdir) / "export"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            (export_dir / "SH#600000.txt").write_text(
+                "\n".join(
+                    [
+                        "600000 测试银行 日线 前复权",
+                        "      日期\t    开盘\t    最高\t    最低\t    收盘\t    成交量\t    成交额",
+                        "2024/01/04\t12.00\t12.50\t11.90\t12.30\t100000\t1230000.00",
+                    ]
+                )
+                + "\n",
+                encoding="gbk",
+            )
+            report = StrategyReport(
+                summary={
+                    "strategy": "trend-strength",
+                    "trade_date": "2024-01-04",
+                    "dataset_run_id": "run-1",
+                    "factor_version": "v1",
+                    "eligible": 1,
+                    "excluded": 0,
+                    "risk_flag_counts": {"ret_5_strong": 1},
+                },
+                picks=[
+                    {
+                        "market": "sh",
+                        "symbol": "600000",
+                        "display_symbol": "600000.SH",
+                        "score": 88.5,
+                        "candidate_type": "breakout_watch",
+                        "tags": ["breakout_watch"],
+                        "risk_flags": ["ret_5_strong"],
+                        "watch_plan": "watch plan",
+                    }
+                ],
+                excluded=[],
+                explain=None,
+            )
+            args = SimpleNamespace(
+                config=None,
+                limit=1,
+                json=True,
+                save=True,
+                as_of=None,
+                market=None,
+                min_amount_ma20=50_000_000.0,
+                min_score=60.0,
+                candidate_type=None,
+                include_excluded=False,
+                show_excluded_limit=20,
+                explain_symbol=None,
+                to=None,
+                strategy_name="trend-strength",
+            )
+            config = AppConfig(paths=PathsConfig(data_root=data_root, tdx_export=export_dir))
+            with patch("tdx_stocks.commands.strategy.load_config", return_value=config):
+                with patch("tdx_stocks.strategies.registry.get_strategy") as mocked_get_strategy:
+                    mocked_get_strategy.return_value = SimpleNamespace(
+                        name="trend-strength",
+                        runner=lambda _config, _params: report,
+                    )
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        cmd_strategy_run(args)
+
+            self.assertTrue((data_root / "reports" / "strategies" / "latest" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "reports" / "strategies" / "by_date" / "2024-01-04" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "reports" / "strategies" / "by_run_id" / "run-1" / "trend-strength.json").exists())
+
+    def test_compare_and_consensus_use_saved_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_root = Path(tmpdir) / "Database"
+            config = AppConfig(paths=PathsConfig(data_root=data_root))
+            for strategy_name, score, symbol in (
+                ("trend-strength", 90.0, "600000"),
+                ("low-vol-breakout", 88.0, "600000"),
+                ("ma-pullback", 80.0, "600001"),
+            ):
+                save_report_document(
+                    data_root,
+                    strategy_name,
+                    {
+                        "schema_version": "strategy-report-v1",
+                        "app_version": "0.1.0",
+                        "strategy_name": strategy_name,
+                        "as_of": "2024-01-04",
+                        "generated_at": "2024-01-05T09:00:00",
+                        "data_run_id": "run-1",
+                        "factor_version": "v1",
+                        "params": {},
+                        "candidate_count": 1,
+                        "excluded_count": 0,
+                        "candidates": [
+                            {
+                                "market": "sh",
+                                "symbol": symbol,
+                                "display_symbol": f"{symbol}.SH",
+                                "score": score,
+                                "candidate_type": "breakout_watch",
+                                "tags": [strategy_name],
+                                "risk_flags": ["ret_5_strong"] if strategy_name != "ma-pullback" else [],
+                                "reasons": ["reason"],
+                            }
+                        ],
+                        "excluded_summary": {"total": 0, "reasons": {}},
+                        "risk_summary": {},
+                        "diagnostics": {"summary": {}, "explain": None},
+                    },
+                )
+            compare = compare_strategies(
+                config,
+                ["trend-strength", "low-vol-breakout", "ma-pullback"],
+                as_of=None,
+                use_saved_reports=True,
+            )
+            self.assertEqual(compare.strategies[0].candidate_count, 1)
+            self.assertEqual(compare.overlaps[0]["overlap_count"], 1)
+            self.assertEqual(compare.unique_stocks["trend-strength"], [])
+            self.assertIn("600001.SH", compare.unique_stocks["ma-pullback"])
+            consensus = build_consensus(
+                config,
+                ["trend-strength", "low-vol-breakout", "ma-pullback"],
+                as_of=None,
+                min_hit=2,
+                use_saved_reports=True,
+            )
+            self.assertEqual(len(consensus.rows), 1)
+            self.assertEqual(consensus.rows[0].symbol, "600000")
+            self.assertEqual(consensus.rows[0].hit_count, 2)
+            self.assertEqual(sorted(consensus.rows[0].strategies), ["low-vol-breakout", "trend-strength"])
+
+    def test_backtest_mvp_returns_expected_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_root = Path(tmpdir) / "Database"
+            config = AppConfig(paths=PathsConfig(data_root=data_root))
+
+            class FakeCon:
+                def execute(self, sql: str, params=None):
+                    if "SELECT DISTINCT trade_date" in sql:
+                        return SimpleNamespace(fetchall=lambda: [(date(2024, 1, 2),), (date(2024, 1, 3),), (date(2024, 1, 4),), (date(2024, 1, 5),)])
+                    if "FROM adj_daily" in sql:
+                        market, symbol, trade_date = params
+                        prices = {
+                            ("sh", "600000", date(2024, 1, 3)): 10.0,
+                            ("sh", "600000", date(2024, 1, 4)): 11.0,
+                            ("sh", "600000", date(2024, 1, 5)): 12.0,
+                        }
+                        value = prices.get((market, symbol, trade_date))
+                        return SimpleNamespace(fetchone=lambda: (value,) if value is not None else None)
+                    raise AssertionError(sql)
+
+            class FakeContext:
+                def __init__(self) -> None:
+                    self.con = FakeCon()
+                    self.manifest = {"summary": {}}
+
+                def close(self) -> None:
+                    return None
+
+            def fake_open_query_context(_config):
+                return FakeContext()
+
+            def fake_runner(_config, params):
+                if params.as_of == date(2024, 1, 2):
+                    return StrategyReport(
+                        summary={"eligible": 1, "excluded": 0},
+                        picks=[
+                            {
+                                "market": "sh",
+                                "symbol": "600000",
+                                "display_symbol": "600000.SH",
+                                "score": 90.0,
+                                "candidate_type": "breakout_watch",
+                            }
+                        ],
+                        excluded=[],
+                        explain=None,
+                    )
+                return StrategyReport(summary={"eligible": 0, "excluded": 0}, picks=[], excluded=[], explain=None)
+
+            def fake_price_loader(con, market, symbol, trade_date):
+                row = con.execute(
+                    "SELECT adj_open FROM adj_daily WHERE market = ? AND symbol = ? AND trade_date = ?",
+                    (market, symbol, trade_date),
+                ).fetchone()
+                return None if row is None else row[0]
+
+            report = run_backtest(
+                config,
+                "trend-strength",
+                BacktestParams(from_date=date(2024, 1, 2), to_date=date(2024, 1, 5), top=20, hold_days=1),
+                open_query_context_fn=fake_open_query_context,
+                strategy_runner_fn=fake_runner,
+                price_loader_fn=fake_price_loader,
+                trading_dates_fn=lambda con, from_date, to_date, market: [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)],
+            )
+
+            self.assertEqual(report.strategy_name, "trend-strength")
+            self.assertEqual(report.trade_count, 1)
+            self.assertGreater(report.total_return, 0.0)
+            self.assertEqual(report.period_count, 4)
+            self.assertEqual(report.empty_period_count, 3)
 
 
 if __name__ == "__main__":

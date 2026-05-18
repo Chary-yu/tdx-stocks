@@ -54,6 +54,19 @@ class StrategyParams:
     explain_symbol: str | None = None
     as_of: date | None = None
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "limit": self.limit,
+            "min_score": self.min_score,
+            "min_amount_ma20": self.min_amount_ma20,
+            "market": self.market,
+            "candidate_type": self.candidate_type,
+            "include_excluded": self.include_excluded,
+            "show_excluded_limit": self.show_excluded_limit,
+            "explain_symbol": self.explain_symbol,
+            "as_of": self.as_of.isoformat() if self.as_of else None,
+        }
+
 
 @dataclass(frozen=True)
 class StrategyReport:
