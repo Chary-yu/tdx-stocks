@@ -326,6 +326,11 @@ def cmd_quality_report(args: argparse.Namespace) -> int:
         raise FileNotFoundError(f"latest manifest not found: {latest}")
     manifest = json.loads(latest.read_text(encoding="utf-8"))
     summary = manifest.get("summary", {})
+    version_dir = config.paths.data_root / "versions" / str(manifest.get("run_id") or "latest") / "reports"
+    factor_quality_report = None
+    factor_quality_path = version_dir / "factor_quality_report.json"
+    if factor_quality_path.exists():
+        factor_quality_report = json.loads(factor_quality_path.read_text(encoding="utf-8"))
     report = build_data_quality_report(
         {
             "run_id": manifest.get("run_id"),
@@ -335,6 +340,7 @@ def cmd_quality_report(args: argparse.Namespace) -> int:
             "factor_version": summary.get("factor_version") if isinstance(summary, dict) else None,
         },
         summary.get("checks", []) if isinstance(summary, dict) else [],
+        factor_quality=factor_quality_report,
     )
     report_path = (
         config.paths.data_root
@@ -347,6 +353,8 @@ def cmd_quality_report(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         print_json(normalize_output_data(report))
     else:
+        factor_quality = report.get("factor_quality_report") or report.get("factor_quality") or {}
+        factor_quality_summary = factor_quality.get("summary") if isinstance(factor_quality, dict) else {}
         print_key_values(
             "data quality report",
             [
@@ -354,6 +362,11 @@ def cmd_quality_report(args: argparse.Namespace) -> int:
                 ("factor_version", report["summary"].get("factor_version")),
                 ("generated_at", report["generated_at"]),
                 ("checks", len(report["checks"])),
+                ("missing_adj_close_rows", factor_quality_summary.get("missing_adj_close_rows")),
+                ("missing_pct_chg_rows", factor_quality_summary.get("missing_pct_chg_rows")),
+                ("missing_amount_ma20_rows", factor_quality_summary.get("missing_amount_ma20_rows")),
+                ("missing_vol_20_rows", factor_quality_summary.get("missing_vol_20_rows")),
+                ("missing_atr_pct_14_rows", factor_quality_summary.get("missing_atr_pct_14_rows")),
                 ("report_path", report_path.as_posix()),
             ],
         )

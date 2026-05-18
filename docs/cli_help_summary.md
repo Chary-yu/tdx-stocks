@@ -243,7 +243,7 @@
 | `run` | Run a strategy and emit a report. |
 | `compare` | Compare strategy candidates. |
 | `consensus` | Find strategy consensus candidates. |
-| `backtest` | Backtest a strategy on historical dates. |
+| `backtest` | Run a rolling T+1 signal backtest on historical dates. |
 | `backtest-compare` | Compare backtests across strategies. |
 | `tune` | Scan strategy parameter combinations. |
 | `analyze-forward-returns` | Analyze forward returns after strategy hits. |
@@ -288,7 +288,7 @@
 | `--include-excluded` |  |
 | `--show-excluded-limit` | (default: 20) |
 | `--explain-symbol` |  |
-| `--to` |  |
+| `--output, --to` |  |
 
 ###### `strategy run ma-pullback`
 
@@ -306,7 +306,7 @@
 | `--include-excluded` |  |
 | `--show-excluded-limit` | (default: 20) |
 | `--explain-symbol` |  |
-| `--to` |  |
+| `--output, --to` |  |
 
 ###### `strategy run relative-strength`
 
@@ -324,7 +324,7 @@
 | `--include-excluded` |  |
 | `--show-excluded-limit` | (default: 20) |
 | `--explain-symbol` |  |
-| `--to` |  |
+| `--output, --to` |  |
 
 ###### `strategy run trend-strength`
 
@@ -342,7 +342,7 @@
 | `--include-excluded` |  |
 | `--show-excluded-limit` | (default: 20) |
 | `--explain-symbol` |  |
-| `--to` |  |
+| `--output, --to` |  |
 
 ###### `strategy run volume-breakout`
 
@@ -360,7 +360,7 @@
 | `--include-excluded` |  |
 | `--show-excluded-limit` | (default: 20) |
 | `--explain-symbol` |  |
-| `--to` |  |
+| `--output, --to` |  |
 
 ##### `strategy compare`
 
@@ -371,7 +371,7 @@
 | `--strategies` | Comma-separated strategy names. Defaults to all registered strategies. |
 | `--format` | (default: table) |
 | `--json` |  |
-| `--to` |  |
+| `--output, --to` |  |
 
 ##### `strategy consensus`
 
@@ -383,7 +383,7 @@
 | `--min-hit` | (default: 2) |
 | `--format` | (default: table) |
 | `--json` |  |
-| `--to` |  |
+| `--output, --to` |  |
 
 ##### `strategy backtest`
 
@@ -518,12 +518,14 @@
 
 | 参数 | 说明 |
 | --- | --- |
+| `--config` |  |
 | `--json` |  |
 
 ###### `strategy reports show`
 
 | 参数 | 说明 |
 | --- | --- |
+| `--config` |  |
 | `strategy_name` |  |
 | `--as-of` | (default: latest) |
 | `--run-id` |  |

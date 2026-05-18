@@ -219,6 +219,21 @@ def build_dataset(
             run_paths.reports_dir / "factor_catalog_report.json",
             build_factor_catalog_report(run_id, build_report["factor_version"]),
         )
+        factor_quality_report = build_factor_quality_report(
+            build_factor_quality_summary(con, run_paths.factors_dir),
+            [
+                {"name": "missing_price_flag", "description": "缺失价格标记"},
+                {"name": "zero_amount_flag", "description": "零成交额标记"},
+                {"name": "invalid_ohlc_flag", "description": "OHLC 异常标记"},
+                {"name": "stale_price_flag", "description": "价格停滞标记"},
+                {"name": "extreme_return_flag", "description": "极端收益标记"},
+                {"name": "low_history_flag", "description": "历史长度不足标记"},
+            ],
+        )
+        write_json_atomic(
+            run_paths.reports_dir / "factor_quality_report.json",
+            factor_quality_report,
+        )
         write_json_atomic(
             run_paths.reports_dir / "data_quality_report.json",
             build_data_quality_report(
@@ -231,20 +246,7 @@ def build_dataset(
                     "checks": summary_checks,
                 },
                 summary_checks,
-            ),
-        )
-        write_json_atomic(
-            run_paths.reports_dir / "factor_quality_report.json",
-            build_factor_quality_report(
-                build_factor_quality_summary(con, run_paths.factors_dir),
-                [
-                    {"name": "missing_price_flag", "description": "缺失价格标记"},
-                    {"name": "zero_amount_flag", "description": "零成交额标记"},
-                    {"name": "invalid_ohlc_flag", "description": "OHLC 异常标记"},
-                    {"name": "stale_price_flag", "description": "价格停滞标记"},
-                    {"name": "extreme_return_flag", "description": "极端收益标记"},
-                    {"name": "low_history_flag", "description": "历史长度不足标记"},
-                ],
+                factor_quality=factor_quality_report,
             ),
         )
         report = build_report

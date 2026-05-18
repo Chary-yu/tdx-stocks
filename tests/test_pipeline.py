@@ -17,6 +17,7 @@ from tdx_stocks.parquet_io import (
     corporate_actions_schema,
     write_records_table,
 )
+from tdx_stocks.query import open_query_context, table_column_names
 from tdx_stocks.exit_codes import BuildCheckFailedError, NoDataError
 from tdx_stocks.pipeline import CheckResult, _raise_on_errors, build_dataset, rebuild_dataset, update_actions
 from tdx_stocks.sync import execute_sync
@@ -211,6 +212,15 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue((version_dir / "reports" / "factor_catalog_report.json").exists())
             self.assertTrue((version_dir / "reports" / "data_quality_report.json").exists())
             self.assertTrue((version_dir / "reports" / "factor_quality_report.json").exists())
+            ctx = open_query_context(config)
+            try:
+                factor_full_columns = table_column_names(ctx.con, "factor_full")
+                self.assertIn("risk_score", factor_full_columns)
+                self.assertIn("is_high_volatility", factor_full_columns)
+                self.assertIn("atr_pct_14_pct_rank", factor_full_columns)
+                self.assertNotIn("xsec_risk_score", factor_full_columns)
+            finally:
+                ctx.close()
             self.assertEqual(report["cached_corporate_actions"], True)
             self.assertEqual(report["cached_adjustment_factors"], True)
 

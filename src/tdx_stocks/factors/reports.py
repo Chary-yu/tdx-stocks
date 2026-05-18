@@ -41,13 +41,20 @@ def build_factor_catalog_report(data_run_id: str | None = None, factor_version: 
     }
 
 
-def build_data_quality_report(summary: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any]:
+def build_data_quality_report(
+    summary: dict[str, Any],
+    checks: list[dict[str, Any]],
+    *,
+    factor_quality: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "schema_version": "data-quality-report-v1",
         "app_version": APP_VERSION,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "summary": json_safe(summary),
         "checks": json_safe(checks),
+        "factor_quality": json_safe(factor_quality) if factor_quality is not None else None,
+        "factor_quality_report": json_safe(factor_quality) if factor_quality is not None else None,
     }
 
 

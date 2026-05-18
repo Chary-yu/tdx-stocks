@@ -735,12 +735,31 @@ class StrategyCliTest(unittest.TestCase):
         args = build_parser().parse_args(["strategy", "reports", "list"])
         self.assertEqual(args.strategy_command, "reports")
         self.assertEqual(args.reports_command, "list")
+        self.assertIsNone(args.config)
+
+        args = build_parser().parse_args(["strategy", "reports", "list", "--config", "config/tdx_stocks.toml"])
+        self.assertEqual(args.strategy_command, "reports")
+        self.assertEqual(args.reports_command, "list")
+        self.assertEqual(str(args.config), "config/tdx_stocks.toml")
 
         args = build_parser().parse_args(["strategy", "reports", "show", "trend-strength", "--as-of", "latest"])
         self.assertEqual(args.strategy_command, "reports")
         self.assertEqual(args.reports_command, "show")
         self.assertEqual(args.strategy_name, "trend-strength")
         self.assertEqual(args.as_of, "latest")
+
+        args = build_parser().parse_args([
+            "strategy",
+            "reports",
+            "show",
+            "trend-strength",
+            "--config",
+            "config/tdx_stocks.toml",
+            "--as-of",
+            "latest",
+        ])
+        self.assertEqual(args.reports_command, "show")
+        self.assertEqual(str(args.config), "config/tdx_stocks.toml")
 
     def test_command_writes_json_and_keeps_stdout_table(self) -> None:
         report = StrategyReport(

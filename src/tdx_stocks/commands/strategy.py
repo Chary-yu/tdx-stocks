@@ -101,7 +101,10 @@ def register_strategy_group(
     _add_consensus_args(consensus_parser)
     consensus_parser.set_defaults(func=cmd_strategy_consensus)
 
-    backtest_parser = strategy_subparsers.add_parser("backtest", help="Backtest a strategy on historical dates.")
+    backtest_parser = strategy_subparsers.add_parser(
+        "backtest",
+        help="Run a rolling T+1 signal backtest on historical dates.",
+    )
     _add_backtest_args(backtest_parser)
     backtest_parser.add_argument("strategy_name")
     backtest_parser.set_defaults(func=cmd_strategy_backtest)
@@ -144,9 +147,11 @@ def register_strategy_group(
     reports_parser = strategy_subparsers.add_parser("reports", help="Manage saved strategy reports.")
     reports_subparsers = reports_parser.add_subparsers(dest="reports_command", required=True)
     reports_list_parser = reports_subparsers.add_parser("list", help="List saved strategy reports.")
+    add_config_arg(reports_list_parser)
     reports_list_parser.add_argument("--json", action="store_true")
     reports_list_parser.set_defaults(func=cmd_strategy_reports_list)
     reports_show_parser = reports_subparsers.add_parser("show", help="Show a saved strategy report.")
+    add_config_arg(reports_show_parser)
     reports_show_parser.add_argument("strategy_name")
     reports_show_parser.add_argument("--as-of", default="latest")
     reports_show_parser.add_argument("--run-id")
@@ -170,7 +175,7 @@ def _add_common_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--include-excluded", action="store_true")
     parser.add_argument("--show-excluded-limit", type=int, default=20)
     parser.add_argument("--explain-symbol")
-    parser.add_argument("--to", type=Path)
+    parser.add_argument("--output", "--to", dest="output", type=Path)
 
 
 def _add_compare_args(parser: argparse.ArgumentParser) -> None:
@@ -179,7 +184,7 @@ def _add_compare_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--strategies", help="Comma-separated strategy names. Defaults to all registered strategies.")
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--to", type=Path)
+    parser.add_argument("--output", "--to", dest="output", type=Path)
 
 
 def _add_consensus_args(parser: argparse.ArgumentParser) -> None:
@@ -189,7 +194,7 @@ def _add_consensus_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-hit", type=int, default=2)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--to", type=Path)
+    parser.add_argument("--output", "--to", dest="output", type=Path)
 
 
 def _add_backtest_args(parser: argparse.ArgumentParser) -> None:
@@ -514,10 +519,11 @@ def _emit_report_table(report: dict[str, object], *, format_name: str, to: Path 
 
 def _write_strategy_output(report, args: argparse.Namespace, *, export_dir: Path | None = None) -> None:
     report_dict = report.to_dict()
-    if args.to is not None:
-        args.to.parent.mkdir(parents=True, exist_ok=True)
+    output_path = getattr(args, "output", None) or getattr(args, "to", None)
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(report_dict, ensure_ascii=False, indent=2, default=str)
-        args.to.write_text(payload, encoding="utf-8")
+        output_path.write_text(payload, encoding="utf-8")
     if args.json:
         print_json(report_dict)
     else:
@@ -604,7 +610,10 @@ def cmd_strategy_reports_show(args: argparse.Namespace) -> int:
         raise FileNotFoundError(
             f"saved report not found for strategy={args.strategy_name!r}, as_of={args.as_of!r}, run_id={args.run_id!r}"
         )
-    print_json(report)
+    if getattr(args, "json", False):
+        print_json(report)
+    else:
+        print_json(report)
     return 0
 
 
@@ -614,15 +623,16 @@ def cmd_strategy_compare(args: argparse.Namespace) -> int:
     result = compare_strategies(config, strategy_names, as_of=_parse_as_of(args.as_of))
     payload = result.to_dict()
     output_format = "json" if getattr(args, "json", False) else args.format
+    output_path = getattr(args, "output", None) or getattr(args, "to", None)
     if output_format == "json":
-        if args.to is not None:
-            args.to.parent.mkdir(parents=True, exist_ok=True)
-            args.to.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         else:
             print_json(payload)
     elif output_format == "csv":
         rows = [row.to_dict() for row in result.strategies]
-        _write_csv(rows, ["strategy_name", "candidate_count", "avg_score", "max_score", "high_score_count", "risk_flag_count", "stocks"], args.to)
+        _write_csv(rows, ["strategy_name", "candidate_count", "avg_score", "max_score", "high_score_count", "risk_flag_count", "stocks"], output_path)
     else:
         print("strategy summary")
         print_table(["strategy_name", "candidate_count", "avg_score", "max_score", "high_score_count", "risk_flag_count"], [row.to_dict() for row in result.strategies])
@@ -651,17 +661,18 @@ def cmd_strategy_consensus(args: argparse.Namespace) -> int:
     result = build_consensus(config, strategy_names, as_of=_parse_as_of(args.as_of), min_hit=args.min_hit)
     payload = result.to_dict()
     output_format = "json" if getattr(args, "json", False) else args.format
+    output_path = getattr(args, "output", None) or getattr(args, "to", None)
     if output_format == "json":
-        if args.to is not None:
-            args.to.parent.mkdir(parents=True, exist_ok=True)
-            args.to.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         else:
             print_json(payload)
     elif output_format == "csv":
         _write_csv(
             [row.to_dict() for row in result.rows],
             ["market", "symbol", "hit_count", "strategies", "avg_score", "max_score", "candidate_types", "tags", "risk_flags", "reasons"],
-            args.to,
+            output_path,
         )
     else:
         print_table(

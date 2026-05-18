@@ -56,7 +56,7 @@ def cmd_factors_list(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         print_json(normalize_output_data(rows))
     else:
-        print_table(["name", "group", "description", "depends_on", "strategies"], rows)
+        print_table(["name", "group", "description", "depends_on", "strategies", "higher_is_better"], rows)
     return 0
 
 
@@ -67,7 +67,7 @@ def cmd_factors_describe(args: argparse.Namespace) -> int:
         print_json(normalize_output_data(payload))
     else:
         print_table(
-            ["name", "group", "description", "depends_on", "strategies"],
+            ["name", "group", "description", "depends_on", "strategies", "higher_is_better"],
             [payload],
         )
     return 0
@@ -112,6 +112,7 @@ def cmd_factors_rank(args: argparse.Namespace) -> int:
         if not isinstance(resolved_date, date):
             raise ValueError(f"invalid as-of date: {args.as_of!r}")
         market_clause = f"AND market = '{args.market}'" if args.market else ""
+        direction = "DESC" if definition.higher_is_better else "ASC"
         rows = ctx.con.execute(
             f"""
             SELECT
@@ -119,11 +120,11 @@ def cmd_factors_rank(args: argparse.Namespace) -> int:
                 symbol,
                 trade_date,
                 {definition.name} AS factor_value,
-                rank() OVER (PARTITION BY trade_date ORDER BY {definition.name} DESC NULLS LAST, market, symbol) AS factor_rank
+                rank() OVER (PARTITION BY trade_date ORDER BY {definition.name} {direction} NULLS LAST, market, symbol) AS factor_rank
             FROM {table}
             WHERE trade_date = DATE '{resolved_date.isoformat()}'
                 {market_clause}
-            ORDER BY factor_value DESC NULLS LAST, market, symbol
+            ORDER BY factor_value {direction} NULLS LAST, market, symbol
             LIMIT {int(args.limit)}
             """
         ).fetchall()
