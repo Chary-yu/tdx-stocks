@@ -34,7 +34,7 @@ _SECTION_ALLOWED = {
     "backtest": {"from_date", "to_date", "top", "hold_days", "fee_rate", "slippage", "fee_bps", "slippage_bps", "market", "candidate_type", "min_score", "min_amount_ma20"},
     "grid": None,
     "output": {"save", "dir", "formats"},
-    "daily": {"enabled_strategies", "strategy_limit", "strategy_min_score", "consensus_min_hit", "consensus_limit", "portfolio_top", "portfolio_weighting", "exclude_risk_tags"},
+    "daily": {"enabled_strategies", "strategy_limit", "strategy_min_score", "consensus_min_hit", "consensus_limit", "portfolio_top", "portfolio_weighting", "portfolio_max_weight", "exclude_risk_tags"},
 }
 
 _REQUIRED_BY_TYPE = {

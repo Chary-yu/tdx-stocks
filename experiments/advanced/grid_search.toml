@@ -1,0 +1,21 @@
+[task]
+type = "grid_search"
+name = "trend-strength-grid"
+
+[strategy]
+name = "trend-strength"
+min_amount_ma20 = 50000000
+
+[backtest]
+from_date = "2022-01-01"
+to_date = "2024-12-31"
+
+[grid]
+"strategy.min_score" = [55, 60, 65]
+"backtest.top" = [10, 20, 30]
+"backtest.hold_days" = [5, 10, 20]
+
+[output]
+save = true
+dir = "reports/grid_search"
+formats = ["json", "csv"]

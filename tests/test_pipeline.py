@@ -59,14 +59,15 @@ class PipelineTest(unittest.TestCase):
                 build=BuildConfig(),
             )
 
-            with patch("tdx_stocks.pipeline.build_dataset", return_value={"ok": True}) as mocked:
-                report = rebuild_dataset(
-                    config,
-                    from_date=None,
-                    to_date=None,
-                    limit_symbols=3,
-                    overwrite_staging=True,
-                )
+            with patch("tdx_stocks.pipeline.iter_day_files", return_value=[Path("/tmp/tdx_vipdoc/sh/lday/sh600000.day")]):
+                with patch("tdx_stocks.pipeline.build_dataset", return_value={"ok": True}) as mocked:
+                    report = rebuild_dataset(
+                        config,
+                        from_date=None,
+                        to_date=None,
+                        limit_symbols=3,
+                        overwrite_staging=True,
+                    )
 
             self.assertEqual(report, {"ok": True})
             self.assertTrue(cache_file.exists())
@@ -82,6 +83,36 @@ class PipelineTest(unittest.TestCase):
                 overwrite_staging=True,
                 progress=None,
             )
+
+    def test_rebuild_dataset_without_day_files_does_not_clear_data_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "Database"
+            latest_file = data_root / "latest.json"
+            cache_file = data_root / "cache" / "marker.txt"
+            latest_file.parent.mkdir(parents=True, exist_ok=True)
+            latest_file.write_text("{}", encoding="utf-8")
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text("cache", encoding="utf-8")
+
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=Path(tmp) / "vipdoc",
+                    data_root=data_root,
+                ),
+                build=BuildConfig(),
+            )
+
+            with self.assertRaises(NoDataError):
+                rebuild_dataset(
+                    config,
+                    from_date=None,
+                    to_date=None,
+                    limit_symbols=None,
+                    overwrite_staging=True,
+                )
+
+            self.assertTrue(latest_file.exists())
+            self.assertTrue(cache_file.exists())
 
     def test_build_and_rebuild_commands_pass_progress(self) -> None:
         args = Namespace(
@@ -309,10 +340,13 @@ class PipelineTest(unittest.TestCase):
     def test_execute_sync_calls_update_and_rebuild(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp) / "Database"
+            export_dir = Path(tmp) / "export"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            (export_dir / "SH#600000.txt").write_text("dummy\n", encoding="gbk")
             config = AppConfig(
                 paths=PathsConfig(
                     tdx_vipdoc=Path("/tmp/tdx_vipdoc"),
-                    tdx_export=Path("/tmp/tdx_export"),
+                    tdx_export=export_dir,
                     data_root=data_root,
                 ),
                 build=BuildConfig(),
@@ -337,7 +371,56 @@ class PipelineTest(unittest.TestCase):
             mocked_update.assert_called_once_with(
                 config,
                 source="export",
-                input_path=config.paths.tdx_export,
+                input_path=export_dir,
+                dry_run=False,
+                progress=None,
+                write_report=True,
+            )
+            mocked_rebuild.assert_called_once_with(
+                config,
+                from_date=None,
+                to_date=None,
+                limit_symbols=3,
+                overwrite_staging=True,
+                progress=None,
+            )
+            self.assertEqual(result.update_report, {"ok": True})
+            self.assertEqual(result.build_report, {"ok": True})
+
+    def test_execute_sync_falls_back_to_local_when_export_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "Database"
+            export_dir = Path(tmp) / "export"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            config = AppConfig(
+                paths=PathsConfig(
+                    tdx_vipdoc=Path("/tmp/tdx_vipdoc"),
+                    tdx_export=export_dir,
+                    data_root=data_root,
+                ),
+                build=BuildConfig(),
+            )
+            from types import SimpleNamespace
+
+            plan = SimpleNamespace(to_dict=lambda: {"steps": []})
+            with patch("tdx_stocks.sync.update_actions", return_value={"ok": True}) as mocked_update, patch(
+                "tdx_stocks.sync.rebuild_dataset",
+                return_value={"ok": True},
+            ) as mocked_rebuild:
+                result = execute_sync(
+                    config,
+                    plan,
+                    from_date=None,
+                    to_date=None,
+                    limit_symbols=3,
+                    overwrite_staging=True,
+                    progress=None,
+                )
+
+            mocked_update.assert_called_once_with(
+                config,
+                source="local",
+                input_path=None,
                 dry_run=False,
                 progress=None,
                 write_report=True,

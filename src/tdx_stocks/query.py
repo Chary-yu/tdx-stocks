@@ -43,7 +43,11 @@ class QueryContext:
 def load_latest_manifest(data_root: Path) -> dict:
     path = data_root / "latest.json"
     if not path.exists():
-        raise FileNotFoundError(f"latest manifest not found: {path}")
+        raise FileNotFoundError(
+            f"latest manifest not found: {path}.\n"
+            "Run: tdx-stocks data sync\n"
+            "If the workspace is new, make sure [paths].tdx_vipdoc points to the real vipdoc root first."
+        )
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -79,6 +83,7 @@ def register_latest_views(con, manifest: dict) -> None:
                 "rank_ret_20",
                 "rank_ret_60",
                 "pct_rank_ret_20",
+                "pct_rank_ret_60",
                 "pct_rank_amount_ma20",
                 "pct_rank_vol_20",
                 "rs_ret_20",

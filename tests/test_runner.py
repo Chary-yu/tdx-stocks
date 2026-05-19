@@ -29,6 +29,19 @@ class InitCommandTest(unittest.TestCase):
                 self.assertTrue((root / "experiments" / "advanced" / "grid_search.toml").exists())
                 self.assertTrue((root / "experiments" / "advanced" / "rebalance.toml").exists())
                 self.assertTrue((root / "holdings.csv.example").exists())
+                payload = (root / "tdx_stocks.toml").read_text(encoding="utf-8")
+                self.assertIn('tdx_vipdoc = "./vipdoc"', payload)
+                self.assertIn('tdx_export = "./export"', payload)
+                self.assertIn('portfolio_max_weight = 0.08', payload)
+                self.assertTrue((root / "vipdoc").exists())
+                self.assertTrue((root / "export").exists())
+                self.assertTrue((root / "Database").exists())
+                self.assertTrue((root / "reports" / "daily").exists())
+                self.assertTrue((root / "reports" / "backtests").exists())
+                self.assertTrue((root / "reports" / "portfolios").exists())
+                self.assertTrue((root / "reports" / "signals").exists())
+                self.assertTrue((root / "reports" / "grid_search").exists())
+                self.assertTrue((root / "reports" / "rebalance").exists())
             finally:
                 os.chdir(cwd)
 
@@ -54,6 +67,46 @@ class InitCommandTest(unittest.TestCase):
                 self.assertFalse((Path("holdings.csv.example")).exists())
             finally:
                 os.chdir(cwd)
+
+    def test_init_research_profile_uses_full_research_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path.cwd()
+            try:
+                os.chdir(tmp)
+                cli_main(["init", "--profile", "research", "--data-root", "Database"])
+                payload = Path("tdx_stocks.toml").read_text(encoding="utf-8")
+                daily = Path("experiments/daily.toml").read_text(encoding="utf-8")
+                backtest = Path("experiments/backtest.toml").read_text(encoding="utf-8")
+            finally:
+                os.chdir(cwd)
+
+        self.assertIn('enabled_strategies = ["trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"]', payload)
+        self.assertIn('strategy_limit = 50', payload)
+        self.assertIn('strategy_min_score = 60.0', payload)
+        self.assertIn('portfolio_max_weight = 0.10', payload)
+        self.assertIn('enabled = ["trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"]', daily)
+        self.assertIn('hold_days = 5', backtest)
+        self.assertIn('top = 20', backtest)
+        self.assertIn('enabled = false', daily)
+
+    def test_init_portfolio_profile_tunes_portfolio_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path.cwd()
+            try:
+                os.chdir(tmp)
+                cli_main(["init", "--profile", "portfolio", "--data-root", "Database"])
+                payload = Path("tdx_stocks.toml").read_text(encoding="utf-8")
+                portfolio = Path("experiments/portfolio.toml").read_text(encoding="utf-8")
+                rebalance = Path("experiments/advanced/rebalance.toml").read_text(encoding="utf-8")
+            finally:
+                os.chdir(cwd)
+
+        self.assertIn('portfolio_top = 50', payload)
+        self.assertIn('portfolio_max_weight = 0.05', payload)
+        self.assertIn('top = 50', portfolio)
+        self.assertIn('max_weight = 0.05', portfolio)
+        self.assertIn('enabled = true', rebalance)
+        self.assertIn('min_trade_weight = 0.005', rebalance)
 
 
 class RunSchemaTest(unittest.TestCase):
@@ -101,6 +154,33 @@ current_holdings = "../holdings.csv"
             )
             loaded = load_run_config(config_path)
         self.assertTrue(loaded.config["rebalance"]["current_holdings"].endswith("holdings.csv"))
+
+    def test_run_config_auto_detects_standard_tdx_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vipdoc = root / "vipdoc"
+            export_dir = root / "T0002" / "export"
+            (vipdoc / "sh" / "lday").mkdir(parents=True)
+            (vipdoc / "sh" / "lday" / "sh600000.day").write_bytes(b"day")
+            export_dir.mkdir(parents=True)
+            (export_dir / "sh600000.txt").write_text("code,date,open,high,low,close,volume,amount\n", encoding="utf-8")
+            config_path = root / "daily.toml"
+            config_path.write_text(
+                """
+[task]
+type = "daily"
+
+[paths]
+tdx_vipdoc = "./vipdoc"
+tdx_export = "./export"
+data_root = "./Database"
+""".strip(),
+                encoding="utf-8",
+            )
+            with patch("tdx_stocks.config._candidate_tdx_roots", return_value=(root,)):
+                loaded = load_run_config(config_path)
+        self.assertEqual(loaded.app_config.paths.tdx_vipdoc, vipdoc)
+        self.assertEqual(loaded.app_config.paths.tdx_export, export_dir)
 
     def test_daily_config_is_loaded_without_backtest_sections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

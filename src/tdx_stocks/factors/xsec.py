@@ -53,6 +53,7 @@ def build_xsec_factors(con, factors_dir: Path, output_dir: Path, compression: st
                 rank_ret_20,
                 rank_ret_60,
                 CASE WHEN trade_day_count <= 1 THEN 1.0 ELSE 1.0 - (rank_ret_20 - 1)::DOUBLE / (trade_day_count - 1) END AS pct_rank_ret_20,
+                CASE WHEN trade_day_count <= 1 THEN 1.0 ELSE 1.0 - (rank_ret_60 - 1)::DOUBLE / (trade_day_count - 1) END AS pct_rank_ret_60,
                 CASE WHEN trade_day_count <= 1 THEN 1.0 ELSE 1.0 - (rank_amount_ma20 - 1)::DOUBLE / (trade_day_count - 1) END AS pct_rank_amount_ma20,
                 CASE WHEN trade_day_count <= 1 THEN 1.0 ELSE 1.0 - (rank_vol_20 - 1)::DOUBLE / (trade_day_count - 1) END AS pct_rank_vol_20,
                 ret_20 - avg(ret_20) OVER (PARTITION BY trade_date) AS rs_ret_20,

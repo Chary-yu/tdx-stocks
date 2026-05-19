@@ -1,9 +1,42 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import DEFAULT_DATA_ROOT, write_default_config
+from ..config import DEFAULT_DATA_ROOT, default_config_text
+
+
+@dataclass(frozen=True)
+class InitProfileSpec:
+    daily_enabled_strategies: tuple[str, ...]
+    daily_strategy_limit: int
+    daily_strategy_min_score: float
+    daily_consensus_min_hit: int
+    daily_portfolio_top: int
+    daily_portfolio_weighting: str
+    daily_portfolio_max_weight: float
+    signal_enabled_strategies: tuple[str, ...]
+    signal_strategy_limit: int
+    signal_strategy_min_score: float
+    backtest_strategy_name: str
+    backtest_strategy_limit: int
+    backtest_strategy_min_score: float
+    backtest_min_amount_ma20: int
+    backtest_top: int
+    backtest_hold_days: int
+    backtest_fee_bps: int
+    backtest_slippage_bps: int
+    portfolio_name: str
+    portfolio_top: int
+    portfolio_weighting: str
+    portfolio_max_weight: float
+    portfolio_exclude_risk_tags: tuple[str, ...]
+    rebalance_name: str
+    rebalance_enabled: bool
+    rebalance_min_trade_weight: float
+    rebalance_max_turnover: float
+    rebalance_current_holdings: str
 
 
 def register_init_command(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -17,7 +50,23 @@ def register_init_command(subparsers: argparse._SubParsersAction[argparse.Argume
 
 def cmd_init(args: argparse.Namespace) -> int:
     root = Path.cwd()
+    data_root = args.data_root if args.data_root.is_absolute() else root / args.data_root
     files = _build_files(root, data_root=args.data_root, profile=args.profile, minimal=args.minimal)
+    for rel_dir in (
+        "vipdoc",
+        "export",
+        "reports",
+        "reports/daily",
+        "reports/backtests",
+        "reports/portfolios",
+        "reports/signals",
+        "reports/grid_search",
+        "reports/rebalance",
+        "experiments",
+        "experiments/advanced",
+    ):
+        (root / rel_dir).mkdir(parents=True, exist_ok=True)
+    data_root.mkdir(parents=True, exist_ok=True)
     for rel_path, content in files.items():
         path = root / rel_path
         if path.exists() and not args.force:
@@ -35,24 +84,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def _build_files(root: Path, *, data_root: Path, profile: str, minimal: bool) -> dict[str, str]:
-    config = _config_template(data_root=data_root)
-    daily = _daily_template()
-    signal = _signal_template()
-    if profile == "simple":
-        config = config.replace(
-            'enabled_strategies = ["trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"]',
-            'enabled_strategies = ["trend-strength", "relative-strength"]',
-        )
-        daily = daily.replace(
-            'enabled = ["trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"]',
-            'enabled = ["trend-strength", "relative-strength"]',
-        )
-        signal = signal.replace(
-            'enabled = ["trend-strength", "relative-strength", "low-vol-breakout"]',
-            'enabled = ["trend-strength", "relative-strength"]',
-        )
-    elif profile == "portfolio":
-        config = config.replace('portfolio_top = 20', 'portfolio_top = 50')
+    spec = _profile_spec(profile)
+    config = _config_template(data_root=data_root, spec=spec)
+    daily = _daily_template(spec)
+    signal = _signal_template(spec)
     if minimal:
         return {
             "tdx_stocks.toml": config,
@@ -62,48 +97,136 @@ def _build_files(root: Path, *, data_root: Path, profile: str, minimal: bool) ->
     return {
         "tdx_stocks.toml": config,
         "experiments/daily.toml": daily,
-        "experiments/backtest.toml": _backtest_template(),
-        "experiments/portfolio.toml": _portfolio_template(),
-        "experiments/advanced/signal.toml": _signal_template(),
+        "experiments/backtest.toml": _backtest_template(spec),
+        "experiments/portfolio.toml": _portfolio_template(spec),
+        "experiments/advanced/signal.toml": signal,
         "experiments/advanced/grid_search.toml": _grid_search_template(),
-        "experiments/advanced/rebalance.toml": _rebalance_template(),
+        "experiments/advanced/rebalance.toml": _rebalance_template(spec),
         "reports/.gitkeep": "",
         "holdings.csv.example": "market,symbol,weight\nsh,600000,0.2\nsz,000001,0.2\n",
     }
 
 
-def _config_template(*, data_root: Path) -> str:
-    return f"""[paths]
-tdx_vipdoc = ""
-tdx_export = ""
-data_root = "{data_root.as_posix()}"
-plugin_dir = "~/.tdx-stocks/plugins"
+def _profile_spec(profile: str) -> InitProfileSpec:
+    if profile == "simple":
+        return InitProfileSpec(
+            daily_enabled_strategies=("trend-strength", "relative-strength"),
+            daily_strategy_limit=30,
+            daily_strategy_min_score=65.0,
+            daily_consensus_min_hit=1,
+            daily_portfolio_top=10,
+            daily_portfolio_weighting="equal",
+            daily_portfolio_max_weight=0.08,
+            signal_enabled_strategies=("trend-strength", "relative-strength"),
+            signal_strategy_limit=30,
+            signal_strategy_min_score=65.0,
+            backtest_strategy_name="trend-strength",
+            backtest_strategy_limit=30,
+            backtest_strategy_min_score=65.0,
+            backtest_min_amount_ma20=30_000_000,
+            backtest_top=10,
+            backtest_hold_days=3,
+            backtest_fee_bps=5,
+            backtest_slippage_bps=8,
+            portfolio_name="simple-consensus-portfolio",
+            portfolio_top=10,
+            portfolio_weighting="equal",
+            portfolio_max_weight=0.08,
+            portfolio_exclude_risk_tags=("high_volatility", "low_liquidity"),
+            rebalance_name="simple-rebalance",
+            rebalance_enabled=False,
+            rebalance_min_trade_weight=0.01,
+            rebalance_max_turnover=0.50,
+            rebalance_current_holdings="holdings.csv",
+        )
+    if profile == "portfolio":
+        return InitProfileSpec(
+            daily_enabled_strategies=("trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"),
+            daily_strategy_limit=80,
+            daily_strategy_min_score=58.0,
+            daily_consensus_min_hit=2,
+            daily_portfolio_top=50,
+            daily_portfolio_weighting="equal",
+            daily_portfolio_max_weight=0.05,
+            signal_enabled_strategies=("trend-strength", "relative-strength", "low-vol-breakout"),
+            signal_strategy_limit=60,
+            signal_strategy_min_score=58.0,
+            backtest_strategy_name="latest-consensus-portfolio",
+            backtest_strategy_limit=80,
+            backtest_strategy_min_score=58.0,
+            backtest_min_amount_ma20=50_000_000,
+            backtest_top=50,
+            backtest_hold_days=10,
+            backtest_fee_bps=2,
+            backtest_slippage_bps=4,
+            portfolio_name="latest-consensus-portfolio",
+            portfolio_top=50,
+            portfolio_weighting="equal",
+            portfolio_max_weight=0.05,
+            portfolio_exclude_risk_tags=("high_volatility", "low_liquidity"),
+            rebalance_name="rebalance-from-consensus",
+            rebalance_enabled=True,
+            rebalance_min_trade_weight=0.005,
+            rebalance_max_turnover=0.30,
+            rebalance_current_holdings="holdings.csv",
+        )
+    return InitProfileSpec(
+        daily_enabled_strategies=("trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"),
+        daily_strategy_limit=50,
+        daily_strategy_min_score=60.0,
+        daily_consensus_min_hit=2,
+        daily_portfolio_top=20,
+        daily_portfolio_weighting="equal",
+        daily_portfolio_max_weight=0.10,
+        signal_enabled_strategies=("trend-strength", "relative-strength", "low-vol-breakout"),
+        signal_strategy_limit=50,
+        signal_strategy_min_score=60.0,
+        backtest_strategy_name="trend-strength",
+        backtest_strategy_limit=50,
+        backtest_strategy_min_score=60.0,
+        backtest_min_amount_ma20=50_000_000,
+        backtest_top=20,
+        backtest_hold_days=5,
+        backtest_fee_bps=3,
+        backtest_slippage_bps=5,
+        portfolio_name="latest-consensus-portfolio",
+        portfolio_top=20,
+        portfolio_weighting="equal",
+        portfolio_max_weight=0.10,
+        portfolio_exclude_risk_tags=("high_volatility", "low_liquidity"),
+        rebalance_name="rebalance-from-consensus",
+        rebalance_enabled=False,
+        rebalance_min_trade_weight=0.01,
+        rebalance_max_turnover=0.50,
+        rebalance_current_holdings="holdings.csv",
+    )
 
-[build]
-markets = ["sh", "sz"]
-universe = "ashare"
-compression = "zstd"
-batch_rows = 200000
-duckdb_memory_limit = "8GB"
-overwrite_staging = false
 
-[factors]
-windows = [5, 10, 20, 60]
+def _config_template(*, data_root: Path, spec: InitProfileSpec) -> str:
+    base = default_config_text(data_root=data_root)
+    start = base.index("[daily]")
+    return (
+        base[:start]
+        + _daily_config_block(spec)
+    )
 
-[daily]
-enabled_strategies = ["trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"]
-strategy_limit = 50
-strategy_min_score = 60.0
-consensus_min_hit = 2
+
+def _daily_config_block(spec: InitProfileSpec) -> str:
+    return f"""[daily]
+enabled_strategies = [{_quoted_list(spec.daily_enabled_strategies)}]
+strategy_limit = {spec.daily_strategy_limit}
+strategy_min_score = {spec.daily_strategy_min_score}
+consensus_min_hit = {spec.daily_consensus_min_hit}
 consensus_limit = 50
-portfolio_top = 20
-portfolio_weighting = "equal"
+portfolio_top = {spec.daily_portfolio_top}
+portfolio_weighting = "{spec.daily_portfolio_weighting}"
+portfolio_max_weight = {spec.daily_portfolio_max_weight:.2f}
 exclude_risk_tags = ["high_volatility", "low_liquidity"]
 """
 
 
-def _daily_template() -> str:
-    return """[task]
+def _daily_template(spec: InitProfileSpec) -> str:
+    return f"""[task]
 type = "daily"
 name = "daily-workflow"
 
@@ -111,25 +234,25 @@ name = "daily-workflow"
 as_of = "latest"
 
 [strategies]
-enabled = ["trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"]
-limit = 50
-min_score = 60
+enabled = [{_quoted_list(spec.daily_enabled_strategies)}]
+limit = {spec.daily_strategy_limit}
+min_score = {_format_number(spec.daily_strategy_min_score)}
 
 [consensus]
 enabled = true
-min_hit = 2
+min_hit = {spec.daily_consensus_min_hit}
 limit = 50
 
 [portfolio]
 enabled = true
 source = "consensus"
-top = 20
-weighting = "equal"
-max_weight = 0.10
+top = {spec.daily_portfolio_top}
+weighting = "{spec.daily_portfolio_weighting}"
+max_weight = {spec.daily_portfolio_max_weight:.2f}
 exclude_risk_tags = ["high_volatility", "low_liquidity"]
 
 [rebalance]
-enabled = false
+enabled = {str(spec.rebalance_enabled).lower()}
 current_holdings = "holdings.csv"
 
 [output]
@@ -139,19 +262,19 @@ formats = ["json", "markdown"]
 """
 
 
-def _signal_template() -> str:
-    return """[task]
+def _signal_template(spec: InitProfileSpec) -> str:
+    return f"""[task]
 type = "signal"
 name = "today-signal"
 
 [strategies]
-enabled = ["trend-strength", "relative-strength", "low-vol-breakout"]
-limit = 50
-min_score = 60
+enabled = [{_quoted_list(spec.signal_enabled_strategies)}]
+limit = {spec.signal_strategy_limit}
+min_score = {_format_number(spec.signal_strategy_min_score)}
 
 [consensus]
 enabled = true
-min_hit = 2
+min_hit = {spec.daily_consensus_min_hit}
 limit = 50
 
 [output]
@@ -161,24 +284,24 @@ formats = ["json", "table"]
 """
 
 
-def _backtest_template() -> str:
-    return """[task]
+def _backtest_template(spec: InitProfileSpec) -> str:
+    return f"""[task]
 type = "backtest"
-name = "trend-strength-backtest"
+name = "{spec.backtest_strategy_name}"
 
 [strategy]
-name = "trend-strength"
-limit = 50
-min_score = 60
-min_amount_ma20 = 50000000
+name = "{spec.backtest_strategy_name}"
+limit = {spec.backtest_strategy_limit}
+min_score = {_format_number(spec.backtest_strategy_min_score)}
+min_amount_ma20 = {spec.backtest_min_amount_ma20}
 
 [backtest]
 from_date = "2022-01-01"
 to_date = "2024-12-31"
-top = 20
-hold_days = 5
-fee_bps = 3
-slippage_bps = 5
+top = {spec.backtest_top}
+hold_days = {spec.backtest_hold_days}
+fee_bps = {spec.backtest_fee_bps}
+slippage_bps = {spec.backtest_slippage_bps}
 
 [output]
 save = true
@@ -212,17 +335,17 @@ formats = ["json", "csv"]
 """
 
 
-def _portfolio_template() -> str:
-    return """[task]
+def _portfolio_template(spec: InitProfileSpec) -> str:
+    return f"""[task]
 type = "portfolio"
-name = "latest-consensus-portfolio"
+name = "{spec.portfolio_name}"
 
 [portfolio]
 source = "consensus"
-top = 20
-weighting = "equal"
-max_weight = 0.10
-exclude_risk_tags = ["high_volatility", "low_liquidity"]
+top = {spec.portfolio_top}
+weighting = "{spec.portfolio_weighting}"
+max_weight = {spec.portfolio_max_weight:.2f}
+exclude_risk_tags = [{_quoted_list(spec.portfolio_exclude_risk_tags)}]
 
 [output]
 save = true
@@ -231,24 +354,35 @@ formats = ["json", "table"]
 """
 
 
-def _rebalance_template() -> str:
-    return """[task]
+def _rebalance_template(spec: InitProfileSpec) -> str:
+    return f"""[task]
 type = "rebalance"
-name = "rebalance-from-consensus"
+name = "{spec.rebalance_name}"
 
 [portfolio]
 source = "consensus"
-top = 20
-weighting = "equal"
-max_weight = 0.10
+top = {spec.portfolio_top}
+weighting = "{spec.portfolio_weighting}"
+max_weight = {spec.portfolio_max_weight:.2f}
 
 [rebalance]
 current_holdings = "holdings.csv"
-min_trade_weight = 0.01
-max_turnover = 0.50
+min_trade_weight = {spec.rebalance_min_trade_weight:.3f}
+max_turnover = {spec.rebalance_max_turnover:.2f}
+enabled = {str(spec.rebalance_enabled).lower()}
 
 [output]
 save = true
 dir = "reports/rebalance"
 formats = ["json", "csv"]
 """
+
+
+def _quoted_list(values: tuple[str, ...]) -> str:
+    return ", ".join(f'"{value}"' for value in values)
+
+
+def _format_number(value: float, *, digits: int = 1) -> str:
+    if float(value).is_integer() and digits == 1:
+        return str(int(value))
+    return f"{value:.{digits}f}".rstrip("0").rstrip(".")

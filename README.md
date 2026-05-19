@@ -96,9 +96,14 @@ Create a config file:
 tdx-stocks init --data-root ./Database
 ```
 
-The generated template leaves `tdx_vipdoc` and `tdx_export` empty so you can
-fill them explicitly or provide `TDX_STOCKS_TDX_VIPDOC` /
+The generated template fills `tdx_vipdoc` and `tdx_export` with local
+workspace defaults (`./vipdoc` and `./export`) and creates the matching
+directories for you. At runtime, the loader also auto-detects common TDX
+install roots when those placeholders do not contain data. You can still
+override them explicitly or provide `TDX_STOCKS_TDX_VIPDOC` /
 `TDX_STOCKS_TDX_EXPORT` at runtime.
+Use `--profile simple`, `--profile research`, or `--profile portfolio` to
+switch between lighter, research-oriented, and portfolio-oriented defaults.
 
 Sync the local dataset:
 

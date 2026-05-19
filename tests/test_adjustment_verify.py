@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from tdx_stocks.cli import cmd_verify_adjustment
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
+from tdx_stocks.export_io import read_export_records
 from tdx_stocks.parquet_io import (
     adjustment_factors_schema,
     corporate_actions_schema,
@@ -25,6 +26,27 @@ except ModuleNotFoundError:
 
 
 class AdjustmentVerifyTest(unittest.TestCase):
+    def test_read_export_records_supports_day_month_year_dates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            export_dir = Path(tmp)
+            export_path = export_dir / "SH#600519.txt"
+            export_path.write_text(
+                "\n".join(
+                    [
+                        "600519 测试股票 日线 前复权",
+                        "      日期\t    开盘\t    最高\t    最低\t    收盘\t    成交量\t    成交额",
+                        "02/01/2020\t100.00\t101.00\t99.00\t100.00\t1000\t100000.00",
+                    ]
+                )
+                + "\n",
+                encoding="gbk",
+            )
+
+            records = list(read_export_records(export_path))
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].trade_date.isoformat(), "2020-01-02")
+
     @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_verify_adjustment_reports_zero_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

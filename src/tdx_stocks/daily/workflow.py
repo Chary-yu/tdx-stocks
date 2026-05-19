@@ -46,6 +46,7 @@ def run_daily_workflow(
     min_hit: int | None = None,
     portfolio_top: int | None = None,
     portfolio_weighting: str | None = None,
+    portfolio_max_weight: float | None = None,
     current_holdings: str | None = None,
     skip_strategies: bool = False,
     skip_portfolio: bool = False,
@@ -62,6 +63,9 @@ def run_daily_workflow(
     min_hit = min_hit or daily_config.consensus_min_hit
     portfolio_top = portfolio_top or daily_config.portfolio_top
     portfolio_weighting = portfolio_weighting or daily_config.portfolio_weighting
+    portfolio_max_weight = (
+        portfolio_max_weight if portfolio_max_weight is not None else daily_config.portfolio_max_weight
+    )
 
     outputs: dict[str, str] = {}
     steps: list[DailyStepResult] = []
@@ -161,7 +165,7 @@ def run_daily_workflow(
                 source="consensus",
                 top=portfolio_top,
                 weighting=portfolio_weighting,
-                max_weight=0.10,
+                max_weight=portfolio_max_weight,
                 as_of=latest_trade_date,
                 exclude_risk_tags=tuple(daily_config.exclude_risk_tags),
             )

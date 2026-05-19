@@ -77,16 +77,17 @@ def build_sync_plan(config: AppConfig) -> SyncPlan:
             except ValueError:
                 latest_generated_at = None
 
-    latest_export_mtime = _latest_export_mtime(config.paths.tdx_export)
+    export_files_exist = _has_export_text_files(config.paths.tdx_export)
+    latest_export_mtime = _latest_export_mtime(config.paths.tdx_export) if export_files_exist else None
     cache_root = config.paths.data_root / "cache"
     cache_corporate_actions = has_parquet_files(cache_root / "corporate_actions")
     cache_adjustment_factors = has_parquet_files(cache_root / "adjustment_factors")
 
-    if latest_export_mtime is None and (latest_manifest is None or not cache_corporate_actions or not cache_adjustment_factors):
-        raise FileNotFoundError(f"no export text files found under: {config.paths.tdx_export}")
-
     steps: list[SyncPlanStep] = []
-    if latest_manifest is None:
+    if not export_files_exist and (latest_manifest is None or not cache_corporate_actions or not cache_adjustment_factors):
+        steps.append(SyncPlanStep("data update", "no export text files found; using local sync"))
+        steps.append(SyncPlanStep("data rebuild", "no export text files found; using local sync"))
+    elif latest_manifest is None:
         steps.append(SyncPlanStep("data update", "latest.json is missing"))
         steps.append(SyncPlanStep("data rebuild", "latest.json is missing"))
     elif latest_generated_at is None:
@@ -121,10 +122,12 @@ def execute_sync(
     overwrite_staging: bool | None = None,
     progress=None,
 ) -> SyncExecutionResult:
+    source = "export" if _has_export_text_files(config.paths.tdx_export) else "local"
+    input_path = config.paths.tdx_export if source == "export" else None
     update_report = update_actions(
         config,
-        source="export",
-        input_path=config.paths.tdx_export,
+        source=source,
+        input_path=input_path,
         dry_run=False,
         progress=progress,
         write_report=True,
@@ -146,3 +149,11 @@ def _latest_export_mtime(export_dir: Path) -> datetime | None:
         mtime = datetime.fromtimestamp(path.stat().st_mtime)
         latest = mtime if latest is None else max(latest, mtime)
     return latest
+
+
+def _has_export_text_files(export_dir: Path) -> bool:
+    try:
+        next(iter_export_files(export_dir))
+    except StopIteration:
+        return False
+    return True

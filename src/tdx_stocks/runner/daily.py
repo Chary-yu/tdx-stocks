@@ -24,6 +24,7 @@ def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> Run
         min_hit=consensus.get("min_hit"),
         portfolio_top=portfolio.get("top"),
         portfolio_weighting=portfolio.get("weighting"),
+        portfolio_max_weight=portfolio.get("max_weight"),
         current_holdings=rebalance.get("current_holdings"),
         skip_strategies=not bool(strategies.get("enabled", True)),
         skip_portfolio=not bool(portfolio.get("enabled", True)),

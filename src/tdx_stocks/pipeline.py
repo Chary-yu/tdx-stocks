@@ -117,6 +117,11 @@ def build_dataset(
                 universe=config.build.universe,
             )
         )
+        if not files:
+            raise NoDataError(
+                f"No TDX day files found under: {config.paths.tdx_vipdoc}.\n"
+                "Expected a TDX vipdoc tree such as vipdoc/sh/lday/*.day and vipdoc/sz/lday/*.day."
+            )
         if limit_symbols is not None:
             files = files[:limit_symbols]
         total_files = len(files)
@@ -130,7 +135,16 @@ def build_dataset(
                 _progress(progress, f"Parsed {parsed_files}/{total_files} day files")
         raw_writer.flush()
         if raw_writer.rows_written == 0:
-            raise NoDataError("No raw_daily rows were parsed from the selected TDX day files")
+            filters: list[str] = []
+            if from_date is not None:
+                filters.append(f"from_date={from_date.isoformat()}")
+            if to_date is not None:
+                filters.append(f"to_date={to_date.isoformat()}")
+            filter_text = f" with filters: {', '.join(filters)}" if filters else ""
+            raise NoDataError(
+                f"No raw_daily rows were parsed from {total_files} selected TDX day files{filter_text}.\n"
+                f"Check that {config.paths.tdx_vipdoc} contains valid .day records."
+            )
         _progress(progress, f"Wrote {raw_writer.rows_written} raw rows")
 
         con = connect_duckdb(run_paths.duckdb_tmp_dir, config.build.duckdb_memory_limit)
@@ -323,6 +337,18 @@ def rebuild_dataset(
     overwrite_staging: bool | None = None,
     progress: ProgressCallback | None = None,
 ) -> dict:
+    files = list(
+        iter_day_files(
+            config.paths.tdx_vipdoc,
+            markets=config.build.markets,
+            universe=config.build.universe,
+        )
+    )
+    if not files:
+        raise NoDataError(
+            f"No TDX day files found under: {config.paths.tdx_vipdoc}.\n"
+            "Set [paths].tdx_vipdoc to the real vipdoc root, then run: tdx-stocks data sync"
+        )
     if config.paths.data_root.exists():
         _progress(progress, f"Clearing database root except cache: {config.paths.data_root}")
         clear_database_root_preserving_cache(config.paths.data_root)

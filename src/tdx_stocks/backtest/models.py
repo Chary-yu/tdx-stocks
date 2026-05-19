@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from ..config import AppConfig, BuildConfig, FactorConfig, PathsConfig
+from ..config import AppConfig, BuildConfig, FactorConfig, PathsConfig, resolve_tdx_paths
 
 
 @dataclass(frozen=True)
@@ -100,7 +100,7 @@ class BacktestConfig:
         )
 
     def to_app_config(self) -> AppConfig:
-        return AppConfig(paths=self.paths, build=self.build, factors=self.factors)
+        return resolve_tdx_paths(AppConfig(paths=self.paths, build=self.build, factors=self.factors))
 
     def to_backtest_params(self) -> "BacktestParams":
         if self.engine is None:

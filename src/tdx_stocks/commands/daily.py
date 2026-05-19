@@ -35,6 +35,7 @@ def register_daily_group(
     run_parser.add_argument("--min-hit", type=int)
     run_parser.add_argument("--portfolio-top", type=int)
     run_parser.add_argument("--portfolio-weighting")
+    run_parser.add_argument("--portfolio-max-weight", type=float)
     run_parser.add_argument("--current-holdings", type=Path)
     run_parser.add_argument("--skip-strategies", action="store_true")
     run_parser.add_argument("--skip-portfolio", action="store_true")
@@ -75,6 +76,7 @@ def cmd_daily_run(args: argparse.Namespace) -> int:
         min_hit=args.min_hit,
         portfolio_top=args.portfolio_top,
         portfolio_weighting=args.portfolio_weighting,
+        portfolio_max_weight=args.portfolio_max_weight,
         current_holdings=str(args.current_holdings) if args.current_holdings else None,
         skip_strategies=args.skip_strategies,
         skip_portfolio=args.skip_portfolio,

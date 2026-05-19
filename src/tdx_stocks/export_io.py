@@ -71,7 +71,7 @@ def read_export_records(path: Path) -> Iterator[ExportDailyRecord]:
             cells = [cell.strip() for cell in row if cell is not None]
             if len(cells) < 7:
                 continue
-            trade_date = datetime.strptime(cells[0], "%Y/%m/%d").date()
+            trade_date = _parse_export_date(cells[0])
             yield ExportDailyRecord(
                 market=market,
                 symbol=symbol,
@@ -83,6 +83,17 @@ def read_export_records(path: Path) -> Iterator[ExportDailyRecord]:
                 volume=int(float(cells[5])),
                 amount=float(cells[6]),
             )
+
+
+def _parse_export_date(value: str) -> date:
+    text = value.strip().replace("-", "/")
+    formats = ("%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y")
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f"Unsupported TDX export date format: {value!r}")
 
 
 def build_export_adjustment_factor_result(

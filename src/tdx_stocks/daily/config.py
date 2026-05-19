@@ -14,6 +14,7 @@ class DailyRunConfig:
     consensus_min_hit: int
     portfolio_top: int
     portfolio_weighting: str
+    portfolio_max_weight: float
     exclude_risk_tags: tuple[str, ...]
 
     @classmethod
@@ -26,5 +27,6 @@ class DailyRunConfig:
             consensus_min_hit=daily.consensus_min_hit,
             portfolio_top=daily.portfolio_top,
             portfolio_weighting=daily.portfolio_weighting,
+            portfolio_max_weight=daily.portfolio_max_weight,
             exclude_risk_tags=daily.exclude_risk_tags,
         )

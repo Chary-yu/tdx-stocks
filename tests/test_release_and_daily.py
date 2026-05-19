@@ -59,9 +59,10 @@ class ReleaseConfigTest(unittest.TestCase):
             path = Path(tmp) / "tdx_stocks.toml"
             write_default_config(path)
             payload = path.read_text(encoding="utf-8")
-        self.assertIn('tdx_vipdoc = ""', payload)
-        self.assertIn('tdx_export = ""', payload)
+        self.assertIn('tdx_vipdoc = "./vipdoc"', payload)
+        self.assertIn('tdx_export = "./export"', payload)
         self.assertIn('data_root = "./Database"', payload)
+        self.assertIn('portfolio_max_weight = 0.10', payload)
         self.assertIn('plugin_dir = "~/.tdx-stocks/plugins"', payload)
 
     def test_load_config_uses_environment_path_overrides(self) -> None:
@@ -97,15 +98,32 @@ plugin_dir = ""
         self.assertEqual(config.paths.data_root, data_root)
         self.assertEqual(config.paths.plugin_dir, plugin_dir)
 
+    def test_load_config_auto_detects_standard_tdx_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vipdoc = root / "vipdoc"
+            export_dir = root / "T0002" / "export"
+            (vipdoc / "sh" / "lday").mkdir(parents=True)
+            (vipdoc / "sh" / "lday" / "sh600000.day").write_bytes(b"day")
+            export_dir.mkdir(parents=True)
+            (export_dir / "sh600000.txt").write_text("code,date,open,high,low,close,volume,amount\n", encoding="utf-8")
+            with patch("tdx_stocks.config._candidate_tdx_roots", return_value=(root,)):
+                config = load_config(None)
+        self.assertEqual(config.paths.tdx_vipdoc, vipdoc)
+        self.assertEqual(config.paths.tdx_export, export_dir)
+
     def test_audit_doctor_reports_missing_required_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "tdx_stocks.toml"
+            data_root = Path(tmp) / "missing-Database"
+            vipdoc = Path(tmp) / "missing-vipdoc"
+            export_dir = Path(tmp) / "missing-export"
             config_path.write_text(
-                """
+                f"""
 [paths]
-tdx_vipdoc = ""
-tdx_export = ""
-data_root = ""
+tdx_vipdoc = "{vipdoc.as_posix()}"
+tdx_export = "{export_dir.as_posix()}"
+data_root = "{data_root.as_posix()}"
 """.strip(),
                 encoding="utf-8",
             )
@@ -113,8 +131,8 @@ data_root = ""
             with redirect_stderr(buffer):
                 code = cli_main(["audit", "doctor", "--config", str(config_path)])
         self.assertEqual(code, 6)
-        self.assertIn("tdx_vipdoc is not configured", buffer.getvalue())
-        self.assertIn("TDX_STOCKS_TDX_VIPDOC", buffer.getvalue())
+        self.assertIn("tdx_vipdoc does not exist", buffer.getvalue())
+        self.assertIn("tdx_export does not exist", buffer.getvalue())
 
 
 class DailyStoreTest(unittest.TestCase):

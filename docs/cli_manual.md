@@ -75,6 +75,7 @@ tdx-stocks init --data-root ./Database
 - `build.batch_rows`：Parquet 写入批次
 - `build.duckdb_memory_limit`：DuckDB 内存上限
 - `build.overwrite_staging`：是否允许覆盖已有 staging
+- `daily.portfolio_max_weight`：默认组合单票上限
 
 如果 `paths.tdx_vipdoc`、`paths.tdx_export` 或 `paths.data_root` 没有在
 配置里设置，程序会优先读取同名环境变量：
@@ -83,6 +84,9 @@ tdx-stocks init --data-root ./Database
 - `TDX_STOCKS_TDX_EXPORT`
 - `TDX_STOCKS_DATA_ROOT`
 - `TDX_STOCKS_PLUGIN_DIR`
+
+如果配置仍然是 `./vipdoc` / `./export` 这类占位路径，而目录里没
+有真实数据，启动时还会自动探测常见的 TDX 安装目录。
 
 `tdx-stocks sync` 仍然可用，但它现在是兼容命令；新文档请优先使
 用 `tdx-stocks data sync`。
@@ -103,11 +107,26 @@ tdx-stocks init --data-root ./Database
 - `--profile`：`simple` / `research` / `portfolio`
 - `--data-root`：写入到生成的 `tdx_stocks.toml`
 
+`--profile` 的默认倾向：
+
+- `simple`：更少策略、更高筛选门槛，适合快速上手
+- `research`：完整默认模板，适合通用研究
+- `portfolio`：更偏组合构建和调仓，默认更大的组合规模
+
 输出：
 
+- `vipdoc/`
+- `export/`
 - `tdx_stocks.toml`
-- `experiments/*.toml`
+- `experiments/`
+- `experiments/advanced/`
 - `reports/`
+- `reports/daily/`
+- `reports/backtests/`
+- `reports/portfolios/`
+- `reports/signals/`
+- `reports/grid_search/`
+- `reports/rebalance/`
 - `holdings.csv.example`
 
 ### `data sync`

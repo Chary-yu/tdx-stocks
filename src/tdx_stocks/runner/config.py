@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ..backtest.models import BacktestConfig
-from ..config import AppConfig, BuildConfig, DailyConfig, FactorConfig, PathsConfig
+from ..config import AppConfig, BuildConfig, DailyConfig, FactorConfig, PathsConfig, resolve_tdx_paths
 from .schema import validate_run_config
 
 
@@ -51,36 +51,43 @@ def _build_app_config(data: Mapping[str, Any]) -> AppConfig:
     build = data.get("build") if isinstance(data.get("build"), Mapping) else {}
     factors = data.get("factors") if isinstance(data.get("factors"), Mapping) else {}
     daily = data.get("daily") if isinstance(data.get("daily"), Mapping) else {}
-    return AppConfig(
-        paths=PathsConfig(
-            tdx_vipdoc=_load_path(paths.get("tdx_vipdoc"), default=app_defaults.paths.tdx_vipdoc),
-            tdx_export=_load_path(paths.get("tdx_export"), default=app_defaults.paths.tdx_export),
-            data_root=_load_path(paths.get("data_root"), default=app_defaults.paths.data_root),
-            plugin_dir=_load_path(paths.get("plugin_dir"), default=app_defaults.paths.plugin_dir, expanduser=True),
-        ),
-        build=BuildConfig(
-            markets=tuple(build.get("markets", app_defaults.build.markets)),
-            universe=str(build.get("universe", app_defaults.build.universe)),
-            compression=str(build.get("compression", app_defaults.build.compression)),
-            batch_rows=int(build.get("batch_rows", app_defaults.build.batch_rows)),
-            duckdb_memory_limit=str(build.get("duckdb_memory_limit", app_defaults.build.duckdb_memory_limit)),
-            overwrite_staging=bool(build.get("overwrite_staging", app_defaults.build.overwrite_staging)),
-        ),
-        factors=FactorConfig(
-            windows=tuple(int(value) for value in factors.get("windows", app_defaults.factors.windows)),
-        ),
-        daily=DailyConfig(
-            enabled_strategies=tuple(
-                daily.get("enabled_strategies", app_defaults.daily.enabled_strategies)
+    return resolve_tdx_paths(
+        AppConfig(
+            paths=PathsConfig(
+                tdx_vipdoc=_load_path(paths.get("tdx_vipdoc"), default=app_defaults.paths.tdx_vipdoc),
+                tdx_export=_load_path(paths.get("tdx_export"), default=app_defaults.paths.tdx_export),
+                data_root=_load_path(paths.get("data_root"), default=app_defaults.paths.data_root),
+                plugin_dir=_load_path(
+                    paths.get("plugin_dir"),
+                    default=app_defaults.paths.plugin_dir,
+                    expanduser=True,
+                ),
             ),
-            strategy_limit=int(daily.get("strategy_limit", app_defaults.daily.strategy_limit)),
-            strategy_min_score=float(daily.get("strategy_min_score", app_defaults.daily.strategy_min_score)),
-            consensus_min_hit=int(daily.get("consensus_min_hit", app_defaults.daily.consensus_min_hit)),
-            consensus_limit=int(daily.get("consensus_limit", app_defaults.daily.consensus_limit)),
-            portfolio_top=int(daily.get("portfolio_top", app_defaults.daily.portfolio_top)),
-            portfolio_weighting=str(daily.get("portfolio_weighting", app_defaults.daily.portfolio_weighting)),
-            exclude_risk_tags=tuple(daily.get("exclude_risk_tags", app_defaults.daily.exclude_risk_tags)),
-        ),
+            build=BuildConfig(
+                markets=tuple(build.get("markets", app_defaults.build.markets)),
+                universe=str(build.get("universe", app_defaults.build.universe)),
+                compression=str(build.get("compression", app_defaults.build.compression)),
+                batch_rows=int(build.get("batch_rows", app_defaults.build.batch_rows)),
+                duckdb_memory_limit=str(build.get("duckdb_memory_limit", app_defaults.build.duckdb_memory_limit)),
+                overwrite_staging=bool(build.get("overwrite_staging", app_defaults.build.overwrite_staging)),
+            ),
+            factors=FactorConfig(
+                windows=tuple(int(value) for value in factors.get("windows", app_defaults.factors.windows)),
+            ),
+            daily=DailyConfig(
+                enabled_strategies=tuple(
+                    daily.get("enabled_strategies", app_defaults.daily.enabled_strategies)
+                ),
+                strategy_limit=int(daily.get("strategy_limit", app_defaults.daily.strategy_limit)),
+                strategy_min_score=float(daily.get("strategy_min_score", app_defaults.daily.strategy_min_score)),
+                consensus_min_hit=int(daily.get("consensus_min_hit", app_defaults.daily.consensus_min_hit)),
+                consensus_limit=int(daily.get("consensus_limit", app_defaults.daily.consensus_limit)),
+                portfolio_top=int(daily.get("portfolio_top", app_defaults.daily.portfolio_top)),
+                portfolio_weighting=str(daily.get("portfolio_weighting", app_defaults.daily.portfolio_weighting)),
+                portfolio_max_weight=float(daily.get("portfolio_max_weight", app_defaults.daily.portfolio_max_weight)),
+                exclude_risk_tags=tuple(daily.get("exclude_risk_tags", app_defaults.daily.exclude_risk_tags)),
+            ),
+        )
     )
 
 

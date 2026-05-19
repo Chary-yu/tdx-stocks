@@ -1,0 +1,18 @@
+[task]
+type = "signal"
+name = "today-signal"
+
+[strategies]
+enabled = ["trend-strength", "relative-strength", "low-vol-breakout"]
+limit = 50
+min_score = 60
+
+[consensus]
+enabled = true
+min_hit = 2
+limit = 50
+
+[output]
+save = true
+dir = "reports/signals"
+formats = ["json", "table"]
