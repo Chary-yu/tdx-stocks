@@ -8,9 +8,16 @@ Local TDX daily data pipeline:
 
 `data update` refreshes the cached `corporate_actions` and
 `adjustment_factors` tables. `data build` and `data rebuild` only consume those
-local caches and do not fetch new rights/dividend data automatically. `sync`
-is the high-level macro command that decides whether to refresh export-derived
-data and rebuild the dataset.
+local caches and do not fetch new rights/dividend data automatically. `data sync`
+is the recommended macro command for refreshing export-derived data and
+rebuilding the dataset. The legacy `sync` alias remains available for
+compatibility.
+
+Recommended workflow:
+
+```text
+init -> data sync -> run <config.toml> -> ui
+```
 
 Quick copy-paste commands:
 
@@ -53,6 +60,12 @@ python -m pip install -e .
 
 CLI 手册见 `docs/cli_manual.md`，摘要版可用 `tdx-stocks help-summary` 或 `tools/generate_cli_help_summary.py` 生成到 `docs/cli_help_summary.md`。
 
+New workflow docs:
+
+- `docs/advanced_cli.md`
+- `docs/experiments.md`
+- `docs/run_config.md`
+
 Strategy and portfolio docs:
 
 - `docs/strategies.md`
@@ -67,17 +80,17 @@ Strategy and portfolio docs:
 Create a config file:
 
 ```bash
-tdx-stocks init-config --path tdx_stocks.toml
+tdx-stocks init --data-root ./Database
 ```
 
 The generated template leaves `tdx_vipdoc` and `tdx_export` empty so you can
 fill them explicitly or provide `TDX_STOCKS_TDX_VIPDOC` /
 `TDX_STOCKS_TDX_EXPORT` at runtime.
 
-Preview the recommended sync plan:
+Sync the local dataset:
 
 ```bash
-tdx-stocks sync --config tdx_stocks.toml --dry-run
+tdx-stocks data sync --config tdx_stocks.toml
 ```
 
 Inspect the local TDX directory:
@@ -135,7 +148,7 @@ specific TDX export file from tooling or `jq`.
 Web UI entry point:
 
 ```bash
-streamlit run src/tdx_stocks/web/app.py
+tdx-stocks ui --config tdx_stocks.toml
 ```
 
 The packaged import path is `tdx_stocks.web.app`.
@@ -155,12 +168,11 @@ The new portfolio layer is research-only:
 Recommended daily entry point:
 
 ```bash
-tdx-stocks daily run --config tdx_stocks.toml
+tdx-stocks run experiments/daily.toml
 ```
 
-`daily run` reads the latest dataset by default and does not rebuild data.
-Pass `--build` only when you explicitly want to refresh the dataset before the
-workflow runs.
+`run` reads the experiment TOML and dispatches to the matching runner.
+`daily run` remains available as a compatibility command for direct orchestration.
 
 Daily reports are written under:
 

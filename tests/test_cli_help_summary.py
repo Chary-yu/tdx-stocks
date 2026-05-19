@@ -33,7 +33,11 @@ class CliHelpSummaryTest(unittest.TestCase):
         )
         output = result.stdout
         self.assertIn("tdx-stocks CLI 摘要", output)
+        self.assertIn("Advanced commands", output)
         for command_name in (
+            "init",
+            "run",
+            "ui",
             "init-config",
             "sync",
             "data",
@@ -52,7 +56,7 @@ class CliHelpSummaryTest(unittest.TestCase):
             "report",
         ):
             self.assertIn(f"`{command_name}`", output)
-        self.assertNotIn("兼容别名", output)
+        self.assertIn("兼容别名", output)
 
 
 if __name__ == "__main__":

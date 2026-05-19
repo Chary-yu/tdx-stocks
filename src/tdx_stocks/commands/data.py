@@ -11,6 +11,7 @@ from ..duckdb_ops import connect_duckdb, parquet_glob, sql_literal
 from ..factors.reports import build_data_quality_report, write_json_atomic
 from ..pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
 from ..query import normalize_output_data
+from .sync import cmd_sync as _sync_cmd_sync
 from .common import add_build_args, add_config_arg, stderr_progress
 from .common import legacy_notice as _legacy_notice
 from .common import write_lock as _write_lock
@@ -67,6 +68,17 @@ def register_data_group(
         description="Commands that refresh caches and rebuild versioned data.",
     )
     data_subparsers = data_parser.add_subparsers(dest="data_command", required=True)
+
+    sync_parser = data_subparsers.add_parser("sync", help="Synchronize data and rebuild the latest dataset.")
+    sync_parser.add_argument("--config", type=Path)
+    sync_parser.add_argument("--full", action="store_true")
+    sync_parser.add_argument("--from-date", dest="from_date")
+    sync_parser.add_argument("--to-date", dest="to_date")
+    sync_parser.add_argument("--limit-symbols", type=int)
+    sync_parser.add_argument("--overwrite-staging", action="store_true")
+    sync_parser.add_argument("--dry-run", action="store_true")
+    sync_parser.add_argument("--json", action="store_true")
+    sync_parser.set_defaults(func=_sync_cmd_sync)
 
     update_parser = data_subparsers.add_parser("update", help="Refresh cached corporate actions.")
     add_config_arg(update_parser)

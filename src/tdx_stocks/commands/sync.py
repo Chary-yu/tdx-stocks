@@ -14,8 +14,11 @@ from .common import write_lock as _write_lock
 def cmd_sync(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     plan = build_sync_plan(config)
-    if args.dry_run or not plan.needs_write:
+    if args.dry_run:
         print_json(_build_sync_report(plan, status="dry-run" if args.dry_run else "up-to-date"))
+        return 0
+    if not plan.needs_write and not getattr(args, "full", False):
+        print_json(_build_sync_report(plan, status="up-to-date"))
         return 0
 
     with _write_lock(config, "sync"):
@@ -49,8 +52,10 @@ def stderr_progress(message: str) -> None:
 
 
 def register_sync_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    sync_parser = subparsers.add_parser("sync", help="Synchronize export-derived data and rebuild.")
+    sync_parser = subparsers.add_parser("sync", help=argparse.SUPPRESS)
+    sync_parser._legacy_target = "data sync"
     sync_parser.add_argument("--config", type=Path)
+    sync_parser.add_argument("--full", action="store_true")
     sync_parser.add_argument("--from-date", dest="from_date")
     sync_parser.add_argument("--to-date", dest="to_date")
     sync_parser.add_argument("--limit-symbols", type=int)

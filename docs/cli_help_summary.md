@@ -1,19 +1,34 @@
 # tdx-stocks CLI 摘要
 
+TDX Stocks - local stock research workflow
+
 ## 支持命令
 
 | 命令 | 功能 |
 | --- | --- |
 | `data` | Data pipeline commands. |
+| `init` | Initialize a new research workspace. |
+| `run` | Run a TOML experiment config. |
+| `ui` | Launch the read-only Web UI. |
+| `help-summary` | Generate a markdown summary of the CLI. |
+
+## Advanced commands
+
+| 命令 | 功能 |
+| --- | --- |
 | `audit` | Audit and diagnostics commands. |
 | `query` | Read-only inspection and query commands. |
 | `strategy` | Strategy analysis commands. |
 | `portfolio` | Portfolio construction and risk commands. |
 | `daily` | Daily orchestration commands. |
 | `factors` | Factor catalog and research commands. |
-| `init-config` | Write a default TOML config. |
-| `sync` | Synchronize export-derived data and rebuild. |
-| `help-summary` | Generate a markdown summary of the CLI. |
+
+## 兼容别名
+
+| 命令 | 替代 |
+| --- | --- |
+| `init-config` | `init` |
+| `sync` | `data sync` |
 
 ## 命令参数
 
@@ -22,14 +37,15 @@
 | 命令 | 功能 |
 | --- | --- |
 | `data` | Data pipeline commands. |
+| `init` | Initialize a new research workspace. |
 | `audit` | Audit and diagnostics commands. |
 | `query` | Read-only inspection and query commands. |
 | `strategy` | Strategy analysis commands. |
 | `portfolio` | Portfolio construction and risk commands. |
 | `daily` | Daily orchestration commands. |
 | `factors` | Factor catalog and research commands. |
-| `init-config` | Write a default TOML config. |
-| `sync` | Synchronize export-derived data and rebuild. |
+| `run` | Run a TOML experiment config. |
+| `ui` | Launch the read-only Web UI. |
 | `help-summary` | Generate a markdown summary of the CLI. |
 
 #### `data`
@@ -41,11 +57,25 @@
 
 | 命令 | 功能 |
 | --- | --- |
+| `sync` | Synchronize data and rebuild the latest dataset. |
 | `update` | Refresh cached corporate actions. |
 | `status` | Show cached corporate actions and adjustment factor status. |
 | `build` | Build a versioned local dataset. |
 | `rebuild` | Clear the current database and rebuild from local TDX data. |
 | `quality-report` | Write a data quality report for the latest dataset. |
+
+##### `data sync`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--full` |  |
+| `--from-date` |  |
+| `--to-date` |  |
+| `--limit-symbols` |  |
+| `--overwrite-staging` |  |
+| `--dry-run` |  |
+| `--json` |  |
 
 ##### `data update`
 
@@ -90,6 +120,14 @@
 | --- | --- |
 | `--config` |  |
 | `--json` |  |
+
+#### `init`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--force` |  |
+| `--profile` | (default: simple) |
+| `--data-root` | (default: Database) |
 
 #### `audit`
 
@@ -872,23 +910,24 @@
 | `--market` |  |
 | `--json` |  |
 
-#### `init-config`
+#### `run`
 
 | 参数 | 说明 |
 | --- | --- |
-| `--path` | (default: tdx_stocks.toml) |
+| `config` |  |
+| `--dry-run` |  |
+| `--json` |  |
+| `--output` |  |
+| `--set` | (default: []) |
 
-#### `sync`
+#### `ui`
 
 | 参数 | 说明 |
 | --- | --- |
 | `--config` |  |
-| `--from-date` |  |
-| `--to-date` |  |
-| `--limit-symbols` |  |
-| `--overwrite-staging` |  |
-| `--dry-run` |  |
-| `--json` |  |
+| `--host` | (default: 127.0.0.1) |
+| `--port` | (default: 8501) |
+| `--no-browser` |  |
 
 #### `help-summary`
 

@@ -33,6 +33,8 @@ from .commands.data import (
 from .commands.data import (
     register_data_group,
 )
+from .commands.init import cmd_init as _init_cmd_init
+from .commands.init import register_init_command
 from .commands.factors import (
     cmd_factors_describe as _factors_cmd_describe,
 )
@@ -49,6 +51,8 @@ from .commands.factors import (
     register_factors_group,
 )
 from .commands.portfolio import register_portfolio_group
+from .commands.run import cmd_run as _run_cmd_run
+from .commands.run import register_run_command
 from .commands.query import (
     cmd_export as _query_cmd_export,
 )
@@ -87,6 +91,8 @@ from .commands.strategy import (
 )
 from .commands.sync import cmd_sync as _sync_cmd_sync
 from .commands.sync import register_sync_group
+from .commands.ui import cmd_ui as _ui_cmd_ui
+from .commands.ui import register_ui_command
 from .config import AppConfig, load_config, write_default_config
 from .exit_codes import (
     CliError,
@@ -157,7 +163,30 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
         load_plugins(AppConfig().paths.plugin_dir)
     parser = TdxArgumentParser(
         prog="tdx-stocks",
-        epilog="Tip: use `tdx-stocks help-summary` to generate the markdown CLI manual.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="TDX Stocks - local stock research workflow",
+        epilog=(
+            "Usage:\n"
+            "  tdx-stocks init\n"
+            "  tdx-stocks data sync\n"
+            "  tdx-stocks run <config.toml>\n"
+            "  tdx-stocks ui\n\n"
+            "Common workflow:\n"
+            "  tdx-stocks init\n"
+            "  tdx-stocks data sync\n"
+            "  tdx-stocks run experiments/daily.toml\n"
+            "  tdx-stocks ui\n\n"
+            "Advanced commands:\n"
+            "  strategy\n"
+            "  portfolio\n"
+            "  factors\n"
+            "  query\n"
+            "  audit\n"
+            "  daily\n"
+            "  sync\n"
+            "  help-summary\n\n"
+            "Tip: use `tdx-stocks help-summary` to generate the markdown CLI manual."
+        ),
     )
     parser.add_argument(
         "--enable-plugins",
@@ -174,6 +203,7 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
         cmd_actions_status=cmd_actions_status,
         cmd_quality_report=cmd_quality_report,
     )
+    register_init_command(subparsers)
     register_audit_group(
         subparsers,
         cmd_doctor=cmd_doctor,
@@ -204,7 +234,10 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
         cmd_factors_schema=cmd_factors_schema,
         cmd_factors_rank=cmd_factors_rank,
     )
-    init_parser = subparsers.add_parser("init-config", help="Write a default TOML config.")
+    register_run_command(subparsers)
+    register_ui_command(subparsers)
+    init_parser = subparsers.add_parser("init-config", help=argparse.SUPPRESS)
+    init_parser._legacy_target = "init"
     init_parser.add_argument("--path", type=Path, default=Path("tdx_stocks.toml"))
     init_parser.set_defaults(func=cmd_init_config)
 
@@ -263,6 +296,10 @@ def cmd_init_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    return _init_cmd_init(args)
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     return _audit_cmd_doctor(args)
 
@@ -281,6 +318,14 @@ def cmd_update_actions(args: argparse.Namespace) -> int:
 
 def cmd_sync(args: argparse.Namespace) -> int:
     return _sync_cmd_sync(args)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    return _run_cmd_run(args)
+
+
+def cmd_ui(args: argparse.Namespace) -> int:
+    return _ui_cmd_ui(args)
 
 
 def cmd_status(args: argparse.Namespace) -> int:

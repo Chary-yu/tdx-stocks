@@ -15,7 +15,10 @@
 
 当前版本特性：
 
-- `sync` 是推荐的一键入口，用来判断是否需要刷新导出源并重建数据。
+- `init` 用来初始化当前目录的研究工作区。
+- `data sync` 是推荐的一键入口，用来判断是否需要刷新导出源并重建数据。
+- `run <config.toml>` 是统一任务执行入口，读取实验 TOML 并分发到对应 runner。
+- `ui` 启动只读 Web 面板。
 - `data update` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
 - `corporate_actions` 和 `adjustment_factors` 都可以来自本地缓存或外部输入文件。
 - `data update --source export` 可以直接读取 `T0002/export` 的前复权文本，反推 `adjustment_factors`。
@@ -43,9 +46,9 @@ cd /mnt/d/Zcyu/Chary-codex/tdx-stocks/code
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
-tdx-stocks init-config --path tdx_stocks.toml
-tdx-stocks audit doctor --config tdx_stocks.toml
-tdx-stocks sync --config tdx_stocks.toml --dry-run
+tdx-stocks init --data-root ./Database
+tdx-stocks data sync --config tdx_stocks.toml --dry-run
+tdx-stocks run experiments/daily.toml --dry-run
 ```
 
 ## 3. 配置文件
@@ -53,7 +56,7 @@ tdx-stocks sync --config tdx_stocks.toml --dry-run
 默认配置命令：
 
 ```bash
-tdx-stocks init-config --path tdx_stocks.toml
+tdx-stocks init --data-root ./Database
 ```
 
 常见配置项：
@@ -77,7 +80,55 @@ tdx-stocks init-config --path tdx_stocks.toml
 - `TDX_STOCKS_DATA_ROOT`
 - `TDX_STOCKS_PLUGIN_DIR`
 
+`tdx-stocks sync` 仍然可用，但它现在是兼容命令；新文档请优先使
+用 `tdx-stocks data sync`。
+
 ## 4. 数据类命令
+
+### `init`
+
+初始化当前目录的研究工作区。
+
+```bash
+tdx-stocks init --data-root ./Database
+```
+
+常用参数：
+
+- `--force`：覆盖已有文件
+- `--profile`：`simple` / `research` / `portfolio`
+- `--data-root`：写入到生成的 `tdx_stocks.toml`
+
+输出：
+
+- `tdx_stocks.toml`
+- `experiments/*.toml`
+- `reports/`
+- `holdings.csv.example`
+
+### `data sync`
+
+同步本地数据并重建最新 dataset。
+
+```bash
+tdx-stocks data sync --config tdx_stocks.toml
+tdx-stocks data sync --config tdx_stocks.toml --full
+```
+
+常用参数：
+
+- `--config`：配置文件路径，默认读取 `tdx_stocks.toml`
+- `--full`：强制全量重建
+- `--from-date` / `--to-date`
+- `--limit-symbols`
+- `--dry-run`
+- `--json`
+
+说明：
+
+- 默认执行增量 / latest 同步。
+- 完成后会生成数据质量报告。
+- `tdx-stocks sync` 仍保留为兼容命令。
 
 ### `data build`
 
@@ -129,6 +180,54 @@ tdx-stocks audit verify 600519.SH --config tdx_stocks.toml
 - `--dry-run`：只生成报告，不写缓存；dry-run 报告会写到 `action_update_report.dry_run.json`
 
 参数与 `build` 相同。
+
+### `run`
+
+读取任务 TOML 并分发到对应 runner。
+
+```bash
+tdx-stocks run experiments/daily.toml
+tdx-stocks run experiments/backtest.toml
+tdx-stocks run experiments/grid_search.toml
+```
+
+常用参数：
+
+- `config`：实验配置文件
+- `--dry-run`
+- `--json`
+- `--output PATH`
+- `--set key=value`：预留参数，第一版可以不使用
+
+支持的 `task.type`：
+
+- `daily`
+- `signal`
+- `backtest`
+- `grid_search`
+- `portfolio`
+- `rebalance`
+
+### `ui`
+
+启动只读 Web 面板。
+
+```bash
+tdx-stocks ui --config tdx_stocks.toml
+```
+
+常用参数：
+
+- `--config`
+- `--host 127.0.0.1`
+- `--port 8501`
+- `--no-browser`
+
+说明：
+
+- 仅展示已保存的报告。
+- 不执行交易。
+- 不修改数据。
 
 ### `audit doctor`
 

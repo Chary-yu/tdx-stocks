@@ -14,3 +14,13 @@ overwrite_staging = false
 
 [factors]
 windows = [5, 10, 20, 60]
+
+[daily]
+enabled_strategies = ["trend-strength", "relative-strength", "low-vol-breakout", "volume-breakout"]
+strategy_limit = 50
+strategy_min_score = 60.0
+consensus_min_hit = 2
+consensus_limit = 50
+portfolio_top = 20
+portfolio_weighting = "equal"
+exclude_risk_tags = ["high_volatility", "low_liquidity"]

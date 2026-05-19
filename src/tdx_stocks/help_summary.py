@@ -13,12 +13,24 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
         lines.append("")
 
     visible, hidden = _collect_subcommands(parser)
+    primary_names = {"data", "init", "run", "ui", "help-summary"}
+    primary = [item for item in visible if item[0] in primary_names]
+    advanced = [item for item in visible if item[0] not in primary_names]
     lines.append("## 支持命令")
     lines.append("")
     lines.append("| 命令 | 功能 |")
     lines.append("| --- | --- |")
-    for command_name, command_parser, help_text in visible:
+    for command_name, command_parser, help_text in primary:
         lines.append(f"| `{command_name}` | {help_text} |")
+
+    if advanced:
+        lines.append("")
+        lines.append("## Advanced commands")
+        lines.append("")
+        lines.append("| 命令 | 功能 |")
+        lines.append("| --- | --- |")
+        for command_name, _command_parser, help_text in advanced:
+            lines.append(f"| `{command_name}` | {help_text} |")
 
     if hidden:
         lines.append("")

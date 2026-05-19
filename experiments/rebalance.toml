@@ -1,0 +1,19 @@
+[task]
+type = "rebalance"
+name = "rebalance-from-consensus"
+
+[portfolio]
+source = "consensus"
+top = 20
+weighting = "equal"
+max_weight = 0.10
+
+[rebalance]
+current_holdings = "holdings.csv"
+min_trade_weight = 0.01
+max_turnover = 0.50
+
+[output]
+save = true
+dir = "reports/rebalance"
+formats = ["json", "csv"]
