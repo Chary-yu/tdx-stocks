@@ -46,6 +46,25 @@ def add_stock_args(parser: argparse.ArgumentParser, default_limit: int = 100) ->
     parser.add_argument("--json", action="store_true")
 
 
+class TrackingPathAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):  # noqa: ANN001
+        option_strings = list(getattr(namespace, f"_{self.dest}_option_strings", []))
+        if option_string:
+            option_strings.append(option_string)
+        setattr(namespace, f"_{self.dest}_option_strings", option_strings)
+        setattr(namespace, self.dest, values)
+
+
+def add_output_arg(parser: argparse.ArgumentParser, *, required: bool = False) -> None:
+    parser.add_argument("--output", "--to", dest="output", type=Path, required=required, action=TrackingPathAction)
+
+
+def validate_output_alias(args: argparse.Namespace) -> None:
+    option_strings = list(dict.fromkeys(getattr(args, "_output_option_strings", [])))
+    if len(option_strings) > 1:
+        raise ValueError("use either --output or --to, not both")
+
+
 def legacy_notice(args: argparse.Namespace) -> None:
     target = getattr(args, "_legacy_target", None)
     if target and not getattr(args, "json", False):

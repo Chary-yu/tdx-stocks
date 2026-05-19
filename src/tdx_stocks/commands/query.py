@@ -23,7 +23,8 @@ from ..query import (
     table_columns,
     table_summary,
 )
-from .common import add_config_arg, add_query_args, add_stock_args, legacy_notice as _legacy_notice
+from .common import add_config_arg, add_output_arg, add_query_args, add_stock_args, legacy_notice as _legacy_notice
+from .common import validate_output_alias
 
 
 def register_query_group(
@@ -37,10 +38,11 @@ def register_query_group(
     cmd_schema: Callable[[argparse.Namespace], int],
     cmd_sql: Callable[[argparse.Namespace], int],
     cmd_export: Callable[[argparse.Namespace], int],
+    hidden: bool = False,
 ) -> None:
     query_parser = subparsers.add_parser(
         "query",
-        help="Read-only inspection and query commands.",
+        help=argparse.SUPPRESS if hidden else "Read-only inspection and query commands.",
         description="Commands that inspect the latest versioned dataset.",
     )
     query_subparsers = query_parser.add_subparsers(dest="query_command", required=True)
@@ -81,7 +83,7 @@ def register_query_group(
 
     export_parser = query_subparsers.add_parser("export", help="Export a filtered table query to CSV.")
     add_query_args(export_parser, default_limit=1000)
-    export_parser.add_argument("--output", "--to", dest="output", type=Path, required=True)
+    add_output_arg(export_parser, required=True)
     export_parser.add_argument("--no-limit", action="store_true")
     export_parser.set_defaults(func=cmd_export)
 
@@ -141,7 +143,7 @@ def register_legacy_query_aliases(
     export_parser._legacy_target = "query export"
     add_config_arg(export_parser)
     add_query_args(export_parser, default_limit=1000)
-    export_parser.add_argument("--output", "--to", dest="output", type=Path, required=True)
+    add_output_arg(export_parser, required=True)
     export_parser.add_argument("--no-limit", action="store_true")
     export_parser.set_defaults(func=cmd_export)
 
@@ -320,6 +322,7 @@ def cmd_sql(args: argparse.Namespace) -> int:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     _legacy_notice(args)
     config = load_config(args.config)
     ctx = open_query_context(config)

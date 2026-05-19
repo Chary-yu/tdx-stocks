@@ -12,10 +12,11 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
         lines.append(parser.description)
         lines.append("")
 
-    visible, hidden = _collect_subcommands(parser)
-    primary_names = {"data", "init", "run", "ui", "help-summary"}
+    visible, advanced, hidden = _collect_subcommands(parser)
+    primary_names = {"data", "init", "run", "ui", "examples", "doctor", "status", "report"}
     primary = [item for item in visible if item[0] in primary_names]
-    advanced = [item for item in visible if item[0] not in primary_names]
+    primary.sort(key=lambda item: item[0])
+    advanced.sort(key=lambda item: item[0])
     lines.append("## 支持命令")
     lines.append("")
     lines.append("| 命令 | 功能 |")
@@ -50,22 +51,32 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
 
 def _collect_subcommands(
     parser: argparse.ArgumentParser,
-) -> tuple[list[tuple[str, argparse.ArgumentParser, str]], list[tuple[str, argparse.ArgumentParser, str]]]:
+) -> tuple[
+    list[tuple[str, argparse.ArgumentParser, str]],
+    list[tuple[str, argparse.ArgumentParser, str]],
+    list[tuple[str, argparse.ArgumentParser, str]],
+]:
     subparsers_action = next(
         action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
     )
     visible: list[tuple[str, argparse.ArgumentParser, str]] = []
+    advanced: list[tuple[str, argparse.ArgumentParser, str]] = []
     hidden: list[tuple[str, argparse.ArgumentParser, str]] = []
+    advanced_names = {"strategy", "portfolio", "factors", "query", "audit", "daily", "sync", "help-summary"}
     for choice_action in subparsers_action._choices_actions:
         command_name = choice_action.dest
         command_parser = subparsers_action.choices[command_name]
-        help_text = choice_action.help or ""
         if choice_action.help == argparse.SUPPRESS:
-            replacement = getattr(command_parser, "_legacy_target", command_name)
-            hidden.append((command_name, command_parser, str(replacement)))
+            if command_name in advanced_names:
+                help_text = command_parser.description or ""
+                advanced.append((command_name, command_parser, help_text))
+            else:
+                replacement = getattr(command_parser, "_legacy_target", command_name)
+                hidden.append((command_name, command_parser, str(replacement)))
         else:
+            help_text = choice_action.help or ""
             visible.append((command_name, command_parser, help_text))
-    return visible, hidden
+    return visible, advanced, hidden
 
 
 def _render_command_tree(
@@ -81,7 +92,7 @@ def _render_command_tree(
         lines.extend(render_actions(parser))
         lines.append("")
 
-    visible, _hidden = _collect_subcommands(parser) if _has_subcommands(parser) else ([], [])
+    visible, _advanced, _hidden = _collect_subcommands(parser) if _has_subcommands(parser) else ([], [], [])
     if visible:
         lines.append(f"{'#' * level} 子命令")
         lines.append("")

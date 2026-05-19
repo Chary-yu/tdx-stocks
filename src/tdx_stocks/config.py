@@ -70,7 +70,7 @@ def _load_path(value: object | None, *, default: Path, env_name: str | None = No
     elif isinstance(raw, Path):
         path = raw
     else:
-        path = Path(str(raw))
+        path = Path(os.path.expandvars(str(raw)))
     return path.expanduser() if expanduser else path
 
 

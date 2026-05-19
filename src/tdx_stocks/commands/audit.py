@@ -145,10 +145,11 @@ def register_audit_group(
     *,
     cmd_doctor: Callable[[argparse.Namespace], int],
     cmd_verify_adjustment: Callable[[argparse.Namespace], int],
+    hidden: bool = False,
 ) -> None:
     audit_parser = subparsers.add_parser(
         "audit",
-        help="Audit and diagnostics commands.",
+        help=argparse.SUPPRESS if hidden else "Audit and diagnostics commands.",
         description="Commands for environment checks and adjustment verification.",
     )
     audit_subparsers = audit_parser.add_subparsers(dest="audit_command", required=True)

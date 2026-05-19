@@ -51,8 +51,12 @@ def stderr_progress(message: str) -> None:
     print(message, file=stderr, flush=True)
 
 
-def register_sync_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    sync_parser = subparsers.add_parser("sync", help=argparse.SUPPRESS)
+def register_sync_group(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    *,
+    hidden: bool = False,
+) -> None:
+    sync_parser = subparsers.add_parser("sync", help=argparse.SUPPRESS if hidden else "Synchronize data.")
     sync_parser._legacy_target = "data sync"
     sync_parser.add_argument("--config", type=Path)
     sync_parser.add_argument("--full", action="store_true")

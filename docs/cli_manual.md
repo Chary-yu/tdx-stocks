@@ -19,6 +19,10 @@
 - `data sync` 是推荐的一键入口，用来判断是否需要刷新导出源并重建数据。
 - `run <config.toml>` 是统一任务执行入口，读取实验 TOML 并分发到对应 runner。
 - `ui` 启动只读 Web 面板。
+- `examples` 输出常用命令示例。
+- `doctor` 用来诊断配置、路径和依赖。
+- `status` 用来查看最新数据、最近 run 状态和报告位置。
+- `report` 用来查看最新日报。
 - `data update` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
 - `corporate_actions` 和 `adjustment_factors` 都可以来自本地缓存或外部输入文件。
 - `data update --source export` 可以直接读取 `T0002/export` 的前复权文本，反推 `adjustment_factors`。

@@ -77,6 +77,19 @@ Strategy and portfolio docs:
 - `docs/risk.md`
 - `docs/daily.md`
 
+Main entry points:
+
+```bash
+tdx-stocks init
+tdx-stocks data sync
+tdx-stocks run experiments/daily.toml
+tdx-stocks ui
+tdx-stocks status
+tdx-stocks report
+tdx-stocks examples
+tdx-stocks doctor
+```
+
 Create a config file:
 
 ```bash
@@ -96,10 +109,10 @@ tdx-stocks data sync --config tdx_stocks.toml
 Inspect the local TDX directory:
 
 ```bash
-tdx-stocks audit doctor --config tdx_stocks.toml
+tdx-stocks doctor --config tdx_stocks.toml
 ```
 
-`audit doctor` now reports missing required paths as explicit errors and
+`doctor` now reports missing required paths as explicit errors and
 suggests the matching environment variable fallback.
 
 Inspect a stock in read-only mode:

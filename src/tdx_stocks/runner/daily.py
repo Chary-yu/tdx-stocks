@@ -34,9 +34,11 @@ def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> Run
     summary = report.report.summary
     return RunResult(
         task_type="daily",
-        name=str((data.get("task") or {}).get("name") or "daily"),
+        name=run_config.task_name,
         status=report.report.status,
         summary={"daily": summary},
         outputs=report.outputs,
         steps=[],
+        warnings=list(report.report.warnings),
+        errors=list(report.report.errors),
     )

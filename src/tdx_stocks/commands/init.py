@@ -9,6 +9,7 @@ from ..config import DEFAULT_DATA_ROOT, write_default_config
 def register_init_command(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     parser = subparsers.add_parser("init", help="Initialize a new research workspace.")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--minimal", action="store_true")
     parser.add_argument("--profile", choices=("simple", "research", "portfolio"), default="simple")
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.set_defaults(func=cmd_init)
@@ -16,7 +17,7 @@ def register_init_command(subparsers: argparse._SubParsersAction[argparse.Argume
 
 def cmd_init(args: argparse.Namespace) -> int:
     root = Path.cwd()
-    files = _build_files(root, data_root=args.data_root, profile=args.profile)
+    files = _build_files(root, data_root=args.data_root, profile=args.profile, minimal=args.minimal)
     for rel_path, content in files.items():
         path = root / rel_path
         if path.exists() and not args.force:
@@ -33,7 +34,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_files(root: Path, *, data_root: Path, profile: str) -> dict[str, str]:
+def _build_files(root: Path, *, data_root: Path, profile: str, minimal: bool) -> dict[str, str]:
     config = _config_template(data_root=data_root)
     daily = _daily_template()
     signal = _signal_template()
@@ -52,14 +53,20 @@ def _build_files(root: Path, *, data_root: Path, profile: str) -> dict[str, str]
         )
     elif profile == "portfolio":
         config = config.replace('portfolio_top = 20', 'portfolio_top = 50')
+    if minimal:
+        return {
+            "tdx_stocks.toml": config,
+            "experiments/daily.toml": daily,
+            "reports/.gitkeep": "",
+        }
     return {
         "tdx_stocks.toml": config,
         "experiments/daily.toml": daily,
-        "experiments/signal.toml": signal,
         "experiments/backtest.toml": _backtest_template(),
-        "experiments/grid_search.toml": _grid_search_template(),
         "experiments/portfolio.toml": _portfolio_template(),
-        "experiments/rebalance.toml": _rebalance_template(),
+        "experiments/advanced/signal.toml": _signal_template(),
+        "experiments/advanced/grid_search.toml": _grid_search_template(),
+        "experiments/advanced/rebalance.toml": _rebalance_template(),
         "reports/.gitkeep": "",
         "holdings.csv.example": "market,symbol,weight\nsh,600000,0.2\nsz,000001,0.2\n",
     }

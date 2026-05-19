@@ -25,7 +25,7 @@ def run_backtest_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> 
     report = run_backtest(run_config.app_config, str(strategy.get("name") or data.get("strategy_name") or "trend-strength"), params)
     return RunResult(
         task_type="backtest",
-        name=str((data.get("task") or {}).get("name") or "backtest"),
+        name=run_config.task_name,
         status="success",
         summary=report.to_dict(),
     )

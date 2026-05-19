@@ -19,7 +19,7 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> Ru
     consensus_report = build_consensus(run_config.app_config, names, as_of=as_of, min_hit=int(consensus.get("min_hit") or 2))
     return RunResult(
         task_type="signal",
-        name=str((data.get("task") or {}).get("name") or "signal"),
+        name=run_config.task_name,
         status="success",
         summary={
             "compare": compare.to_dict(),

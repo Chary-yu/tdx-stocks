@@ -16,11 +16,15 @@ from ..daily import (
 )
 from ..io_utils import write_json_atomic, write_text_atomic
 from ..query import load_latest_manifest, normalize_output_data
-from .common import add_config_arg
+from .common import add_config_arg, add_output_arg, validate_output_alias
 
 
-def register_daily_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    daily_parser = subparsers.add_parser("daily", help="Daily orchestration commands.")
+def register_daily_group(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    *,
+    hidden: bool = False,
+) -> None:
+    daily_parser = subparsers.add_parser("daily", help=argparse.SUPPRESS if hidden else "Daily orchestration commands.")
     daily_subparsers = daily_parser.add_subparsers(dest="daily_command", required=True)
 
     run_parser = daily_subparsers.add_parser("run", help="Run the daily research workflow.")
@@ -56,10 +60,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     add_config_arg(parser)
     parser.add_argument("--as-of", default="latest")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--output", "--to", dest="output", type=Path)
+    add_output_arg(parser)
 
 
 def cmd_daily_run(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     report = run_daily_workflow(
         config,
@@ -134,6 +139,7 @@ def cmd_daily_status(args: argparse.Namespace) -> int:
 
 
 def cmd_daily_report(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     doc = load_daily_report(config.paths.data_root, args.as_of)
     if doc is None:

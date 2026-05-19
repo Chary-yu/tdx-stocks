@@ -24,6 +24,10 @@ class InitCommandTest(unittest.TestCase):
                 self.assertTrue((root / "tdx_stocks.toml").exists())
                 self.assertTrue((root / "experiments" / "daily.toml").exists())
                 self.assertTrue((root / "experiments" / "backtest.toml").exists())
+                self.assertTrue((root / "experiments" / "portfolio.toml").exists())
+                self.assertTrue((root / "experiments" / "advanced" / "signal.toml").exists())
+                self.assertTrue((root / "experiments" / "advanced" / "grid_search.toml").exists())
+                self.assertTrue((root / "experiments" / "advanced" / "rebalance.toml").exists())
                 self.assertTrue((root / "holdings.csv.example").exists())
             finally:
                 os.chdir(cwd)
@@ -36,6 +40,18 @@ class InitCommandTest(unittest.TestCase):
                 Path("tdx_stocks.toml").write_text("old", encoding="utf-8")
                 cli_main(["init", "--force", "--data-root", "Database"])
                 self.assertIn("[paths]", Path("tdx_stocks.toml").read_text(encoding="utf-8"))
+            finally:
+                os.chdir(cwd)
+
+    def test_init_minimal_creates_minimal_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path.cwd()
+            try:
+                os.chdir(tmp)
+                cli_main(["init", "--minimal", "--data-root", "Database"])
+                self.assertTrue((Path("experiments") / "daily.toml").exists())
+                self.assertFalse((Path("experiments") / "backtest.toml").exists())
+                self.assertFalse((Path("holdings.csv.example")).exists())
             finally:
                 os.chdir(cwd)
 
@@ -86,6 +102,27 @@ current_holdings = "../holdings.csv"
             loaded = load_run_config(config_path)
         self.assertTrue(loaded.config["rebalance"]["current_holdings"].endswith("holdings.csv"))
 
+    def test_daily_config_is_loaded_without_backtest_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "daily.toml"
+            path.write_text(
+                """
+[task]
+type = "daily"
+name = "daily-workflow"
+
+[strategies]
+enabled = ["trend-strength"]
+
+[portfolio]
+enabled = true
+""".strip(),
+                encoding="utf-8",
+            )
+            loaded = load_run_config(path)
+        self.assertEqual(loaded.task_type, "daily")
+        self.assertEqual(loaded.task_name, "daily-workflow")
+
 
 class RunDispatcherTest(unittest.TestCase):
     def test_dispatches_to_daily_signal_backtest_portfolio_and_rebalance(self) -> None:
@@ -121,7 +158,49 @@ class RootHelpTest(unittest.TestCase):
         self.assertIn("tdx-stocks data sync", help_text)
         self.assertIn("tdx-stocks run <config.toml>", help_text)
         self.assertIn("tdx-stocks ui", help_text)
-        self.assertIn("tdx-stocks help-summary", help_text)
+        self.assertIn("tdx-stocks examples", help_text)
+        self.assertIn("tdx-stocks doctor", help_text)
+        self.assertIn("tdx-stocks status", help_text)
+        self.assertIn("tdx-stocks report", help_text)
+        self.assertNotIn("==SUPPRESS==", help_text)
+
+
+class RunCommandTest(unittest.TestCase):
+    def test_dry_run_does_not_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "daily.toml"
+            path.write_text(
+                """
+[task]
+type = "daily"
+
+[strategies]
+enabled = ["trend-strength"]
+""".strip(),
+                encoding="utf-8",
+            )
+            with patch("tdx_stocks.commands.run.dispatch_run") as dispatch_run_mock:
+                code = cli_main(["run", str(path), "--dry-run"])
+            self.assertEqual(code, 0)
+            dispatch_run_mock.assert_not_called()
+
+    def test_explain_does_not_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "daily.toml"
+            path.write_text(
+                """
+[task]
+type = "daily"
+
+[strategies]
+enabled = ["trend-strength"]
+""".strip(),
+                encoding="utf-8",
+            )
+            with patch("tdx_stocks.commands.run.dispatch_run") as dispatch_run_mock:
+                code = cli_main(["run", str(path), "--explain"])
+            self.assertEqual(code, 0)
+            dispatch_run_mock.assert_not_called()
 
 
 if __name__ == "__main__":

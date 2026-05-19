@@ -23,11 +23,18 @@ from ..portfolio import (
 )
 from ..portfolio.models import Holding, PortfolioBacktestReport, PortfolioReport, RebalancePlan
 from ..query import normalize_output_data
-from .common import add_config_arg
+from .common import add_config_arg, add_output_arg, validate_output_alias
 
 
-def register_portfolio_group(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    portfolio_parser = subparsers.add_parser("portfolio", help="Portfolio construction and risk commands.")
+def register_portfolio_group(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    *,
+    hidden: bool = False,
+) -> None:
+    portfolio_parser = subparsers.add_parser(
+        "portfolio",
+        help=argparse.SUPPRESS if hidden else "Portfolio construction and risk commands.",
+    )
     portfolio_subparsers = portfolio_parser.add_subparsers(dest="portfolio_command", required=True)
 
     build_parser = portfolio_subparsers.add_parser("build", help="Build a target portfolio.")
@@ -87,11 +94,12 @@ def _add_build_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--market", choices=("sh", "sz", "bj"))
     parser.add_argument("--as-of", default="latest")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--output", "--to", dest="output", type=Path)
+    add_output_arg(parser)
     parser.add_argument("--save", action="store_true")
 
 
 def cmd_portfolio_build(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     if args.source == "report" and not args.strategy:
         raise ValueError("--strategy is required when --from report")
@@ -151,6 +159,7 @@ def cmd_portfolio_risk(args: argparse.Namespace) -> int:
 
 
 def cmd_portfolio_rebalance_plan(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     target = build_portfolio(
         config,
@@ -180,6 +189,7 @@ def cmd_portfolio_rebalance_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_portfolio_backtest(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     report = run_portfolio_backtest(
         config,

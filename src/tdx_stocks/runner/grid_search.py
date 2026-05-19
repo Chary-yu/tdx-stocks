@@ -33,7 +33,7 @@ def run_grid_search_task(run_config: LoadedRunConfig, *, dry_run: bool = False) 
     )
     return RunResult(
         task_type="grid_search",
-        name=str((data.get("task") or {}).get("name") or "grid_search"),
+        name=run_config.task_name,
         status="success",
         summary=report,
     )

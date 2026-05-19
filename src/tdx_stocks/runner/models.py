@@ -33,6 +33,8 @@ class RunResult:
     summary: dict[str, Any]
     outputs: dict[str, str] = field(default_factory=dict)
     steps: list[RunStepResult] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +44,8 @@ class RunResult:
             "summary": self.summary,
             "outputs": self.outputs,
             "steps": [step.to_dict() for step in self.steps],
+            "warnings": self.warnings,
+            "errors": self.errors,
         }
 
 

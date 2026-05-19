@@ -38,7 +38,7 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
     )
     return RunResult(
         task_type="rebalance",
-        name=str((data.get("task") or {}).get("name") or "rebalance"),
+        name=run_config.task_name,
         status="success",
         summary=plan.to_dict(),
     )

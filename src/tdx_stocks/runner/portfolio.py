@@ -26,7 +26,7 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
     )
     return RunResult(
         task_type="portfolio",
-        name=str((data.get("task") or {}).get("name") or "portfolio"),
+        name=run_config.task_name,
         status="success",
         summary=report.to_dict(),
     )

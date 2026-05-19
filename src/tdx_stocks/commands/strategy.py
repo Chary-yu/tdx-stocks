@@ -35,7 +35,7 @@ from ..strategies.storage import (
     load_saved_report,
     save_report_document,
 )
-from .common import add_config_arg
+from .common import add_config_arg, add_output_arg, validate_output_alias
 from .common import legacy_notice as _legacy_notice
 from .output import emit_report_table, write_csv, write_rows
 
@@ -98,10 +98,11 @@ def register_strategy_group(
     *,
     cmd_strategy_list: Callable[[argparse.Namespace], int],
     cmd_strategy_run: Callable[[argparse.Namespace], int],
+    hidden: bool = False,
 ) -> None:
     strategy_parser = subparsers.add_parser(
         "strategy",
-        help="Strategy analysis commands.",
+        help=argparse.SUPPRESS if hidden else "Strategy analysis commands.",
         description="Commands that generate read-only observation pools from the latest dataset.",
     )
     strategy_subparsers = strategy_parser.add_subparsers(dest="strategy_command", required=True)
@@ -125,7 +126,7 @@ def register_strategy_group(
     explain_parser.add_argument("symbol")
     explain_parser.add_argument("--as-of", default="latest")
     explain_parser.add_argument("--json", action="store_true")
-    explain_parser.add_argument("--output", "--to", dest="output", type=Path)
+    add_output_arg(explain_parser)
     explain_parser.add_argument("--market", choices=("sh", "sz", "bj"))
     explain_parser.add_argument("--limit", type=int, default=20)
     explain_parser.add_argument("--min-score", type=float, default=60.0)
@@ -248,7 +249,7 @@ def _add_common_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--include-excluded", action="store_true")
     parser.add_argument("--show-excluded-limit", type=int, default=20)
     parser.add_argument("--explain-symbol")
-    parser.add_argument("--output", "--to", dest="output", type=Path)
+    parser.add_argument("--output", type=Path)
 
 
 def _add_compare_args(parser: argparse.ArgumentParser) -> None:
@@ -257,7 +258,7 @@ def _add_compare_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--strategies", help="Comma-separated strategy names. Defaults to all registered strategies.")
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--output", "--to", dest="output", type=Path)
+    parser.add_argument("--output", type=Path)
 
 
 def _add_consensus_args(parser: argparse.ArgumentParser) -> None:
@@ -267,7 +268,7 @@ def _add_consensus_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-hit", type=int, default=2)
     parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--output", "--to", dest="output", type=Path)
+    parser.add_argument("--output", type=Path)
 
 
 def _add_backtest_args(parser: argparse.ArgumentParser) -> None:
@@ -516,6 +517,7 @@ def _parse_int_list(value: str) -> list[int]:
 
 
 def _write_strategy_output(report, args: argparse.Namespace, *, export_dir: Path | None = None) -> None:
+    validate_output_alias(args)
     report_dict = report.to_dict()
     output_path = getattr(args, "output", None) or getattr(args, "to", None)
     if output_path is not None:
@@ -639,6 +641,7 @@ def cmd_strategy_describe(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_explain(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     definition = get_strategy(args.strategy)
     params = _build_explain_params(args, definition)
@@ -788,6 +791,7 @@ def _normalize_explain_payload(
 
 
 def cmd_strategy_compare(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     strategy_names = _parse_strategy_names(args.strategies)
     result = compare_strategies(config, strategy_names, as_of=_parse_as_of(args.as_of))
@@ -825,6 +829,7 @@ def cmd_strategy_compare(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_consensus(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     strategy_names = _parse_strategy_names(args.strategies)
     result = build_consensus(config, strategy_names, as_of=_parse_as_of(args.as_of), min_hit=args.min_hit)
@@ -865,6 +870,7 @@ def cmd_strategy_consensus(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_backtest_compare(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     strategy_names = _parse_strategy_names(args.strategies)
     params = BacktestParams(
@@ -901,6 +907,7 @@ def cmd_strategy_backtest_compare(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_tune(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     params = BacktestParams(
         from_date=parse_iso_date(args.from_date),
@@ -945,6 +952,7 @@ def cmd_strategy_tune(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_analyze_forward_returns(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     params = BacktestParams(
         from_date=parse_iso_date(args.from_date),
@@ -970,6 +978,7 @@ def cmd_strategy_analyze_forward_returns(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_analyze_risk_tags(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     params = BacktestParams(
         from_date=parse_iso_date(args.from_date),
@@ -995,6 +1004,7 @@ def cmd_strategy_analyze_risk_tags(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_backtest_consensus(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     strategy_names = _parse_strategy_names(args.strategies)
     params = BacktestParams(
@@ -1016,6 +1026,7 @@ def cmd_strategy_backtest_consensus(args: argparse.Namespace) -> int:
 
 
 def cmd_strategy_backtest(args: argparse.Namespace) -> int:
+    validate_output_alias(args)
     config = load_config(args.config)
     if args.stress_test:
         if args.from_date is None:

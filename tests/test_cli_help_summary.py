@@ -38,22 +38,19 @@ class CliHelpSummaryTest(unittest.TestCase):
             "init",
             "run",
             "ui",
-            "init-config",
-            "sync",
+            "examples",
+            "doctor",
+            "status",
+            "report",
             "data",
             "audit",
             "query",
             "strategy",
             "portfolio",
             "daily",
+            "sync",
+            "init-config",
             "help-summary",
-        ):
-            self.assertIn(f"`{command_name}`", output)
-        for command_name in (
-            "groups",
-            "describe",
-            "explain",
-            "report",
         ):
             self.assertIn(f"`{command_name}`", output)
         self.assertIn("兼容别名", output)

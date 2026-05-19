@@ -68,6 +68,10 @@ def run_daily_workflow(
     warnings: list[str] = []
     errors: list[str] = []
 
+    if skip_strategies and not skip_portfolio:
+        skip_portfolio = True
+        warnings.append("portfolio skipped because strategies were skipped")
+
     if build_data:
         build_result = build_dataset(config)
         steps.append(
@@ -186,16 +190,16 @@ def run_daily_workflow(
                 )
             )
             if current_holdings:
-                current = load_current_holdings_csv(current_holdings)
-                plan = build_rebalance_plan(
-                    current,
-                    [_holding_from_dict(row) for row in portfolio_report.holdings],
-                    as_of=portfolio_report.as_of,
-                )
-                rebalance_json, rebalance_csv = save_rebalance_plan(config.paths.data_root, plan)
-                outputs.update({"rebalance_json": rebalance_json.as_posix(), "rebalance_csv": rebalance_csv.as_posix()})
-                rebalance_payload = plan.to_dict()
                 if not skip_rebalance:
+                    current = load_current_holdings_csv(current_holdings)
+                    plan = build_rebalance_plan(
+                        current,
+                        [_holding_from_dict(row) for row in portfolio_report.holdings],
+                        as_of=portfolio_report.as_of,
+                    )
+                    rebalance_json, rebalance_csv = save_rebalance_plan(config.paths.data_root, plan)
+                    outputs.update({"rebalance_json": rebalance_json.as_posix(), "rebalance_csv": rebalance_csv.as_posix()})
+                    rebalance_payload = plan.to_dict()
                     steps.append(
                         DailyStepResult(
                             step_name="rebalance_plan",
@@ -206,6 +210,8 @@ def run_daily_workflow(
                             duration_seconds=0.0,
                         )
                     )
+                else:
+                    warnings.append("rebalance plan skipped by --skip-rebalance")
         else:
             portfolio_report = None
             steps.append(
@@ -241,6 +247,8 @@ def run_daily_workflow(
                 portfolio_summary=portfolio_payload,
                 rebalance_summary=rebalance_payload,
                 outputs=outputs,
+                warnings=warnings,
+                errors=errors,
             )
             markdown = render_daily_markdown(report)
             steps.append(
@@ -266,6 +274,8 @@ def run_daily_workflow(
             portfolio_summary=portfolio_payload,
             rebalance_summary=rebalance_payload,
             outputs=outputs,
+            warnings=warnings,
+            errors=errors,
         )
         markdown = render_daily_markdown(report)
         saved = save_daily_report(config.paths.data_root, report, markdown)
@@ -403,8 +413,12 @@ def _build_report(
     portfolio_summary: dict[str, Any],
     rebalance_summary: dict[str, Any],
     outputs: dict[str, Any],
+    warnings: list[str],
+    errors: list[str],
 ) -> DailyRunReport:
-    warnings, errors = collect_warnings_errors([step.to_dict() for step in steps])
+    step_warnings, step_errors = collect_warnings_errors([step.to_dict() for step in steps])
+    warnings = list(warnings) + step_warnings
+    errors = list(errors) + step_errors
     return DailyRunReport(
         schema_version="daily-report-v1",
         app_version=APP_VERSION,

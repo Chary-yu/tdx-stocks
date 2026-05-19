@@ -12,13 +12,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from tdx_stocks import __version__
-from tdx_stocks.cli import _rewrite_legacy_argv, _validate_output_aliases, build_parser
+from tdx_stocks.cli import _rewrite_legacy_argv, build_parser
 from tdx_stocks.cli import main as cli_main
 from tdx_stocks.config import AppConfig, PathsConfig, load_config, write_default_config
 from tdx_stocks.daily.models import DailyRunReport
 from tdx_stocks.daily.report import render_daily_markdown
 from tdx_stocks.daily.store import load_daily_report, load_latest_daily_report, save_daily_report
 from tdx_stocks.daily.workflow import run_daily_workflow
+from tdx_stocks.commands.common import validate_output_alias
 from tdx_stocks.portfolio import build_portfolio
 
 
@@ -42,8 +43,8 @@ class ReleaseConfigTest(unittest.TestCase):
         self.assertEqual(_rewrite_legacy_argv(["stock", "600000.SH"]), ["query", "price", "600000.SH"])
 
     def test_output_alias_conflict_is_rejected(self) -> None:
-        with self.assertRaisesRegex(Exception, "use either --output or --to"):
-            _validate_output_aliases(["query", "export", "--output", "a.csv", "--to", "b.csv"])
+        with self.assertRaisesRegex(ValueError, "use either --output or --to"):
+            validate_output_alias(SimpleNamespace(_output_option_strings=["--output", "--to"]))
 
     def test_portfolio_report_requires_strategy_for_report_source(self) -> None:
         with self.assertRaisesRegex(ValueError, "strategy is required"):
@@ -222,6 +223,74 @@ class DailyWorkflowTest(unittest.TestCase):
                                                         )
         self.assertEqual(result.report.status, "success")
         self.assertIn("strategy_json", result.outputs)
+
+    def test_daily_workflow_skips_portfolio_when_strategies_are_skipped(self) -> None:
+        fake_ctx = SimpleNamespace(
+            con=SimpleNamespace(execute=lambda *args, **kwargs: SimpleNamespace(fetchone=lambda: (date(2024, 1, 31),))),
+            manifest={"run_id": "run-1", "summary": {"trade_date": "2024-01-31"}},
+            close=lambda: None,
+        )
+        config = AppConfig(paths=PathsConfig(data_root=Path(tempfile.gettempdir()) / "tdx-stocks-daily-test"))
+        with (
+            patch("tdx_stocks.daily.workflow.open_query_context", return_value=fake_ctx),
+            patch("tdx_stocks.daily.workflow.build_portfolio") as build_portfolio_mock,
+            patch("tdx_stocks.daily.workflow.load_current_holdings_csv") as load_current_holdings_mock,
+            patch("tdx_stocks.daily.workflow.build_rebalance_plan") as build_rebalance_plan_mock,
+            patch("tdx_stocks.daily.workflow.save_rebalance_plan") as save_rebalance_plan_mock,
+            patch("tdx_stocks.daily.workflow.compare_strategies", return_value=SimpleNamespace(to_dict=lambda: {"rows": []})),
+            patch("tdx_stocks.daily.workflow.build_consensus", return_value=SimpleNamespace(to_dict=lambda: {"rows": []})),
+        ):
+            result = run_daily_workflow(
+                config,
+                as_of=date(2024, 1, 31),
+                skip_strategies=True,
+                skip_portfolio=False,
+                current_holdings="holdings.csv",
+                skip_report=True,
+            )
+        self.assertFalse(build_portfolio_mock.called)
+        self.assertFalse(load_current_holdings_mock.called)
+        self.assertFalse(build_rebalance_plan_mock.called)
+        self.assertFalse(save_rebalance_plan_mock.called)
+        self.assertIn("portfolio skipped because strategies were skipped", result.report.warnings)
+
+    def test_daily_workflow_skips_rebalance_plan_when_requested(self) -> None:
+        fake_ctx = SimpleNamespace(
+            con=SimpleNamespace(execute=lambda *args, **kwargs: SimpleNamespace(fetchone=lambda: (date(2024, 1, 31),))),
+            manifest={"run_id": "run-1", "summary": {"trade_date": "2024-01-31"}},
+            close=lambda: None,
+        )
+        fake_portfolio = SimpleNamespace(
+            as_of="2024-01-31",
+            holdings=[{"market": "sh", "symbol": "600000", "weight": 1.0}],
+            to_dict=lambda: {"holdings": [{"market": "sh", "symbol": "600000", "weight": 1.0}]},
+        )
+        config = AppConfig(paths=PathsConfig(data_root=Path(tempfile.gettempdir()) / "tdx-stocks-daily-test"))
+        with (
+            patch("tdx_stocks.daily.workflow.open_query_context", return_value=fake_ctx),
+            patch("tdx_stocks.daily.workflow._run_strategies", return_value=({"steps": [], "warnings": [], "errors": []}, {})),
+            patch("tdx_stocks.daily.workflow._run_compare", return_value={"rows": []}),
+            patch("tdx_stocks.daily.workflow._run_consensus", return_value={"rows": []}),
+            patch("tdx_stocks.daily.workflow.build_portfolio", return_value=fake_portfolio),
+            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"latest_json": "/tmp/portfolio.json"}),
+            patch("tdx_stocks.daily.workflow.load_current_holdings_csv") as load_current_holdings_mock,
+            patch("tdx_stocks.daily.workflow.build_rebalance_plan") as build_rebalance_plan_mock,
+            patch("tdx_stocks.daily.workflow.save_rebalance_plan") as save_rebalance_plan_mock,
+            patch("tdx_stocks.daily.workflow.check_portfolio_risk", return_value=SimpleNamespace(passed=True, summary={})),
+        ):
+            result = run_daily_workflow(
+                config,
+                as_of=date(2024, 1, 31),
+                current_holdings="holdings.csv",
+                skip_strategies=False,
+                skip_portfolio=False,
+                skip_rebalance=True,
+                skip_report=True,
+            )
+        self.assertFalse(load_current_holdings_mock.called)
+        self.assertFalse(build_rebalance_plan_mock.called)
+        self.assertFalse(save_rebalance_plan_mock.called)
+        self.assertIn("rebalance plan skipped by --skip-rebalance", result.report.warnings)
 
     def test_daily_report_markdown_has_sections(self) -> None:
         report = DailyRunReport(

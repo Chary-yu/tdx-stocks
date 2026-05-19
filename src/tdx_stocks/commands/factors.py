@@ -19,10 +19,11 @@ def register_factors_group(
     cmd_factors_describe: Callable[[argparse.Namespace], int],
     cmd_factors_schema: Callable[[argparse.Namespace], int],
     cmd_factors_rank: Callable[[argparse.Namespace], int],
+    hidden: bool = False,
 ) -> None:
     factors_parser = subparsers.add_parser(
         "factors",
-        help="Factor catalog and research commands.",
+        help=argparse.SUPPRESS if hidden else "Factor catalog and research commands.",
         description="Commands for factor catalog, schema inspection, and cross-sectional ranking.",
     )
     factors_subparsers = factors_parser.add_subparsers(dest="factors_command", required=True)

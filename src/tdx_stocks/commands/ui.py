@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import subprocess
 import sys
@@ -8,6 +9,13 @@ from pathlib import Path
 
 
 def cmd_ui(args: argparse.Namespace) -> int:
+    if importlib.util.find_spec("streamlit") is None:
+        print(
+            "Streamlit is required for UI.\n"
+            "Install:\n  python -m pip install -e \".[web]\"",
+            file=sys.stderr,
+        )
+        return 1
     script = Path(__file__).resolve().parents[1] / "web" / "app.py"
     env = os.environ.copy()
     if args.config is not None:
