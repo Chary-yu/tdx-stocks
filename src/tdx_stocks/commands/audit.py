@@ -1,40 +1,60 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import sys
 from collections.abc import Callable
+from pathlib import Path
 
+from ..adjustment_verify import build_adjustment_verification_report
 from ..config import load_config
 from ..console import print_json, print_key_values
+from ..exit_codes import ExitCode, VerificationFailedError
 from ..query import normalize_output_data
-from ..exit_codes import VerificationFailedError
-from ..adjustment_verify import build_adjustment_verification_report
 from ..tdx_day import iter_day_files
 from .common import add_config_arg
 from .common import legacy_notice as _legacy_notice
 
 
+def _required_path_error(label: str, path: Path, env_name: str) -> str | None:
+    if path == Path("."):
+        return f"{label} is not configured; set [paths].{label} or {env_name}"
+    if not path.exists():
+        return f"{label} does not exist: {path}"
+    return None
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     _legacy_notice(args)
     config = load_config(args.config)
+    errors: list[str] = []
     items: list[tuple[str, object]] = [
         ("tdx_vipdoc", config.paths.tdx_vipdoc),
         ("tdx_export", config.paths.tdx_export),
         ("data_root", config.paths.data_root),
-        ("tdx_vipdoc_exists", config.paths.tdx_vipdoc.exists()),
-        ("tdx_export_exists", config.paths.tdx_export.exists()),
-        ("data_root_exists", config.paths.data_root.exists()),
     ]
-    files = list(
-        iter_day_files(
-            config.paths.tdx_vipdoc,
-            markets=config.build.markets,
-            universe=config.build.universe,
+    for label, path, env_name in (
+        ("tdx_vipdoc", config.paths.tdx_vipdoc, "TDX_STOCKS_TDX_VIPDOC"),
+        ("tdx_export", config.paths.tdx_export, "TDX_STOCKS_TDX_EXPORT"),
+        ("data_root", config.paths.data_root, "TDX_STOCKS_DATA_ROOT"),
+    ):
+        error = _required_path_error(label, path, env_name)
+        items.append((f"{label}_exists", error is None and path.exists()))
+        if error is not None:
+            errors.append(error)
+
+    if not errors:
+        files = list(
+            iter_day_files(
+                config.paths.tdx_vipdoc,
+                markets=config.build.markets,
+                universe=config.build.universe,
+            )
         )
-    )
-    items.append(("day_files", len(files)))
-    for index, path in enumerate(files[:5], start=1):
-        items.append((f"sample_{index}", path))
+        items.append(("day_files", len(files)))
+        for index, path in enumerate(files[:5], start=1):
+            items.append((f"sample_{index}", path))
+    else:
+        items.append(("day_files", 0))
 
     for module in ("duckdb", "pyarrow"):
         try:
@@ -43,8 +63,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             items.append((module, "missing"))
         else:
             items.append((module, getattr(imported, "__version__", "installed")))
+
+    if errors:
+        for message in errors:
+            print(f"error: {message}", file=sys.stderr)
     print_key_values("doctor", items)
-    return 0
+    return 0 if not errors else int(ExitCode.USAGE_ERROR)
 
 
 def cmd_verify_adjustment(args: argparse.Namespace) -> int:

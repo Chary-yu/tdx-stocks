@@ -1,42 +1,43 @@
 from __future__ import annotations
 
-import csv
 import argparse
 import json
-import sys
-from pathlib import Path
 from collections.abc import Callable
-from datetime import date
-from datetime import datetime
+from datetime import date, datetime
+from pathlib import Path
 
+from ..backtest import (
+    BacktestParams,
+    analyze_forward_returns,
+    analyze_risk_tags,
+    backtest_consensus,
+    compare_backtests,
+    load_backtest_configs,
+    run_backtest,
+    run_batch,
+    run_monte_carlo_simulation,
+    run_stress_test_suite,
+    run_walk_forward_validation,
+    tune_strategy_parameters,
+)
 from ..config import load_config
 from ..console import print_json, print_key_values, print_table
+from ..io_utils import write_json_atomic
 from ..pipeline import parse_iso_date
 from ..query import normalize_output_data
 from ..strategies.base import StrategyParams
 from ..strategies.compare import compare_strategies
 from ..strategies.consensus import build_consensus
+from ..strategies.registry import get_strategy, list_strategies
 from ..strategies.storage import (
     build_report_document,
     list_saved_reports,
     load_saved_report,
     save_report_document,
 )
-from ..strategies.registry import get_strategy, list_strategies
-from ..backtest import BacktestParams, run_backtest
-from ..backtest import (
-    analyze_forward_returns,
-    analyze_risk_tags,
-    backtest_consensus,
-    compare_backtests,
-    load_backtest_configs,
-    run_monte_carlo_simulation,
-    run_batch,
-    run_stress_test_suite,
-    run_walk_forward_validation,
-    tune_strategy_parameters,
-)
-from .common import add_config_arg, legacy_notice as _legacy_notice
+from .common import add_config_arg
+from .common import legacy_notice as _legacy_notice
+from .output import emit_report_table, write_csv, write_rows
 
 STRATEGY_TYPE_LABELS = {
     "breakout_watch": "突破观察",
@@ -514,105 +515,11 @@ def _parse_int_list(value: str) -> list[int]:
     return [int(item) for item in _parse_csv_numbers(value, cast=int)]
 
 
-def _write_rows(rows: list[dict[str, object]], *, columns: list[str], format_name: str, to: Path | None) -> None:
-    if format_name == "json":
-        payload = normalize_output_data(rows)
-        if to is not None:
-            to.parent.mkdir(parents=True, exist_ok=True)
-            to.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        else:
-            print_json(payload)
-        return
-    if format_name == "csv":
-        _write_csv(rows, columns, to)
-        return
-    if to is not None:
-        to.parent.mkdir(parents=True, exist_ok=True)
-        from io import StringIO
-
-        buffer = StringIO()
-        print_table(columns, rows, stream=buffer)
-        to.write_text(buffer.getvalue(), encoding="utf-8")
-        return
-    print_table(columns, rows)
-
-
-def _write_csv(rows: list[dict[str, object]], columns: list[str], to: Path | None) -> None:
-    stream = to.open("w", encoding="utf-8", newline="") if to is not None else sys.stdout
-    try:
-        writer = csv.DictWriter(stream, fieldnames=columns)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column) for column in columns})
-    finally:
-        if to is not None:
-            stream.close()
-
-
-def _emit_report_table(report: dict[str, object], *, format_name: str, to: Path | None) -> None:
-    if format_name == "json":
-        if to is not None:
-            to.parent.mkdir(parents=True, exist_ok=True)
-            to.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        else:
-            print_json(report)
-        return
-    if format_name == "csv":
-        rows = report.get("rows") or report.get("periods") or report.get("trades") or []
-        if not isinstance(rows, list):
-            rows = []
-        columns = list(rows[0].keys()) if rows else []
-        _write_csv(rows, columns, to)
-        return
-    rows = report.get("rows")
-    if isinstance(rows, list) and rows:
-        columns = list(rows[0].keys())
-        _write_rows(rows, columns=columns, format_name="table", to=to)
-        return
-    periods = report.get("periods")
-    if isinstance(periods, list) and periods:
-        summary = [
-            ("schema_version", report.get("schema_version")),
-            ("strategy_name", report.get("strategy_name")),
-            ("strategy_names", ",".join(report.get("strategy_names") or [])),
-            ("start_date", report.get("start_date")),
-            ("end_date", report.get("end_date")),
-            ("trade_count", report.get("trade_count")),
-            ("period_count", report.get("period_count")),
-            ("empty_period_count", report.get("empty_period_count")),
-            ("total_return", report.get("total_return")),
-            ("annual_return", report.get("annual_return")),
-            ("max_drawdown", report.get("max_drawdown")),
-            ("win_rate", report.get("win_rate")),
-            ("avg_period_return", report.get("avg_period_return")),
-            ("best_period_return", report.get("best_period_return")),
-            ("worst_period_return", report.get("worst_period_return")),
-            ("turnover", report.get("turnover")),
-        ]
-        if to is None:
-            print_key_values("backtest report", summary)
-            print_table(list(periods[0].keys()), periods)
-        else:
-            from io import StringIO
-
-            buffer = StringIO()
-            for key, value in summary:
-                buffer.write(f"{key}={value}\n")
-            buffer.write("\n")
-            print_table(list(periods[0].keys()), periods, stream=buffer)
-            to.parent.mkdir(parents=True, exist_ok=True)
-            to.write_text(buffer.getvalue(), encoding="utf-8")
-        return
-    print_json(report)
-
-
 def _write_strategy_output(report, args: argparse.Namespace, *, export_dir: Path | None = None) -> None:
     report_dict = report.to_dict()
     output_path = getattr(args, "output", None) or getattr(args, "to", None)
     if output_path is not None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(report_dict, ensure_ascii=False, indent=2, default=str)
-        output_path.write_text(payload, encoding="utf-8")
+        write_json_atomic(output_path, report_dict)
     if args.json:
         print_json(report_dict)
     else:
@@ -739,8 +646,7 @@ def cmd_strategy_explain(args: argparse.Namespace) -> int:
     payload = _normalize_explain_payload(definition, params, report, args.symbol)
     output_path = getattr(args, "output", None) or getattr(args, "to", None)
     if output_path is not None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        write_json_atomic(output_path, payload)
     if getattr(args, "json", False):
         print_json(normalize_output_data(payload))
     else:
@@ -806,7 +712,7 @@ def _group_description(group: str) -> str:
 
 
 def _build_explain_params(args: argparse.Namespace, definition) -> StrategyParams:
-    setattr(args, "explain_symbol", args.symbol)
+    args.explain_symbol = args.symbol
     if definition.params_builder is not None:
         params = definition.params_builder(args)
     else:
@@ -890,13 +796,12 @@ def cmd_strategy_compare(args: argparse.Namespace) -> int:
     output_path = getattr(args, "output", None) or getattr(args, "to", None)
     if output_format == "json":
         if output_path is not None:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            write_json_atomic(output_path, payload)
         else:
             print_json(payload)
     elif output_format == "csv":
         rows = [row.to_dict() for row in result.strategies]
-        _write_csv(rows, ["strategy_name", "candidate_count", "avg_score", "max_score", "high_score_count", "risk_flag_count", "stocks"], output_path)
+        write_csv(rows, ["strategy_name", "candidate_count", "avg_score", "max_score", "high_score_count", "risk_flag_count", "stocks"], output_path)
     else:
         print("strategy summary")
         print_table(["strategy_name", "candidate_count", "avg_score", "max_score", "high_score_count", "risk_flag_count"], [row.to_dict() for row in result.strategies])
@@ -928,12 +833,11 @@ def cmd_strategy_consensus(args: argparse.Namespace) -> int:
     output_path = getattr(args, "output", None) or getattr(args, "to", None)
     if output_format == "json":
         if output_path is not None:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            write_json_atomic(output_path, payload)
         else:
             print_json(payload)
     elif output_format == "csv":
-        _write_csv(
+        write_csv(
             [row.to_dict() for row in result.rows],
             ["market", "symbol", "hit_count", "strategies", "avg_score", "max_score", "candidate_types", "tags", "risk_flags", "reasons"],
             output_path,
@@ -977,7 +881,7 @@ def cmd_strategy_backtest_compare(args: argparse.Namespace) -> int:
     )
     report = compare_backtests(config, strategy_names, params)
     output_format = "json" if getattr(args, "json", False) else args.format
-    _write_rows(
+    write_rows(
         report["rows"],
         columns=[
             "strategy_name",
@@ -1019,7 +923,7 @@ def cmd_strategy_tune(args: argparse.Namespace) -> int:
         hold_days=_parse_int_list(args.hold_days),
     )
     output_format = "json" if getattr(args, "json", False) else args.format
-    _write_rows(
+    write_rows(
         report["rows"],
         columns=[
             "min_score",
@@ -1056,7 +960,7 @@ def cmd_strategy_analyze_forward_returns(args: argparse.Namespace) -> int:
     )
     report = analyze_forward_returns(config, args.strategy_name, params, horizons=_parse_horizons(args.horizons))
     output_format = "json" if getattr(args, "json", False) else args.format
-    _write_rows(
+    write_rows(
         report["rows"],
         columns=["horizon", "sample_count", "mean_return", "median_return", "win_rate", "p25", "p75", "best", "worst"],
         format_name=output_format,
@@ -1081,7 +985,7 @@ def cmd_strategy_analyze_risk_tags(args: argparse.Namespace) -> int:
     )
     report = analyze_risk_tags(config, args.strategy_name, params, horizons=_parse_horizons(args.horizons))
     output_format = "json" if getattr(args, "json", False) else args.format
-    _write_rows(
+    write_rows(
         report["rows"],
         columns=["risk_tag", "horizon", "sample_count", "mean_forward_return", "win_rate", "worst_return", "max_drawdown_after_entry"],
         format_name=output_format,
@@ -1107,7 +1011,7 @@ def cmd_strategy_backtest_consensus(args: argparse.Namespace) -> int:
     )
     report = backtest_consensus(config, strategy_names, params, min_hit=args.min_hit)
     output_format = "json" if getattr(args, "json", False) else args.format
-    _emit_report_table(report, format_name=output_format, to=args.output)
+    emit_report_table(report, format_name=output_format, to=args.output)
     return 0
 
 
@@ -1136,7 +1040,7 @@ def cmd_strategy_backtest(args: argparse.Namespace) -> int:
     if args.stress_test:
         periods = {args.stress_period: STRESS_PERIODS[args.stress_period]} if args.stress_period != "all" else STRESS_PERIODS
         report = run_stress_test_suite(config, args.strategy_name, params, periods)
-        _write_rows(
+        write_rows(
             report["rows"],
             columns=[
                 "period",
@@ -1162,15 +1066,15 @@ def cmd_strategy_backtest(args: argparse.Namespace) -> int:
             train_years=args.train_years,
             test_years=args.test_years,
         )
-        _emit_report_table(report, format_name=output_format, to=args.output)
+        emit_report_table(report, format_name=output_format, to=args.output)
         return 0
     if args.monte_carlo:
         base_report = run_backtest(config, args.strategy_name, params)
         report = run_monte_carlo_simulation(base_report.trades, params.portfolio.initial_cash if params.portfolio else 1.0, iterations=args.iterations, seed=args.seed)
-        _emit_report_table(report, format_name=output_format, to=args.output)
+        emit_report_table(report, format_name=output_format, to=args.output)
         return 0
     report = run_backtest(config, args.strategy_name, params)
-    _emit_report_table(report.to_dict(), format_name=output_format, to=args.output)
+    emit_report_table(report.to_dict(), format_name=output_format, to=args.output)
     return 0
 
 

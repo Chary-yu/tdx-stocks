@@ -1,25 +1,31 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import tempfile
 import unittest
 from argparse import Namespace
-import io
-import contextlib
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
 from tdx_stocks.cli import cmd_actions_status, cmd_build, cmd_rebuild, cmd_sync, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
+from tdx_stocks.exit_codes import BuildCheckFailedError, NoDataError
 from tdx_stocks.export_io import load_export_adjustment_factor_rows
 from tdx_stocks.parquet_io import (
     adjustment_factors_schema,
     corporate_actions_schema,
     write_records_table,
 )
+from tdx_stocks.pipeline import (
+    CheckResult,
+    _raise_on_errors,
+    build_dataset,
+    rebuild_dataset,
+    update_actions,
+)
 from tdx_stocks.query import open_query_context, table_column_names
-from tdx_stocks.exit_codes import BuildCheckFailedError, NoDataError
-from tdx_stocks.pipeline import CheckResult, _raise_on_errors, build_dataset, rebuild_dataset, update_actions
 from tdx_stocks.sync import execute_sync
 from tdx_stocks.tdx_day import DAY_RECORD
 
@@ -269,7 +275,7 @@ class PipelineTest(unittest.TestCase):
             load_config.return_value = AppConfig()
             self.assertEqual(cmd_update_actions(args), 0)
             mocked_lock.assert_not_called()
-            self.assertEqual(mocked_update.call_args.kwargs["write_report"], False)
+            self.assertEqual(mocked_update.call_args.kwargs["write_report"], True)
 
     def test_sync_dry_run_skips_lock_and_execution(self) -> None:
         args = Namespace(
@@ -458,6 +464,7 @@ class PipelineTest(unittest.TestCase):
             cache_dir = config.paths.data_root / "cache" / "adjustment_factors"
             self.assertFalse(cache_dir.exists() and any(cache_dir.rglob("*.parquet")))
             self.assertTrue((config.paths.data_root / "cache" / "action_update_report.json").exists())
+            self.assertTrue((config.paths.data_root / "cache" / "action_update_report.dry_run.json").exists())
             self.assertTrue(report["dry_run"])
             self.assertEqual(report["adjustment_factors_rows"], 2)
             self.assertEqual(report["adjustment_factors_state"], "dry-run")

@@ -18,7 +18,8 @@ from tdx_stocks.portfolio import (
     load_current_holdings_csv,
     run_portfolio_backtest,
 )
-from tdx_stocks.portfolio.models import PortfolioReport
+from tdx_stocks.portfolio.models import PortfolioBacktestReport, RebalancePlan
+from tdx_stocks.portfolio.store import save_portfolio_backtest_report, save_rebalance_plan
 from tdx_stocks.strategies.base import StrategyParams
 
 
@@ -193,6 +194,92 @@ class PortfolioBacktestTest(unittest.TestCase):
                         )
         self.assertGreaterEqual(report.total_return, 0.0)
         self.assertGreater(len(report.periods), 0)
+
+    def test_save_rebalance_plan_keeps_json_when_csv_replace_fails(self) -> None:
+        plan = RebalancePlan(
+            schema_version="rebalance-plan-v1",
+            as_of="2024-01-01",
+            current_holdings=[],
+            target_holdings=[],
+            buy=[],
+            sell=[],
+            hold=[],
+            increase=[],
+            reduce=[],
+            weight_changes=[
+                {
+                    "market": "sh",
+                    "symbol": "600000",
+                    "current_weight": 0.1,
+                    "target_weight": 0.2,
+                    "delta_weight": 0.1,
+                    "action": "BUY",
+                    "reason": "test",
+                }
+            ],
+            turnover=0.1,
+            risk_summary={},
+            diagnostics={},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            json_path = data_root / "reports" / "rebalance" / "2024-01-01" / "rebalance_plan.json"
+            csv_path = data_root / "reports" / "rebalance" / "2024-01-01" / "rebalance_plan.csv"
+            json_path.parent.mkdir(parents=True, exist_ok=True)
+            json_path.write_text('{"old": true}', encoding="utf-8")
+            csv_path.write_text("old,csv\n", encoding="utf-8")
+            original_replace = Path.replace
+            calls = {"count": 0}
+
+            def failing_replace(self, target):
+                calls["count"] += 1
+                if calls["count"] == 2:
+                    raise RuntimeError("boom")
+                return original_replace(self, target)
+
+            with patch.object(Path, "replace", failing_replace):
+                with self.assertRaises(RuntimeError):
+                    save_rebalance_plan(data_root, plan)
+
+            self.assertIn('"schema_version": "rebalance-plan-v1"', json_path.read_text(encoding="utf-8"))
+            self.assertEqual(csv_path.read_text(encoding="utf-8"), "old,csv\n")
+
+    def test_save_portfolio_backtest_report_is_atomic(self) -> None:
+        report = PortfolioBacktestReport(
+            schema_version="portfolio-backtest-v1",
+            app_version="0.6.0",
+            generated_at="2024-02-01T10:00:00",
+            as_of="2024-01-01",
+            data_run_id="run-1",
+            source="strategy",
+            params={},
+            total_return=0.1,
+            annual_return=0.2,
+            max_drawdown=-0.05,
+            volatility=0.12,
+            win_rate=0.6,
+            turnover=0.3,
+            avg_holdings=2.0,
+            max_single_weight=0.5,
+            market_exposure={"sh": 1.0},
+            equity_curve=[],
+            periods=[],
+            diagnostics={},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            path = data_root / "reports" / "portfolios" / "backtests" / "2024-01-01" / "portfolio_backtest.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"old": true}', encoding="utf-8")
+
+            def failing_replace(self, target):
+                raise RuntimeError("boom")
+
+            with patch.object(Path, "replace", failing_replace):
+                with self.assertRaises(RuntimeError):
+                    save_portfolio_backtest_report(data_root, report)
+
+            self.assertEqual(path.read_text(encoding="utf-8"), '{"old": true}')
 
 
 class PortfolioCliParserTest(unittest.TestCase):

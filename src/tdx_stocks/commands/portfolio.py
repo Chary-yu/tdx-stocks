@@ -1,29 +1,28 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from pathlib import Path
 
 from ..config import load_config
 from ..console import print_json, print_key_values, print_table
+from ..io_utils import write_json_atomic
 from ..pipeline import parse_iso_date
-from ..query import normalize_output_data
 from ..portfolio import (
     build_portfolio,
-    build_portfolio_weights,
     build_rebalance_plan,
     check_portfolio_risk,
+    list_portfolio_reports,
     load_current_holdings_csv,
     load_latest_portfolio_report,
     load_portfolio_report,
-    list_portfolio_reports,
     run_portfolio_backtest,
     save_portfolio_backtest_report,
     save_portfolio_report,
     save_rebalance_plan,
 )
 from ..portfolio.models import Holding, PortfolioBacktestReport, PortfolioReport, RebalancePlan
+from ..query import normalize_output_data
 from .common import add_config_arg
 
 
@@ -237,8 +236,7 @@ def cmd_portfolio_report_show(args: argparse.Namespace) -> int:
 def _emit_portfolio_report(report: PortfolioReport, *, json_mode: bool, output: Path | None) -> None:
     payload = report.to_dict()
     if output is not None:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        write_json_atomic(output, payload)
     if json_mode:
         print_json(normalize_output_data(payload))
         return
@@ -261,8 +259,7 @@ def _emit_portfolio_report(report: PortfolioReport, *, json_mode: bool, output: 
 def _emit_rebalance_plan(plan: RebalancePlan, *, json_mode: bool, output: Path | None) -> None:
     payload = plan.to_dict()
     if output is not None:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        write_json_atomic(output, payload)
     if json_mode:
         print_json(normalize_output_data(payload))
         return
@@ -281,8 +278,7 @@ def _emit_rebalance_plan(plan: RebalancePlan, *, json_mode: bool, output: Path |
 def _emit_backtest_report(report: PortfolioBacktestReport, *, json_mode: bool, output: Path | None) -> None:
     payload = report.to_dict()
     if output is not None:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        write_json_atomic(output, payload)
     if json_mode:
         print_json(normalize_output_data(payload))
         return

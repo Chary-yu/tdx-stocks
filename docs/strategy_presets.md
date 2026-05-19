@@ -28,5 +28,5 @@ Volume-oriented preset for names with active participation and price strength.
 
 The current first pass keeps the same underlying engine for all presets. The
 differences come from the preset name, candidate filter, and strategy-level
-entry points.
-
+entry points. Run `tdx-stocks strategy list` to see the current CLI-visible
+strategy inventory.

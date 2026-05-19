@@ -10,8 +10,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_trend_strength
-from tdx_stocks.config import AppConfig, PathsConfig
+from tdx_stocks.backtest import (
+    BacktestParams,
+    PortfolioParams,
+    run_backtest,
+    run_portfolio_backtest,
+)
+from tdx_stocks.backtest.monte_carlo import run_monte_carlo_simulation
+from tdx_stocks.backtest.prices import AdjDailyPrice, AdjOpenPrice
 from tdx_stocks.backtest.research import (
     analyze_forward_returns,
     analyze_risk_tags,
@@ -19,28 +25,32 @@ from tdx_stocks.backtest.research import (
     compare_backtests,
     tune_strategy_parameters,
 )
-from tdx_stocks.exit_codes import NoDataError
-from tdx_stocks.backtest import BacktestParams, PortfolioParams, run_backtest, run_portfolio_backtest
-from tdx_stocks.backtest.monte_carlo import run_monte_carlo_simulation
-from tdx_stocks.backtest.prices import AdjDailyPrice, AdjOpenPrice
 from tdx_stocks.backtest.risk import check_exit_signal
 from tdx_stocks.backtest.sizing import calc_target_shares
 from tdx_stocks.backtest.validation import run_stress_test_suite, run_walk_forward_validation
+from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_trend_strength
+from tdx_stocks.commands.strategy import cmd_strategy_backtest
+from tdx_stocks.config import AppConfig, PathsConfig
+from tdx_stocks.exit_codes import NoDataError
 from tdx_stocks.strategies.base import ScoreWeights
 from tdx_stocks.strategies.compare import compare_strategies
 from tdx_stocks.strategies.consensus import build_consensus
 from tdx_stocks.strategies.data import fetch_strategy_rows
-from tdx_stocks.commands.strategy import cmd_strategy_backtest
+from tdx_stocks.strategies.pairs import (
+    PairsParams,
+    _normalize_pair_symbol,
+    _safe_in_list,
+    run_pairs_strategy,
+)
+from tdx_stocks.strategies.presets.mean_reversion import MeanReversionParams
+from tdx_stocks.strategies.registry import get_strategy, list_strategies
 from tdx_stocks.strategies.scoring import build_trend_score_breakdown, calculate_multi_factor_score
 from tdx_stocks.strategies.signals import (
     build_trend_risk_flags,
     build_trend_watch_plan,
     classify_trend_candidate,
 )
-from tdx_stocks.strategies.registry import get_strategy, list_strategies
 from tdx_stocks.strategies.storage import load_saved_report, save_report_document
-from tdx_stocks.strategies.pairs import PairsParams, run_pairs_strategy
-from tdx_stocks.strategies.presets.mean_reversion import MeanReversionParams
 from tdx_stocks.strategy import StrategyParams, StrategyReport, run_trend_strength_strategy
 
 try:
@@ -611,6 +621,43 @@ class StrategyLogicTest(unittest.TestCase):
         self.assertEqual(report.summary["picked"], 2)
         self.assertEqual(report.picks[0]["direction"], "SHORT")
         self.assertEqual(report.picks[1]["direction"], "LONG")
+
+    def test_pairs_strategy_normalizes_and_validates_symbols(self) -> None:
+        params = PairsParams(
+            symbols=(
+                _normalize_pair_symbol("600519.SH"),
+                _normalize_pair_symbol("sh600519"),
+                _normalize_pair_symbol("000001.SZ"),
+            ),
+            lookback=2,
+            zscore_threshold=0.5,
+            max_pairs=1,
+        )
+        self.assertEqual(params.symbols, ("600519", "600519", "000001"))
+        self.assertEqual(_safe_in_list(("600519", "000001")), "'600519', '000001'")
+        with self.assertRaisesRegex(ValueError, "invalid pairs strategy symbol"):
+            _normalize_pair_symbol("600519; drop table factors")
+
+    def test_pairs_strategy_build_params_normalizes_symbols(self) -> None:
+        from tdx_stocks.strategies.pairs import _build_params
+
+        args = SimpleNamespace(
+            limit=20,
+            min_score=60.0,
+            min_amount_ma20=50_000_000.0,
+            market=None,
+            candidate_type=None,
+            include_excluded=False,
+            show_excluded_limit=20,
+            explain_symbol=None,
+            as_of=None,
+            symbols="600519.SH,000001.SZ",
+            lookback=20,
+            zscore_threshold=2.0,
+            max_pairs=10,
+        )
+        params = _build_params(args)
+        self.assertEqual(params.symbols, ("600519", "000001"))
 
     def _insert_strategy_row(self, row: dict[str, object], trade_date: date = date(2024, 1, 4)) -> None:
         self.con.execute(

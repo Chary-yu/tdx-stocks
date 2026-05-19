@@ -4,8 +4,8 @@ import argparse
 import hashlib
 import importlib.util
 import sys
-from dataclasses import dataclass, field
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import AppConfig
@@ -109,9 +109,9 @@ def load_plugins(plugin_dir: Path) -> None:
         sys.modules[module_name] = module
         try:
             spec.loader.exec_module(module)
-        except Exception:
+        except Exception as exc:
             sys.modules.pop(module_name, None)
-            raise
+            raise RuntimeError(f"failed to load strategy plugin {resolved_path}: {exc}") from exc
         _LOADED_PLUGIN_PATHS.add(resolved_path)
 
 
@@ -120,6 +120,7 @@ def _plugin_module_name(path: Path) -> str:
     return f"tdx_stocks_strategy_plugin_{path.stem}_{digest}"
 
 
+from . import pairs as _pairs  # noqa: E402,F401
 from .presets import low_vol_breakout as _low_vol_breakout  # noqa: E402,F401
 from .presets import ma_pullback as _ma_pullback  # noqa: E402,F401
 from .presets import mean_reversion as _mean_reversion  # noqa: E402,F401
@@ -128,4 +129,3 @@ from .presets import relative_strength as _relative_strength  # noqa: E402,F401
 from .presets import smart_money as _smart_money  # noqa: E402,F401
 from .presets import trend_strength as _trend_strength  # noqa: E402,F401
 from .presets import volume_breakout as _volume_breakout  # noqa: E402,F401
-from . import pairs as _pairs  # noqa: E402,F401

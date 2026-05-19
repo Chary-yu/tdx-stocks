@@ -3,31 +3,30 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date, datetime
-import json
 from time import perf_counter
 from typing import Any
-from pathlib import Path
 
 from .. import __version__ as APP_VERSION
 from ..config import AppConfig
 from ..pipeline import build_dataset
+from ..portfolio import (
+    build_portfolio,
+    build_rebalance_plan,
+    check_portfolio_risk,
+    load_current_holdings_csv,
+    save_portfolio_report,
+    save_rebalance_plan,
+)
 from ..query import open_query_context
 from ..strategies.compare import compare_strategies
 from ..strategies.consensus import build_consensus
 from ..strategies.registry import get_strategy
 from ..strategies.storage import build_report_document, save_report_document
-from ..portfolio import (
-    build_portfolio,
-    build_rebalance_plan,
-    load_current_holdings_csv,
-    save_portfolio_report,
-    save_rebalance_plan,
-)
 from .config import DailyRunConfig
 from .diagnostics import collect_warnings_errors
 from .models import DailyRunReport, DailyStepResult
 from .report import render_daily_markdown
-from .store import daily_by_date_dir, save_daily_report
+from .store import save_daily_report, write_daily_json_file
 
 
 @dataclass(frozen=True)
@@ -102,8 +101,8 @@ def run_daily_workflow(
             errors.extend(strategy_payloads["errors"])
             compare_payload = _run_compare(config, strategy_names, latest_trade_date)
             consensus_payload = _run_consensus(config, strategy_names, latest_trade_date, min_hit=min_hit)
-            compare_path = _write_daily_json_file(config, latest_trade_date, "compare.json", compare_payload)
-            consensus_path = _write_daily_json_file(config, latest_trade_date, "consensus.json", consensus_payload)
+            compare_path = write_daily_json_file(config.paths.data_root, latest_trade_date, "compare.json", compare_payload)
+            consensus_path = write_daily_json_file(config.paths.data_root, latest_trade_date, "consensus.json", consensus_payload)
             outputs["compare_json"] = compare_path.as_posix()
             outputs["consensus_json"] = consensus_path.as_posix()
             steps.append(
@@ -428,10 +427,3 @@ def _build_report(
         errors=errors,
         outputs=outputs,
     )
-
-
-def _write_daily_json_file(config: AppConfig, as_of: date, filename: str, payload: Any) -> Path:
-    path = daily_by_date_dir(config.paths.data_root, as_of) / filename
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    return path

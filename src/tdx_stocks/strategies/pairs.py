@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+import re
+from dataclasses import dataclass
 
 from ..config import AppConfig
+from ..duckdb_ops import sql_literal
 from ..pipeline import parse_iso_date
 from ..query import open_query_context, table_column_names
 from .base import StrategyParams, StrategyReport
-from .data import resolve_as_of_date, resolve_execute_date, resolve_markets, resolve_factor_version
+from .data import resolve_as_of_date, resolve_execute_date, resolve_factor_version, resolve_markets
 from .registry import StrategyDefinition, register_strategy
 
 
@@ -26,12 +28,43 @@ class PairsParams(StrategyParams):
         return payload
 
 
+_PAIR_CODE_RE = re.compile(r"^\d{6}$")
+_PAIR_PREFIX_RE = re.compile(r"^(sh|sz|bj)(\d{6})$", re.IGNORECASE)
+_PAIR_SUFFIX_RE = re.compile(r"^(\d{6})\.(sh|sz|bj)$", re.IGNORECASE)
+
+
+def _normalize_pair_symbol(symbol: str) -> str:
+    value = str(symbol).strip()
+    if not value:
+        raise ValueError("pairs strategy symbol cannot be empty")
+    if _PAIR_CODE_RE.fullmatch(value):
+        return value
+    prefix_match = _PAIR_PREFIX_RE.fullmatch(value)
+    if prefix_match is not None:
+        return prefix_match.group(2)
+    suffix_match = _PAIR_SUFFIX_RE.fullmatch(value)
+    if suffix_match is not None:
+        return suffix_match.group(1)
+    raise ValueError(
+        "invalid pairs strategy symbol "
+        f"{symbol!r}; expected a 6-digit code, sh600519, or 600519.SH"
+    )
+
+
+def _safe_in_list(symbols: tuple[str, ...]) -> str:
+    normalized = [_normalize_pair_symbol(symbol) for symbol in symbols]
+    if not normalized:
+        raise ValueError("pairs strategy requires at least one valid symbol")
+    return ", ".join(f"'{sql_literal(symbol)}'" for symbol in normalized)
+
+
 def _build_params(args) -> PairsParams:
-    symbols = tuple(
+    raw_symbols = tuple(
         item.strip()
         for item in str(getattr(args, "symbols", "") or "").split(",")
         if item.strip()
     )
+    symbols = tuple(_normalize_pair_symbol(item) for item in raw_symbols)
     return PairsParams(
         limit=args.limit,
         min_score=args.min_score,
@@ -90,8 +123,8 @@ def _load_pairs(con, source_table: str, markets: tuple[str, ...], trade_date, pa
     symbols = list(params.symbols)
     if len(symbols) < 2:
         raise ValueError("pairs strategy requires at least two symbols")
-    symbol_list = ", ".join(f"'{symbol}'" for symbol in symbols)
-    market_list = ", ".join(f"'{market}'" for market in markets)
+    symbol_list = _safe_in_list(tuple(symbols))
+    market_list = ", ".join(f"'{sql_literal(market)}'" for market in markets)
     sql = f"""
         WITH pool AS (
             SELECT

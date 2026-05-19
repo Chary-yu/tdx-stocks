@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from ..io_utils import write_json_atomic, write_text_atomic
 from .models import PortfolioBacktestReport, PortfolioReport, RebalancePlan
 
 
@@ -42,18 +43,18 @@ def rebalance_plan_csv_path(data_root: Path, as_of: date) -> Path:
 
 def save_portfolio_report(data_root: Path, report: PortfolioReport) -> Path:
     path = latest_portfolio_path(data_root)
-    _write_json(path, report.to_dict())
+    write_json_atomic(path, report.to_dict())
     try:
         as_of = date.fromisoformat(report.as_of)
     except ValueError:
         return path
-    _write_json(portfolio_by_date_path(data_root, as_of), report.to_dict())
+    write_json_atomic(portfolio_by_date_path(data_root, as_of), report.to_dict())
     return path
 
 
 def save_portfolio_backtest_report(data_root: Path, report: PortfolioBacktestReport) -> Path:
     path = portfolio_backtest_path(data_root, date.fromisoformat(report.as_of))
-    _write_json(path, report.to_dict())
+    write_json_atomic(path, report.to_dict())
     return path
 
 
@@ -61,8 +62,8 @@ def save_rebalance_plan(data_root: Path, plan: RebalancePlan) -> tuple[Path, Pat
     as_of = date.fromisoformat(plan.as_of)
     json_path = rebalance_plan_json_path(data_root, as_of)
     csv_path = rebalance_plan_csv_path(data_root, as_of)
-    _write_json(json_path, plan.to_dict())
-    _write_csv(csv_path, plan.weight_changes)
+    write_json_atomic(json_path, plan.to_dict())
+    write_text_atomic(csv_path, _build_csv_text(plan.weight_changes))
     return json_path, csv_path
 
 
@@ -74,6 +75,8 @@ def load_latest_portfolio_report(data_root: Path) -> dict[str, Any] | None:
 
 
 def load_portfolio_report(path: Path) -> dict[str, Any]:
+    import json
+
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -99,19 +102,14 @@ def list_portfolio_reports(data_root: Path) -> list[dict[str, Any]]:
         )
     return sorted(rows, key=lambda row: str(row.get("as_of") or ""), reverse=True)
 
-
-def _write_json(path: Path, document: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(document, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-
-
-def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+def _build_csv_text(rows: list[dict[str, Any]]) -> str:
     import csv
+    from io import StringIO
 
-    path.parent.mkdir(parents=True, exist_ok=True)
     columns = ["market", "symbol", "current_weight", "target_weight", "delta_weight", "action", "reason"]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column) for column in columns})
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({column: row.get(column) for column in columns})
+    return buffer.getvalue()

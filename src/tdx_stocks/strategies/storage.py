@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__ as APP_VERSION
+from ..io_utils import write_json_atomic
 
 REPORT_SCHEMA_VERSION = "strategy-report-v1"
 REPORT_ROOT_NAME = "reports"
@@ -51,8 +52,7 @@ def save_report_document(data_root: Path, strategy_name: str, document: dict[str
         targets["by_run_id"] = report_path(data_root, strategy_name, run_id=str(run_id))
 
     for path in targets.values():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(path, document)
+        write_json_atomic(path, document)
     return {name: path.as_posix() for name, path in targets.items()}
 
 
@@ -177,10 +177,3 @@ def _build_excluded_summary(excluded: list[dict[str, Any]], summary: dict[str, A
         "total": int(summary.get("excluded") or len(excluded)),
         "reasons": reason_counts,
     }
-
-
-def _write_json_atomic(path: Path, document: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(document, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    tmp_path.replace(path)

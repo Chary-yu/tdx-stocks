@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from .actions_io import (
+    load_adjustment_factor_rows,
+    load_corporate_action_rows,
+    resolve_action_inputs,
+)
 from .checks import (
     CheckResult,
     check_adj_daily,
@@ -14,10 +19,7 @@ from .checks import (
     check_factors,
     check_raw_daily,
 )
-from .actions_io import load_adjustment_factor_rows, load_corporate_action_rows, resolve_action_inputs
 from .config import AppConfig
-from .exit_codes import BuildCheckFailedError, NoDataError
-from .factor_sql import build_factor_spec, factor_build_report
 from .duckdb_ops import (
     build_factors,
     connect_duckdb,
@@ -27,20 +29,22 @@ from .duckdb_ops import (
     parquet_glob,
     sql_literal,
 )
+from .exit_codes import BuildCheckFailedError, NoDataError
 from .export_io import build_export_adjustment_factor_result
+from .factor_sql import build_factor_spec, factor_build_report
 from .factors.quality import build_factor_quality, build_factor_quality_summary
 from .factors.reports import (
     build_data_quality_report,
     build_factor_catalog_report,
     build_factor_quality_report,
-    write_json_atomic,
 )
 from .factors.xsec import build_xsec_factors
+from .io_utils import write_json_atomic
 from .parquet_io import (
     RawDailyWriter,
     adjustment_factors_schema,
-    corporate_actions_schema,
     clear_parquet_files,
+    corporate_actions_schema,
     write_empty_adjustment_factors,
     write_empty_corporate_actions,
     write_records_table,
@@ -296,10 +300,7 @@ def build_dataset(
             ),
         )
         report = build_report
-        (run_paths.reports_dir / "build_report.json").write_text(
-            json.dumps(report, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
+        write_json_atomic(run_paths.reports_dir / "build_report.json", report)
 
         _progress(progress, "Writing build report")
         commit_version(run_paths, report)
@@ -548,9 +549,7 @@ def commit_version(run_paths: RunPaths, report: dict) -> None:
         "factor_quality_report": (run_paths.version_dir / "reports" / "factor_quality_report.json").as_posix(),
         "summary": report,
     }
-    tmp_path = run_paths.latest_manifest.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(manifest, ensure_ascii=True, indent=2), encoding="utf-8")
-    tmp_path.replace(run_paths.latest_manifest)
+    write_json_atomic(run_paths.latest_manifest, manifest)
 
 
 def _raise_on_errors(checks: list[CheckResult]) -> None:
@@ -705,8 +704,9 @@ def update_actions(
             _progress(progress, "Kept existing adjustment_factors cache")
 
     if write_report:
-        (cache_root / "action_update_report.json").write_text(
-            json.dumps(report, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
+        legacy_report_path = cache_root / "action_update_report.json"
+        report_path = cache_root / "action_update_report.dry_run.json" if dry_run else legacy_report_path
+        write_json_atomic(report_path, report)
+        if dry_run:
+            write_json_atomic(legacy_report_path, report)
     return report

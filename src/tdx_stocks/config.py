@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_TDX_VIPDOC = Path("/mnt/d/ProgramFiles/Tdx/vipdoc")
-DEFAULT_TDX_EXPORT = Path("/mnt/d/ProgramFiles/Tdx/T0002/export")
-DEFAULT_DATA_ROOT = Path("/mnt/d/Zcyu/Chary-codex/tdx-stocks/Database")
-DEFAULT_PLUGIN_DIR = Path("~/.tdx-stocks/plugins").expanduser()
+DEFAULT_TDX_VIPDOC = Path("")
+DEFAULT_TDX_EXPORT = Path("")
+DEFAULT_DATA_ROOT = Path("./Database")
+DEFAULT_PLUGIN_DIR = Path("~/.tdx-stocks/plugins")
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,21 @@ class AppConfig:
     daily: DailyConfig = field(default_factory=DailyConfig)
 
 
+def _load_path(value: object | None, *, default: Path, env_name: str | None = None, expanduser: bool = False) -> Path:
+    raw = value
+    if raw in (None, "") and env_name:
+        env_value = os.environ.get(env_name)
+        if env_value:
+            raw = env_value
+    if raw in (None, ""):
+        path = default
+    elif isinstance(raw, Path):
+        path = raw
+    else:
+        path = Path(str(raw))
+    return path.expanduser() if expanduser else path
+
+
 def load_config(path: Path | None) -> AppConfig:
     if path is None:
         return AppConfig()
@@ -70,10 +86,10 @@ def load_config(path: Path | None) -> AppConfig:
 
     return AppConfig(
         paths=PathsConfig(
-            tdx_vipdoc=Path(paths.get("tdx_vipdoc", DEFAULT_TDX_VIPDOC)),
-            tdx_export=Path(paths.get("tdx_export", DEFAULT_TDX_EXPORT)),
-            data_root=Path(paths.get("data_root", DEFAULT_DATA_ROOT)),
-            plugin_dir=Path(paths.get("plugin_dir", DEFAULT_PLUGIN_DIR)).expanduser(),
+            tdx_vipdoc=_load_path(paths.get("tdx_vipdoc"), default=DEFAULT_TDX_VIPDOC, env_name="TDX_STOCKS_TDX_VIPDOC"),
+            tdx_export=_load_path(paths.get("tdx_export"), default=DEFAULT_TDX_EXPORT, env_name="TDX_STOCKS_TDX_EXPORT"),
+            data_root=_load_path(paths.get("data_root"), default=DEFAULT_DATA_ROOT, env_name="TDX_STOCKS_DATA_ROOT"),
+            plugin_dir=_load_path(paths.get("plugin_dir"), default=DEFAULT_PLUGIN_DIR, env_name="TDX_STOCKS_PLUGIN_DIR", expanduser=True),
         ),
         build=BuildConfig(
             markets=tuple(build.get("markets", ("sh", "sz"))),
@@ -108,11 +124,11 @@ def load_config(path: Path | None) -> AppConfig:
 
 
 def write_default_config(path: Path) -> None:
-    text = f"""[paths]
-tdx_vipdoc = "{DEFAULT_TDX_VIPDOC.as_posix()}"
-tdx_export = "{DEFAULT_TDX_EXPORT.as_posix()}"
-data_root = "{DEFAULT_DATA_ROOT.as_posix()}"
-plugin_dir = "{DEFAULT_PLUGIN_DIR.as_posix()}"
+    text = """[paths]
+tdx_vipdoc = ""
+tdx_export = ""
+data_root = "./Database"
+plugin_dir = "~/.tdx-stocks/plugins"
 
 [build]
 markets = ["sh", "sz"]

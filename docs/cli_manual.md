@@ -19,7 +19,7 @@
 - `data update` 用来刷新 `corporate_actions` 和 `adjustment_factors` 缓存。
 - `corporate_actions` 和 `adjustment_factors` 都可以来自本地缓存或外部输入文件。
 - `data update --source export` 可以直接读取 `T0002/export` 的前复权文本，反推 `adjustment_factors`。
-- `data update --dry-run` 只生成更新报告，不写入缓存。
+- `data update --dry-run` 只生成更新报告，不写入缓存，并会额外写出 `action_update_report.dry_run.json`。
 - `data status` 用来查看缓存状态、覆盖区间和最近一次更新报告。
 - `audit verify` 用来将 `adj_daily` 与通达信导出的前复权文本做对账。
 - `adj_daily` 默认是前复权行情，`hfq_daily` 默认是后复权行情；缓存不存在时会退回为 `adj_factor = 1.0` 的保守模式。
@@ -61,12 +61,21 @@ tdx-stocks init-config --path tdx_stocks.toml
 - `paths.tdx_vipdoc`：通达信 `vipdoc` 根目录
 - `paths.tdx_export`：通达信 `T0002/export` 根目录
 - `paths.data_root`：本地数据根目录
+- `paths.plugin_dir`：插件目录
 - `build.markets`：默认 `["sh", "sz"]`
 - `build.universe`：默认 `ashare`
 - `build.compression`：默认 `zstd`
 - `build.batch_rows`：Parquet 写入批次
 - `build.duckdb_memory_limit`：DuckDB 内存上限
 - `build.overwrite_staging`：是否允许覆盖已有 staging
+
+如果 `paths.tdx_vipdoc`、`paths.tdx_export` 或 `paths.data_root` 没有在
+配置里设置，程序会优先读取同名环境变量：
+
+- `TDX_STOCKS_TDX_VIPDOC`
+- `TDX_STOCKS_TDX_EXPORT`
+- `TDX_STOCKS_DATA_ROOT`
+- `TDX_STOCKS_PLUGIN_DIR`
 
 ## 4. 数据类命令
 
@@ -117,6 +126,7 @@ tdx-stocks audit verify 600519.SH --config tdx_stocks.toml
 - `--source`：`local` / `file` / `export`
 - `--input`：可选输入文件或目录
 - `--dry-run`：只生成报告，不写缓存
+- `--dry-run`：只生成报告，不写缓存；dry-run 报告会写到 `action_update_report.dry_run.json`
 
 参数与 `build` 相同。
 
@@ -136,6 +146,9 @@ tdx-stocks audit doctor --config tdx_stocks.toml
 - 检测到的 `.day` 文件数与样本
 - `duckdb`、`pyarrow` 版本
 
+如果必需路径未配置或不存在，`doctor` 会输出明确错误并返回非零
+退出码。
+
 ### `data status`
 
 旧命令别名，等价于 `data status`。查看缓存里的 `corporate_actions`、`adjustment_factors`，以及最近一次更新报告。
@@ -149,7 +162,7 @@ tdx-stocks data status --json
 
 - `corporate_actions` / `adjustment_factors` 是否存在
 - parquet 文件数、行数、覆盖股票数、日期范围
-- `action_update_report.json` 的最近一次更新摘要
+- `action_update_report.json` 或 `action_update_report.dry_run.json` 的最近一次更新摘要
 
 ### `audit verify`
 

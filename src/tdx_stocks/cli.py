@@ -1,51 +1,92 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from .commands.audit import (
     cmd_doctor as _audit_cmd_doctor,
-    cmd_verify_adjustment as _audit_cmd_verify_adjustment,
-    register_audit_group,
-    register_legacy_audit_aliases,
 )
+from .commands.audit import (
+    cmd_verify_adjustment as _audit_cmd_verify_adjustment,
+)
+from .commands.audit import (
+    register_audit_group,
+)
+from .commands.daily import register_daily_group
 from .commands.data import (
     cmd_actions_status as _data_cmd_actions_status,
-    cmd_build as _data_cmd_build,
-    cmd_quality_report as _data_cmd_quality_report,
-    cmd_rebuild as _data_cmd_rebuild,
-    cmd_update_actions as _data_cmd_update_actions,
-    register_data_group,
-    register_legacy_data_aliases,
 )
+from .commands.data import (
+    cmd_build as _data_cmd_build,
+)
+from .commands.data import (
+    cmd_quality_report as _data_cmd_quality_report,
+)
+from .commands.data import (
+    cmd_rebuild as _data_cmd_rebuild,
+)
+from .commands.data import (
+    cmd_update_actions as _data_cmd_update_actions,
+)
+from .commands.data import (
+    register_data_group,
+)
+from .commands.factors import (
+    cmd_factors_describe as _factors_cmd_describe,
+)
+from .commands.factors import (
+    cmd_factors_list as _factors_cmd_list,
+)
+from .commands.factors import (
+    cmd_factors_rank as _factors_cmd_rank,
+)
+from .commands.factors import (
+    cmd_factors_schema as _factors_cmd_schema,
+)
+from .commands.factors import (
+    register_factors_group,
+)
+from .commands.portfolio import register_portfolio_group
 from .commands.query import (
     cmd_export as _query_cmd_export,
+)
+from .commands.query import (
     cmd_head as _query_cmd_head,
+)
+from .commands.query import (
     cmd_schema as _query_cmd_schema,
+)
+from .commands.query import (
     cmd_sql as _query_cmd_sql,
-    cmd_stock as _query_cmd_stock,
+)
+from .commands.query import (
     cmd_status as _query_cmd_status,
+)
+from .commands.query import (
+    cmd_stock as _query_cmd_stock,
+)
+from .commands.query import (
     cmd_tables as _query_cmd_tables,
-    register_legacy_query_aliases,
+)
+from .commands.query import (
     register_query_group,
 )
 from .commands.strategy import (
     cmd_strategy_list as _strategy_cmd_strategy_list,
+)
+from .commands.strategy import (
     cmd_strategy_run as _strategy_cmd_strategy_run,
+)
+from .commands.strategy import (
     cmd_strategy_run_trend_strength as _strategy_cmd_strategy_run_trend_strength,
+)
+from .commands.strategy import (
     register_strategy_group,
 )
-from .commands.portfolio import register_portfolio_group
-from .commands.daily import register_daily_group
-from .commands.factors import (
-    cmd_factors_describe as _factors_cmd_describe,
-    cmd_factors_list as _factors_cmd_list,
-    cmd_factors_rank as _factors_cmd_rank,
-    cmd_factors_schema as _factors_cmd_schema,
-    register_factors_group,
-)
-from .commands.sync import cmd_sync as _sync_cmd_sync, register_sync_group
+from .commands.sync import cmd_sync as _sync_cmd_sync
+from .commands.sync import register_sync_group
 from .config import AppConfig, load_config, write_default_config
 from .exit_codes import (
     CliError,
@@ -64,17 +105,20 @@ class TdxArgumentParser(argparse.ArgumentParser):
 
 def main(argv: list[str] | None = None) -> int:
     argv = _rewrite_legacy_argv(sys.argv[1:] if argv is None else argv)
+    enable_plugins = _should_enable_plugins(argv)
+    argv = _strip_enable_plugins(argv)
     try:
         _validate_output_aliases(argv)
     except UsageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return int(exc.code)
     try:
-        _load_plugins_for_argv(argv)
+        if enable_plugins:
+            _load_plugins_for_argv(argv)
     except FileNotFoundError:
         pass
     except Exception as exc:  # noqa: BLE001
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: failed to load plugins: {exc}", file=sys.stderr)
         return int(ExitCode.UNKNOWN_ERROR)
     parser = build_parser(load_default_plugins=False)
     try:
@@ -108,12 +152,17 @@ def main(argv: list[str] | None = None) -> int:
     return int(result)
 
 
-def build_parser(*, load_default_plugins: bool = True) -> argparse.ArgumentParser:
+def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentParser:
     if load_default_plugins:
         load_plugins(AppConfig().paths.plugin_dir)
     parser = TdxArgumentParser(
         prog="tdx-stocks",
         epilog="Tip: use `tdx-stocks help-summary` to generate the markdown CLI manual.",
+    )
+    parser.add_argument(
+        "--enable-plugins",
+        action="store_true",
+        help="Load strategy plugins from the configured plugin directory.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -181,16 +230,23 @@ def _load_plugins_for_argv(argv: list[str]) -> None:
     load_plugins(config.paths.plugin_dir)
 
 
+def _should_enable_plugins(argv: list[str]) -> bool:
+    env_value = os.getenv("TDX_STOCKS_ENABLE_PLUGINS", "").strip().lower()
+    if env_value in {"1", "true", "yes", "on"}:
+        return True
+    return "--enable-plugins" in argv
+
+
+def _strip_enable_plugins(argv: list[str]) -> list[str]:
+    return [item for item in argv if item != "--enable-plugins"]
+
+
 def _find_config_arg(argv: list[str]) -> Path | None:
     for index, item in enumerate(argv):
         if item in {"--config", "-c"} and index + 1 < len(argv):
             return Path(argv[index + 1])
         if item.startswith("--config="):
             return Path(item.split("=", 1)[1])
-    return None
-
-
-def _register_legacy_aliases(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     return None
 
 

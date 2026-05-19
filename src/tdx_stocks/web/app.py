@@ -1,22 +1,20 @@
 from __future__ import annotations
 
 import os
-import sys
+import tempfile
 from pathlib import Path
 
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from tdx_stocks.config import AppConfig, load_config  # noqa: E402
-from tdx_stocks.strategies.storage import latest_report_dir, strategy_reports_root  # noqa: E402
-
-from web.components import plot_equity_curve, plot_monthly_heatmap, plot_trade_returns, plot_underwater_drawdown  # noqa: E402
-from web.data_loader import discover_report_files, load_backtest_report  # noqa: E402
-
+from ..config import AppConfig, load_config
+from ..strategies.storage import latest_report_dir, strategy_reports_root
+from .components import (
+    plot_equity_curve,
+    plot_monthly_heatmap,
+    plot_trade_returns,
+    plot_underwater_drawdown,
+)
+from .data_loader import discover_report_files, load_backtest_report
 
 st.set_page_config(page_title="tdx-stocks 量化投研中台", layout="wide", page_icon="📈")
 
@@ -25,6 +23,9 @@ def _resolve_data_root() -> Path:
     env_root = os.environ.get("TDX_STOCKS_DATA_ROOT")
     if env_root:
         return Path(env_root).expanduser()
+    data_root_input = st.session_state.get("data_root_input")
+    if data_root_input:
+        return Path(str(data_root_input)).expanduser()
     config_path = os.environ.get("TDX_STOCKS_CONFIG")
     if config_path:
         return load_config(Path(config_path)).paths.data_root
@@ -51,13 +52,12 @@ st.title("tdx-stocks 投研可视化中台")
 st.caption("加载已保存的回测报告，查看净值、回撤、交易与月度表现。")
 
 data_root = _resolve_data_root()
+reports_root_default = latest_report_dir(data_root)
+report_scan_root = strategy_reports_root(data_root)
 
 with st.sidebar:
     st.header("数据源")
-    data_root_input = st.text_input("数据根目录", value=data_root.as_posix())
-    data_root = Path(data_root_input).expanduser()
-    reports_root_default = latest_report_dir(data_root)
-    report_scan_root = strategy_reports_root(data_root)
+    data_root_input = st.text_input("数据根目录", value=data_root.as_posix(), key="data_root_input")
     reports_root_input = st.text_input("报告目录", value=reports_root_default.as_posix())
     upload = st.file_uploader("导入 JSON 报告", type=["json"])
     reports_root = Path(reports_root_input).expanduser()
@@ -68,10 +68,8 @@ with st.sidebar:
         chosen = None
 
 if upload is not None:
-    from tempfile import NamedTemporaryFile
-
     raw = upload.getvalue().decode("utf-8")
-    with NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
         handle.write(raw)
         temp_path = Path(handle.name)
     try:
@@ -123,7 +121,21 @@ with tab_equity:
 with tab_trades:
     st.plotly_chart(plot_trade_returns(trades_df), use_container_width=True)
     if trades_df is not None and not trades_df.empty:
-        view_cols = [col for col in ["market", "symbol", "signal_date", "buy_date", "sell_date", "direction", "gross_return", "net_return", "skipped_reason"] if col in trades_df.columns]
+        view_cols = [
+            col
+            for col in [
+                "market",
+                "symbol",
+                "signal_date",
+                "buy_date",
+                "sell_date",
+                "direction",
+                "gross_return",
+                "net_return",
+                "skipped_reason",
+            ]
+            if col in trades_df.columns
+        ]
         st.dataframe(trades_df[view_cols], use_container_width=True, height=480)
     else:
         st.info("报告中没有交易明细。")

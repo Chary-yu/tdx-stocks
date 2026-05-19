@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from ..io_utils import write_json_atomic, write_text_atomic
 from .models import DailyRunReport
 
 
@@ -36,6 +37,12 @@ def daily_manifest_path(data_root: Path, as_of: date) -> Path:
     return daily_by_date_dir(data_root, as_of) / "manifest.json"
 
 
+def write_daily_json_file(data_root: Path, as_of: date, filename: str, payload: Any) -> Path:
+    path = daily_by_date_dir(data_root, as_of) / filename
+    write_json_atomic(path, payload)
+    return path
+
+
 def save_daily_report(data_root: Path, report: DailyRunReport, markdown: str) -> dict[str, str]:
     as_of = date.fromisoformat(report.as_of)
     paths = {
@@ -46,11 +53,11 @@ def save_daily_report(data_root: Path, report: DailyRunReport, markdown: str) ->
         "manifest": daily_manifest_path(data_root, as_of),
     }
     payload = report.to_dict()
-    _write_json(paths["latest_json"], payload)
-    _write_json(paths["daily_json"], payload)
-    _write_json(paths["manifest"], payload)
-    _write_text(paths["latest_md"], markdown)
-    _write_text(paths["daily_md"], markdown)
+    write_json_atomic(paths["latest_json"], payload)
+    write_json_atomic(paths["daily_json"], payload)
+    write_json_atomic(paths["manifest"], payload)
+    write_text_atomic(paths["latest_md"], markdown)
+    write_text_atomic(paths["daily_md"], markdown)
     return {key: path.as_posix() for key, path in paths.items()}
 
 
@@ -92,13 +99,3 @@ def list_daily_reports(data_root: Path) -> list[dict[str, Any]]:
             }
         )
     return sorted(rows, key=lambda row: str(row.get("as_of") or ""), reverse=True)
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-
-
-def _write_text(path: Path, payload: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(payload, encoding="utf-8")

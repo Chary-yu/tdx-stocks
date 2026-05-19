@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 from ..config import load_config
 from ..console import print_json, print_key_values
-from ..factors.reports import build_data_quality_report, write_json_atomic
 from ..duckdb_ops import connect_duckdb, parquet_glob, sql_literal
+from ..factors.reports import build_data_quality_report, write_json_atomic
 from ..pipeline import build_dataset, parse_iso_date, rebuild_dataset, update_actions
 from ..query import normalize_output_data
-from .common import add_build_args, add_config_arg
+from .common import add_build_args, add_config_arg, stderr_progress
 from .common import legacy_notice as _legacy_notice
-from .common import stderr_progress, write_lock as _write_lock
+from .common import write_lock as _write_lock
 
 
 def summarize_cached_table(con, root: Path, date_column: str) -> dict[str, object]:
@@ -202,7 +202,7 @@ def cmd_update_actions(args: argparse.Namespace) -> int:
             input_path=args.input,
             dry_run=args.dry_run,
             progress=stderr_progress,
-            write_report=False,
+            write_report=True,
         )
     else:
         with lock_cm:
@@ -242,8 +242,8 @@ def cmd_actions_status(args: argparse.Namespace) -> int:
     finally:
         con.close()
 
-    report_path = cache_root / "action_update_report.json"
-    if report_path.exists():
+    report_path = _latest_action_update_report_path(cache_root)
+    if report_path is not None:
         report["action_update_report"] = json.loads(report_path.read_text(encoding="utf-8"))
         report["generated_at"] = report["action_update_report"].get("generated_at")
     if args.json:
@@ -316,6 +316,17 @@ def cmd_actions_status(args: argparse.Namespace) -> int:
                 rows.append(("action_update_report.date_range.max", date_range.get("max")))
         print_key_values("action update report", rows)
     return 0
+
+
+def _latest_action_update_report_path(cache_root: Path) -> Path | None:
+    candidates = [
+        cache_root / "action_update_report.json",
+        cache_root / "action_update_report.dry_run.json",
+    ]
+    existing = [path for path in candidates if path.exists()]
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
 
 
 def cmd_quality_report(args: argparse.Namespace) -> int:

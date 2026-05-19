@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import date
 from pathlib import Path
 
 from ..config import load_config
 from ..console import print_json, print_key_values
-from ..query import load_latest_manifest, normalize_output_data
 from ..daily import (
+    list_daily_reports,
     load_daily_report,
     load_latest_daily_report,
-    list_daily_reports,
     render_daily_json,
     render_daily_markdown,
     run_daily_workflow,
-    save_daily_report,
 )
+from ..io_utils import write_json_atomic, write_text_atomic
+from ..query import load_latest_manifest, normalize_output_data
 from .common import add_config_arg
 
 
@@ -79,11 +78,10 @@ def cmd_daily_run(args: argparse.Namespace) -> int:
         build_data=args.build,
     )
     if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
         if args.json:
-            args.output.write_text(json.dumps(render_daily_json(report.report), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            write_json_atomic(args.output, render_daily_json(report.report))
         else:
-            args.output.write_text(report.markdown, encoding="utf-8")
+            write_text_atomic(args.output, report.markdown)
     if args.json:
         print_json(normalize_output_data(report.report.to_dict()))
     else:
@@ -143,14 +141,12 @@ def cmd_daily_report(args: argparse.Namespace) -> int:
     if args.format == "json":
         payload = render_daily_json(_to_report(doc))
         if args.output is not None:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            write_json_atomic(args.output, payload)
         print_json(normalize_output_data(payload))
     else:
         markdown = render_daily_markdown(_to_report(doc))
         if args.output is not None:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(markdown, encoding="utf-8")
+            write_text_atomic(args.output, markdown)
         print(markdown, end="")
     return 0
 

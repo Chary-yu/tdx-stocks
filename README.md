@@ -27,9 +27,10 @@ Quick copy-paste commands:
 Default local paths for this workspace:
 
 ```text
-TDX vipdoc: /mnt/d/ProgramFiles/Tdx/vipdoc
-TDX export: /mnt/d/ProgramFiles/Tdx/T0002/export
-Data root:  /mnt/d/Zcyu/Chary-codex/tdx-stocks/Database
+TDX vipdoc:   (set in config or TDX_STOCKS_TDX_VIPDOC)
+TDX export:   (set in config or TDX_STOCKS_TDX_EXPORT)
+Data root:    ./Database
+Plugin dir:   ~/.tdx-stocks/plugins
 ```
 
 ## Install
@@ -69,6 +70,10 @@ Create a config file:
 tdx-stocks init-config --path tdx_stocks.toml
 ```
 
+The generated template leaves `tdx_vipdoc` and `tdx_export` empty so you can
+fill them explicitly or provide `TDX_STOCKS_TDX_VIPDOC` /
+`TDX_STOCKS_TDX_EXPORT` at runtime.
+
 Preview the recommended sync plan:
 
 ```bash
@@ -80,6 +85,9 @@ Inspect the local TDX directory:
 ```bash
 tdx-stocks audit doctor --config tdx_stocks.toml
 ```
+
+`audit doctor` now reports missing required paths as explicit errors and
+suggests the matching environment variable fallback.
 
 Inspect a stock in read-only mode:
 
@@ -117,10 +125,20 @@ tdx-stocks sync --config tdx_stocks.toml --dry-run
 ```
 
 Use `data status --json` when you want to inspect the current cache and the
-latest update report from tooling or `jq`.
+latest update report from tooling or `jq`. `data update --dry-run` now writes
+`action_update_report.dry_run.json` in addition to the legacy report file so
+dry-run results can be inspected without mutating cache tables.
 
 Use `audit verify --json` when you want to compare `adj_daily` against a
 specific TDX export file from tooling or `jq`.
+
+Web UI entry point:
+
+```bash
+streamlit run src/tdx_stocks/web/app.py
+```
+
+The packaged import path is `tdx_stocks.web.app`.
 
 `data build` and `data rebuild` print stage progress to stderr while they run.
 Internally the factor build now runs in staged DuckDB temp tables so the heavy
