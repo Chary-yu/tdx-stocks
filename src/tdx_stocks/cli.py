@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 import sys
+import traceback
 from pathlib import Path
 
 from .commands.audit import (
@@ -155,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError:
         pass
     except Exception as exc:  # noqa: BLE001
-        print(f"error: failed to load plugins: {exc}", file=sys.stderr)
+        _print_cli_error(f"failed to load plugins: {exc}", debug=_should_debug(argv), exc=exc)
         return int(ExitCode.UNKNOWN_ERROR)
     parser = build_parser(load_default_plugins=False)
     try:
@@ -181,10 +182,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return int(ExitCode.USAGE_ERROR)
     except RuntimeError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        _print_cli_error(str(exc), debug=getattr(args, "debug", False), exc=exc)
         return int(ExitCode.UNKNOWN_ERROR)
     except Exception as exc:  # noqa: BLE001
-        print(f"error: {exc}", file=sys.stderr)
+        _print_cli_error(str(exc), debug=getattr(args, "debug", False), exc=exc)
         return int(ExitCode.UNKNOWN_ERROR)
     return int(result)
 
@@ -227,6 +228,11 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
         "--enable-plugins",
         action="store_true",
         help="Load strategy plugins from the configured plugin directory.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print full tracebacks for unexpected errors.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -315,6 +321,10 @@ def _should_enable_plugins(argv: list[str]) -> bool:
 
 def _strip_enable_plugins(argv: list[str]) -> list[str]:
     return [item for item in argv if item != "--enable-plugins"]
+
+
+def _should_debug(argv: list[str]) -> bool:
+    return "--debug" in argv
 
 
 def _find_config_arg(argv: list[str]) -> Path | None:
@@ -469,6 +479,16 @@ def cmd_factors_schema(args: argparse.Namespace) -> int:
 
 def cmd_factors_rank(args: argparse.Namespace) -> int:
     return _factors_cmd_rank(args)
+
+
+def _print_cli_error(message: str, *, debug: bool, exc: Exception | None = None) -> None:
+    if exc is None:
+        rendered = message
+    else:
+        rendered = f"{exc.__class__.__name__}: {message}"
+    print(f"error: {rendered}", file=sys.stderr)
+    if debug and exc is not None:
+        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
 
 if __name__ == "__main__":
     raise SystemExit(main())

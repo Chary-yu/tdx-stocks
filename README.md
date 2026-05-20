@@ -22,12 +22,15 @@ init -> data sync -> run <config.toml> -> ui
 Quick copy-paste commands:
 
 ```bash
-./.venv/bin/python -m unittest tests.test_pipeline -q
-./.venv/bin/python -m unittest tests.test_duckdb_ops -q
-./.venv/bin/python -m unittest tests.test_adjustment_verify -q
-./.venv/bin/python -m unittest tests.test_lock -q
-./.venv/bin/python -m unittest discover -s tests -q
+./.venv/bin/pytest tests/test_pipeline.py -q
+./.venv/bin/pytest tests/test_duckdb_ops.py -q
+./.venv/bin/pytest tests/test_adjustment_verify.py -q
+./.venv/bin/pytest tests/test_lock.py -q
+./.venv/bin/pytest -q
 ```
+
+CI and local regression runs now use `pytest`; the integration subset can be run with
+`pytest -m integration -q`.
 
 ## Paths
 
@@ -232,30 +235,30 @@ Quick regression commands:
 Daily:
 
 ```bash
-./.venv/bin/python -m unittest tests.test_pipeline -q
-./.venv/bin/python -m unittest tests.test_duckdb_ops -q
+./.venv/bin/pytest tests/test_pipeline.py -q
+./.venv/bin/pytest tests/test_duckdb_ops.py -q
 ```
 
 Pre-commit:
 
 ```bash
-./.venv/bin/python -m unittest tests.test_query -q
-./.venv/bin/python -m unittest discover -s tests -q
+./.venv/bin/pytest tests/test_query.py -q
+./.venv/bin/pytest -q
 ```
 
 Targeted troubleshooting:
 
 ```bash
-./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_actions_status_reports_cache_and_update_report -q
-./.venv/bin/python -m unittest tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols -q
+./.venv/bin/pytest tests/test_pipeline.py -k actions_status_reports_cache_and_update_report -q
+./.venv/bin/pytest tests/test_pipeline.py -k update_actions_export_dry_run_reports_skipped_symbols -q
 ```
 
 Recommended order:
 
-1. `tests.test_pipeline` for update/build/cache flow.
-2. `tests.test_duckdb_ops` for ASOF and factor join logic.
-3. `tests.test_query` for SQL generation and factor checks.
-4. Full `discover` run before you commit or push.
+1. `pytest tests/test_pipeline.py` for update/build/cache flow.
+2. `pytest tests/test_duckdb_ops.py` for ASOF and factor join logic.
+3. `pytest tests/test_query.py` for SQL generation and factor checks.
+4. `pytest -q` before you commit or push.
 
 The committed dataset is written under:
 
@@ -316,14 +319,14 @@ are abbreviated with units like `K`, `M`, and `B` for readability.
 Run ad hoc SQL:
 
 ```bash
-tdx-stocks query sql "select symbol, count(*) as row_count, max(trade_date) as last_date from raw_daily group by symbol order by symbol"
+tdx-stocks query sql --unsafe-sql "select symbol, count(*) as row_count, max(trade_date) as last_date from raw_daily group by symbol order by symbol"
 ```
 
 The SQL session also registers convenience macros:
 
 ```bash
-tdx-stocks query sql "select * from last_n_days('600519.SH', 10)"
-tdx-stocks query sql "select * from last_n_factors('600519.SH', 10)"
+tdx-stocks query sql --unsafe-sql "select * from last_n_days('600519.SH', 10)"
+tdx-stocks query sql --unsafe-sql "select * from last_n_factors('600519.SH', 10)"
 ```
 
 Export a filtered result to CSV:

@@ -160,7 +160,7 @@ def _read_lock_metadata(path: Path) -> LockMetadata | None:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         return None
     try:
         return LockMetadata(

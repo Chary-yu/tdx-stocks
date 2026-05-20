@@ -29,6 +29,14 @@ SQL_BLOCKLIST_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+SQL_FILE_READ_RE = re.compile(
+    r"\b("
+    r"read_(?:csv|parquet|json|ndjson|text|blob)(?:_auto)?"
+    r"|read_csv_auto|read_json_auto|read_ndjson_auto|read_text"
+    r"|from_(?:csv|parquet|json)(?:_auto)?"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -222,6 +230,18 @@ def table_columns(con, table: str) -> list[tuple[str, str]]:
 
 def table_column_names(con, table: str) -> set[str]:
     return {name for name, _type in table_columns(con, table)}
+
+
+def table_exists(con, table: str) -> bool:
+    try:
+        import duckdb
+    except ModuleNotFoundError:
+        return False
+    try:
+        table_columns(con, table)
+    except (duckdb.BinderException, duckdb.CatalogException, duckdb.ParserException):
+        return False
+    return True
 
 
 def date_column(con, table: str) -> str | None:
@@ -581,6 +601,8 @@ def ensure_read_only_sql(sql: str) -> str:
     if not statement.lstrip().lower().startswith(("select", "with")):
         raise ValueError("sql must start with SELECT or WITH")
     if SQL_BLOCKLIST_RE.search(statement):
+        raise ValueError("sql must be read-only")
+    if SQL_FILE_READ_RE.search(statement):
         raise ValueError("sql must be read-only")
     return statement
 

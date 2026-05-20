@@ -47,6 +47,60 @@ register_strategy(
             finally:
                 _unregister_strategy(strategy_name)
 
+    def test_load_plugins_rejects_non_directory_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_path = Path(tmp) / "plugin.py"
+            plugin_path.write_text("pass", encoding="utf-8")
+
+            with self.assertRaises(NotADirectoryError):
+                load_plugins(plugin_path)
+
+    def test_load_plugins_ignores_duplicate_loads(self) -> None:
+        strategy_name = f"plugin-duplicate-{uuid.uuid4().hex}"
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_dir = Path(tmp)
+            (plugin_dir / "duplicate_plugin.py").write_text(
+                f"""
+from tdx_stocks.strategies.base import StrategyParams, StrategyReport
+from tdx_stocks.strategies.registry import StrategyDefinition, register_strategy
+
+
+def run_plugin_strategy(config, params):
+    return StrategyReport(summary={{}}, picks=[], excluded=[], explain=None)
+
+
+register_strategy(
+    StrategyDefinition(
+        name={strategy_name!r},
+        description="Duplicate load test strategy.",
+        runner=run_plugin_strategy,
+        default_params=StrategyParams(),
+    )
+)
+""",
+                encoding="utf-8",
+            )
+
+            try:
+                load_plugins(plugin_dir)
+                first_definition = get_strategy(strategy_name)
+                load_plugins(plugin_dir)
+                second_definition = get_strategy(strategy_name)
+                self.assertIs(first_definition, second_definition)
+            finally:
+                _unregister_strategy(strategy_name)
+
+    def test_load_plugins_propagates_bad_plugin_and_allows_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_dir = Path(tmp)
+            bad_plugin = plugin_dir / "bad_plugin.py"
+            bad_plugin.write_text("raise RuntimeError('boom')", encoding="utf-8")
+
+            with self.assertRaises(RuntimeError):
+                load_plugins(plugin_dir)
+            with self.assertRaises(RuntimeError):
+                load_plugins(plugin_dir)
+
     def test_config_loads_plugin_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "tdx_stocks.toml"
@@ -106,6 +160,24 @@ register_strategy(
                 self.assertEqual(get_strategy(strategy_name).name, strategy_name)
             finally:
                 _unregister_strategy(strategy_name)
+
+    def test_main_reports_plugin_load_root_cause(self) -> None:
+        buffer = io.StringIO()
+        with patch("tdx_stocks.cli.load_plugins", side_effect=RuntimeError("boom")):
+            with contextlib.redirect_stderr(buffer):
+                code = main(["--enable-plugins", "status"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("RuntimeError: failed to load plugins: boom", buffer.getvalue())
+
+    def test_main_reports_command_root_cause(self) -> None:
+        buffer = io.StringIO()
+        with patch("tdx_stocks.commands.status.cmd_status", side_effect=RuntimeError("kaboom")):
+            with contextlib.redirect_stderr(buffer):
+                code = main(["status"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("RuntimeError: kaboom", buffer.getvalue())
 
 def _unregister_strategy(strategy_name: str) -> None:
     for key, definition in list(strategy_registry._REGISTRY.items()):

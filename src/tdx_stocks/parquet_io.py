@@ -145,15 +145,36 @@ def write_records_table(
     rows: Iterable[dict],
     compression: str = "zstd",
     filename: str = "data.parquet",
+    batch_size: int = 50_000,
 ) -> None:
     pa, pq = _import_pyarrow()
     root_path.mkdir(parents=True, exist_ok=True)
-    records = list(rows)
-    if records:
-        table = pa.Table.from_pylist(records, schema=schema)
-    else:
+    path = root_path / filename
+    iterator = iter(rows)
+    first_batch = list(_take(iterator, batch_size))
+    if not first_batch:
         table = pa.Table.from_arrays([pa.array([], type=field.type) for field in schema], schema=schema)
-    pq.write_table(table, root_path / filename, compression=compression)
+        pq.write_table(table, path, compression=compression)
+        return
+
+    writer = pq.ParquetWriter(path, schema=schema, compression=compression)
+    try:
+        batch = first_batch
+        while batch:
+            writer.write_table(pa.Table.from_pylist(batch, schema=schema))
+            batch = list(_take(iterator, batch_size))
+    finally:
+        writer.close()
+
+
+def _take(iterator, size: int) -> list:
+    batch = []
+    for _ in range(size):
+        try:
+            batch.append(next(iterator))
+        except StopIteration:
+            break
+    return batch
 
 
 def clear_parquet_files(root_path: Path) -> None:

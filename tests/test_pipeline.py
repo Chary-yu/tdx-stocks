@@ -9,6 +9,8 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from tdx_stocks.cli import cmd_actions_status, cmd_build, cmd_rebuild, cmd_sync, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.exit_codes import BuildCheckFailedError, NoDataError
@@ -29,10 +31,7 @@ from tdx_stocks.query import open_query_context, table_column_names
 from tdx_stocks.sync import execute_sync
 from tdx_stocks.tdx_day import DAY_RECORD
 
-try:
-    import duckdb
-except ModuleNotFoundError:
-    duckdb = None
+duckdb = pytest.importorskip("duckdb")
 
 
 class PipelineTest(unittest.TestCase):
@@ -171,7 +170,7 @@ class PipelineTest(unittest.TestCase):
                 with self.assertRaises(NoDataError):
                     build_dataset(config)
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    @pytest.mark.requires_pyarrow
     def test_build_dataset_copies_cached_corporate_actions_into_version_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -490,6 +489,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(rows[1]["qfq_factor"], 1.0)
             self.assertEqual(rows[1]["hfq_factor"], 2.0)
 
+    @pytest.mark.requires_pyarrow
     def test_update_actions_export_dry_run_reports_skipped_symbols(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -567,6 +567,7 @@ class PipelineTest(unittest.TestCase):
             )
             self.assertEqual(nested_report["matched_symbols_sample"][0]["skipped_rows"], 0)
 
+    @pytest.mark.requires_pyarrow
     def test_actions_status_reports_cache_and_update_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

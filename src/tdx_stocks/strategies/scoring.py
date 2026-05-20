@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from .base import ScoreWeights
@@ -42,6 +43,61 @@ def build_trend_score_breakdown(
     min_amount_ma20: float,
     risk_flags: list[str],
     strategy_name: str = "trend-strength",
+) -> dict[str, float]:
+    dispatcher: dict[str, Callable[[dict[str, Any], float, list[str]], dict[str, float]]] = {
+        "low-vol-breakout": _score_low_vol_breakout,
+        "ma-pullback": _score_ma_pullback,
+        "relative-strength": _score_relative_strength,
+        "volume-breakout": _score_volume_breakout,
+        "mean-reversion": _score_mean_reversion,
+        "smart-money": _score_smart_money,
+        "trend-strength": _score_trend_strength,
+    }
+    scorer = dispatcher.get(strategy_name, _score_trend_strength)
+    return scorer(row, min_amount_ma20, risk_flags)
+
+
+def _score_trend_strength(row: dict[str, Any], min_amount_ma20: float, risk_flags: list[str]) -> dict[str, float]:
+    components = _build_trend_score_components(row, min_amount_ma20, risk_flags, strategy_name="trend-strength")
+    return _select_score_components(components, ("trend", "liquidity", "position", "short_strength", "risk_penalty"))
+
+
+def _score_low_vol_breakout(row: dict[str, Any], min_amount_ma20: float, risk_flags: list[str]) -> dict[str, float]:
+    components = _build_trend_score_components(row, min_amount_ma20, risk_flags, strategy_name="low-vol-breakout")
+    return _select_score_components(components, ("trend", "breakout", "low_volatility", "liquidity", "risk_penalty"))
+
+
+def _score_ma_pullback(row: dict[str, Any], min_amount_ma20: float, risk_flags: list[str]) -> dict[str, float]:
+    components = _build_trend_score_components(row, min_amount_ma20, risk_flags, strategy_name="ma-pullback")
+    return _select_score_components(components, ("trend", "pullback", "liquidity", "risk_penalty"))
+
+
+def _score_relative_strength(row: dict[str, Any], min_amount_ma20: float, risk_flags: list[str]) -> dict[str, float]:
+    components = _build_trend_score_components(row, min_amount_ma20, risk_flags, strategy_name="relative-strength")
+    return _select_score_components(components, ("trend", "momentum", "position", "liquidity", "risk_penalty"))
+
+
+def _score_volume_breakout(row: dict[str, Any], min_amount_ma20: float, risk_flags: list[str]) -> dict[str, float]:
+    components = _build_trend_score_components(row, min_amount_ma20, risk_flags, strategy_name="volume-breakout")
+    return _select_score_components(components, ("trend", "breakout", "volume", "liquidity", "risk_penalty"))
+
+
+def _score_mean_reversion(row: dict[str, Any], min_amount_ma20: float, risk_flags: list[str]) -> dict[str, float]:
+    components = _build_trend_score_components(row, min_amount_ma20, risk_flags, strategy_name="mean-reversion")
+    return _select_score_components(components, ("trend", "oversold", "band_reclaim", "liquidity", "risk_penalty"))
+
+
+def _score_smart_money(row: dict[str, Any], min_amount_ma20: float, risk_flags: list[str]) -> dict[str, float]:
+    components = _build_trend_score_components(row, min_amount_ma20, risk_flags, strategy_name="smart-money")
+    return _select_score_components(components, ("trend", "smart_volume", "stability", "liquidity", "risk_penalty"))
+
+
+def _build_trend_score_components(
+    row: dict[str, Any],
+    min_amount_ma20: float,
+    risk_flags: list[str],
+    *,
+    strategy_name: str,
 ) -> dict[str, float]:
     adj_close = _float_or_none(row.get("adj_close")) or 0.0
     ma20 = _float_or_none(row.get("ma20")) or 0.0
@@ -99,6 +155,23 @@ def build_trend_score_breakdown(
         + 10.0 * _clamp((amount_ma20 / max(min_amount_ma20, 1.0) - 1.0) / 2.0, 0.0, 1.0),
         2,
     )
+    oversold = round(
+        25.0 * _clamp((30.0 - (rsi_14 or 30.0)) / 10.0, 0.0, 1.0)
+        + 15.0 * _clamp(max(0.0, -(ret_20 or 0.0) - 0.15) / 0.15, 0.0, 1.0),
+        2,
+    )
+    low_volatility_bonus = round(10.0 * _clamp(1.0 - (std_pctchg_20 or 0.0) / 0.05, 0.0, 1.0), 2)
+    band_reclaim = round(
+        20.0 * _clamp(max(0.0, (bb_lower_20 or 0.0) - adj_close) / max(abs(bb_lower_20 or adj_close or 1.0), 1.0), 0.0, 1.0)
+        + low_volatility_bonus,
+        2,
+    )
+    smart_volume = round(
+        20.0 * _clamp((vol_ratio_5_60 or 0.0) / 2.5, 0.0, 1.0)
+        + 10.0 * _clamp((price_vol_corr_20 or 0.0) / 0.6, 0.0, 1.0),
+        2,
+    )
+    stability = round(15.0 * _clamp((atr_pct_14 or 0.0) / 0.05, 0.0, 1.0), 2)
 
     risk_penalty = 0.0
     if "risk_factor_missing" in risk_flags:
@@ -111,9 +184,11 @@ def build_trend_score_breakdown(
         risk_penalty -= 4.0
     if dd_20 is not None and dd_20 >= -0.03:
         risk_penalty -= 2.0
-    if strategy_name == "low-vol-breakout" and ((atr_pct_14 is not None and atr_pct_14 >= 0.04) or (vol_20 is not None and vol_20 >= 0.035)):
+    if strategy_name == "low-vol-breakout" and (
+        (atr_pct_14 is not None and atr_pct_14 >= 0.04) or (vol_20 is not None and vol_20 >= 0.035)
+    ):
         risk_penalty -= 6.0
-    if strategy_name == "ma-pullback" and (dd_20 is not None and dd_20 < -0.12):
+    if strategy_name == "ma-pullback" and dd_20 is not None and dd_20 < -0.12:
         risk_penalty -= 6.0
     if strategy_name == "relative-strength" and (ret_60 < 0.10 or ret_5 >= 0.10):
         risk_penalty -= 4.0
@@ -125,76 +200,26 @@ def build_trend_score_breakdown(
         risk_penalty += 2.0
     risk_penalty = round(max(-30.0, risk_penalty), 2)
 
-    if strategy_name == "low-vol-breakout":
-        return {
-            "trend": trend,
-            "breakout": breakout,
-            "low_volatility": low_volatility,
-            "liquidity": liquidity,
-            "risk_penalty": risk_penalty,
-        }
-    if strategy_name == "ma-pullback":
-        return {
-            "trend": trend,
-            "pullback": pullback,
-            "liquidity": liquidity,
-            "risk_penalty": risk_penalty,
-        }
-    if strategy_name == "relative-strength":
-        return {
-            "trend": trend,
-            "momentum": momentum,
-            "position": position,
-            "liquidity": liquidity,
-            "risk_penalty": risk_penalty,
-        }
-    if strategy_name == "volume-breakout":
-        return {
-            "trend": trend,
-            "breakout": breakout,
-            "volume": volume,
-            "liquidity": liquidity,
-            "risk_penalty": risk_penalty,
-        }
-    if strategy_name == "mean-reversion":
-        oversold = round(
-            25.0 * _clamp((30.0 - (rsi_14 or 30.0)) / 10.0, 0.0, 1.0)
-            + 15.0 * _clamp(max(0.0, -(ret_20 or 0.0) - 0.15) / 0.15, 0.0, 1.0),
-            2,
-        )
-        band_reclaim = round(
-            20.0 * _clamp(max(0.0, (bb_lower_20 or 0.0) - adj_close) / max(abs(bb_lower_20 or adj_close or 1.0), 1.0), 0.0, 1.0)
-            + 10.0 * _clamp(max(0.0, -(std_pctchg_20 or 0.0)) / 0.05, 0.0, 1.0),
-            2,
-        )
-        return {
-            "trend": trend,
-            "oversold": oversold,
-            "band_reclaim": band_reclaim,
-            "liquidity": liquidity,
-            "risk_penalty": risk_penalty,
-        }
-    if strategy_name == "smart-money":
-        smart_volume = round(
-            20.0 * _clamp((vol_ratio_5_60 or 0.0) / 2.5, 0.0, 1.0)
-            + 10.0 * _clamp((price_vol_corr_20 or 0.0) / 0.6, 0.0, 1.0),
-            2,
-        )
-        stability = round(15.0 * _clamp((atr_pct_14 or 0.0) / 0.05, 0.0, 1.0), 2)
-        return {
-            "trend": trend,
-            "smart_volume": smart_volume,
-            "stability": stability,
-            "liquidity": liquidity,
-            "risk_penalty": risk_penalty,
-        }
     return {
         "trend": trend,
         "liquidity": liquidity,
         "position": position,
         "short_strength": short_strength,
+        "breakout": breakout,
+        "low_volatility": low_volatility,
+        "pullback": pullback,
+        "momentum": momentum,
+        "volume": volume,
+        "oversold": oversold,
+        "band_reclaim": band_reclaim,
+        "smart_volume": smart_volume,
+        "stability": stability,
         "risk_penalty": risk_penalty,
     }
+
+
+def _select_score_components(components: dict[str, float], names: tuple[str, ...]) -> dict[str, float]:
+    return {name: components[name] for name in names}
 
 
 def _float_or_none(value: Any) -> float | None:

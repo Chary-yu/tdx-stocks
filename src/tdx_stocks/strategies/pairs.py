@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ..config import AppConfig
 from ..duckdb_ops import sql_literal
 from ..pipeline import parse_iso_date
-from ..query import open_query_context, table_column_names
+from ..query import open_query_context, table_column_names, table_exists
 from .base import StrategyParams, StrategyReport
 from .data import resolve_as_of_date, resolve_execute_date, resolve_factor_version, resolve_markets
 from .registry import StrategyDefinition, register_strategy
@@ -97,7 +97,7 @@ def run_pairs_strategy(config: AppConfig, params: PairsParams) -> StrategyReport
         trade_date = resolve_as_of_date(ctx.con, markets, params.as_of)
         execute_date = resolve_execute_date(ctx.con, markets, trade_date)
         factor_version = resolve_factor_version(ctx.manifest)
-        source_table = "factor_full" if _table_exists(ctx.con, "factor_full") else "factors"
+        source_table = "factor_full" if table_exists(ctx.con, "factor_full") else "factors"
         rows = _load_pairs(ctx.con, source_table, markets, trade_date, params)
         summary = {
             "strategy": "pairs-arb",
@@ -222,16 +222,6 @@ def _load_pairs(con, source_table: str, markets: tuple[str, ...], trade_date, pa
             }
         )
     return picks
-
-
-def _table_exists(con, table: str) -> bool:
-    try:
-        table_column_names(con, table)
-    except Exception:
-        return False
-    return True
-
-
 register_strategy(
     StrategyDefinition(
         name="pairs-arb",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,8 +18,14 @@ from tdx_stocks.portfolio import (
     load_current_holdings_csv,
     run_portfolio_backtest,
 )
-from tdx_stocks.portfolio.models import PortfolioBacktestReport, RebalancePlan
-from tdx_stocks.portfolio.store import save_portfolio_backtest_report, save_rebalance_plan
+from tdx_stocks.portfolio.models import PortfolioBacktestReport, PortfolioReport, RebalancePlan
+from tdx_stocks.portfolio.store import (
+    list_portfolio_reports,
+    load_latest_portfolio_report,
+    save_portfolio_backtest_report,
+    save_portfolio_report,
+    save_rebalance_plan,
+)
 from tdx_stocks.strategies.base import StrategyParams
 
 
@@ -170,6 +176,27 @@ class PortfolioBuilderTest(unittest.TestCase):
             portfolio = build_portfolio(AppConfig(), source="report", strategy="trend-strength")
         self.assertEqual(portfolio.as_of, "2024-01-31")
         self.assertEqual(portfolio.holdings[0]["symbol"], "600000")
+
+    def test_portfolio_store_save_load_and_list(self) -> None:
+        report = PortfolioReport.build(
+            generated_at=datetime(2024, 2, 1, 10, 0, 0),
+            as_of="2024-01-31",
+            data_run_id="run-1",
+            source="consensus",
+            params={"source": "consensus"},
+            holdings=[Holding(market="sh", symbol="600000", weight=1.0)],
+            summary={"source": "consensus", "selected_count": 1},
+            risk_summary={"passed": True},
+            diagnostics={"risk_check": {}},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            saved_path = save_portfolio_report(data_root, report)
+            latest = load_latest_portfolio_report(data_root)
+            rows = list_portfolio_reports(data_root)
+            self.assertTrue(saved_path.exists())
+            self.assertEqual(latest["source"], "consensus")
+            self.assertEqual(rows[0]["holdings"], 1)
 
 
 class PortfolioBacktestTest(unittest.TestCase):

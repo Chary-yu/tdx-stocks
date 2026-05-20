@@ -64,6 +64,65 @@ class FactorIncrementalPlan:
     reason: str
 
 
+@dataclass(frozen=True)
+class PreflightResult:
+    config: AppConfig
+    run_id: str
+    run_paths: RunPaths
+    previous_manifest: dict | None
+    overwrite_staging: bool
+    cache_corporate_actions_dir: Path
+    cache_adjustment_factors_dir: Path
+    raw_writer: RawDailyWriter
+
+
+@dataclass(frozen=True)
+class LoadSourcesResult:
+    preflight: PreflightResult
+    from_date: date | None
+    to_date: date | None
+    limit_symbols: int | None
+    files: tuple[Path, ...]
+    total_files: int
+    parsed_files: int
+    raw_rows_written: int
+
+
+@dataclass(frozen=True)
+class TransformResult:
+    preflight: PreflightResult
+    sources: LoadSourcesResult
+    con: object
+    factor_spec: object
+    factor_incremental_plan: FactorIncrementalPlan
+    factor_quality_summary: dict[str, object]
+
+
+@dataclass(frozen=True)
+class ValidateResult:
+    transform: TransformResult
+    checks: list[CheckResult]
+    summary_checks: list[dict[str, object]]
+    build_report: dict[str, object]
+    factor_catalog_report: dict[str, object]
+    factor_quality_report: dict[str, object]
+    data_quality_report: dict[str, object]
+
+
+@dataclass(frozen=True)
+class PersistResult:
+    validate: ValidateResult
+    report_paths: dict[str, Path]
+    report: dict[str, object]
+
+
+@dataclass(frozen=True)
+class FinalizeManifestResult:
+    persist: PersistResult
+    report: dict[str, object]
+    version_dir: Path
+
+
 def make_run_id(now: datetime | None = None) -> str:
     now = now or datetime.now()
     return now.strftime("%Y%m%d%H%M%S%f")
@@ -83,6 +142,33 @@ def build_dataset(
     overwrite_staging: bool | None = None,
     progress: ProgressCallback | None = None,
 ) -> dict:
+    preflight = _preflight(config, overwrite_staging=overwrite_staging)
+    con: object | None = None
+    success = False
+    try:
+        sources = _load_sources(
+            preflight,
+            from_date=from_date,
+            to_date=to_date,
+            limit_symbols=limit_symbols,
+            progress=progress,
+        )
+        transform = _transform(preflight, sources, progress=progress)
+        con = transform.con
+        validated = _validate(transform, progress=progress)
+        persisted = _persist(validated)
+        finalized = _finalize_manifest(persisted, progress=progress)
+        success = True
+        return finalized.report | {"version_dir": finalized.version_dir.as_posix()}
+    finally:
+        preflight.raw_writer.close()
+        if con is not None:
+            con.close()
+        if not success:
+            shutil.rmtree(preflight.run_paths.staging_dir, ignore_errors=True)
+
+
+def _preflight(config: AppConfig, *, overwrite_staging: bool | None = None) -> PreflightResult:
     run_id = make_run_id()
     run_paths = RunPaths(config.paths.data_root, run_id)
     ensure_base_dirs(config.paths.data_root)
@@ -96,237 +182,305 @@ def build_dataset(
     run_paths.staging_dir.mkdir(parents=True)
     run_paths.reports_dir.mkdir(parents=True)
 
-    cache_root = config.paths.data_root / "cache"
-    cache_corporate_actions_dir = cache_root / "corporate_actions"
-    cache_adjustment_factors_dir = cache_root / "adjustment_factors"
     raw_writer = RawDailyWriter(
         run_paths.raw_daily_dir,
         compression=config.build.compression,
         batch_rows=config.build.batch_rows,
     )
-    con = None
-    checks: list[CheckResult] = []
+    return PreflightResult(
+        config=config,
+        run_id=run_id,
+        run_paths=run_paths,
+        previous_manifest=previous_manifest,
+        overwrite_staging=overwrite,
+        cache_corporate_actions_dir=config.paths.data_root / "cache" / "corporate_actions",
+        cache_adjustment_factors_dir=config.paths.data_root / "cache" / "adjustment_factors",
+        raw_writer=raw_writer,
+    )
+
+
+def _load_sources(
+    preflight: PreflightResult,
+    *,
+    from_date: date | None,
+    to_date: date | None,
+    limit_symbols: int | None,
+    progress: ProgressCallback | None = None,
+) -> LoadSourcesResult:
+    _progress(progress, f"Scanning local TDX files under {preflight.config.paths.tdx_vipdoc}")
+    files = list(
+        iter_day_files(
+            preflight.config.paths.tdx_vipdoc,
+            markets=preflight.config.build.markets,
+            universe=preflight.config.build.universe,
+        )
+    )
+    if not files:
+        raise NoDataError(
+            f"No TDX day files found under: {preflight.config.paths.tdx_vipdoc}.\n"
+            "Expected a TDX vipdoc tree such as vipdoc/sh/lday/*.day and vipdoc/sz/lday/*.day."
+        )
+    if limit_symbols is not None:
+        files = files[:limit_symbols]
+    total_files = len(files)
+    _progress(progress, f"Parsing {total_files} day files")
+
     parsed_files = 0
-    success = False
-    try:
-        _progress(progress, f"Scanning local TDX files under {config.paths.tdx_vipdoc}")
-        files = list(
-            iter_day_files(
-                config.paths.tdx_vipdoc,
-                markets=config.build.markets,
-                universe=config.build.universe,
-            )
+    report_every = max(1, total_files // 20) if total_files else 1
+    for path in files:
+        preflight.raw_writer.add_many(read_day_records(path, from_date=from_date, to_date=to_date))
+        parsed_files += 1
+        if parsed_files == 1 or parsed_files == total_files or parsed_files % report_every == 0:
+            _progress(progress, f"Parsed {parsed_files}/{total_files} day files")
+    preflight.raw_writer.flush()
+    if preflight.raw_writer.rows_written == 0:
+        filters: list[str] = []
+        if from_date is not None:
+            filters.append(f"from_date={from_date.isoformat()}")
+        if to_date is not None:
+            filters.append(f"to_date={to_date.isoformat()}")
+        filter_text = f" with filters: {', '.join(filters)}" if filters else ""
+        raise NoDataError(
+            f"No raw_daily rows were parsed from {total_files} selected TDX day files{filter_text}.\n"
+            f"Check that {preflight.config.paths.tdx_vipdoc} contains valid .day records."
         )
-        if not files:
-            raise NoDataError(
-                f"No TDX day files found under: {config.paths.tdx_vipdoc}.\n"
-                "Expected a TDX vipdoc tree such as vipdoc/sh/lday/*.day and vipdoc/sz/lday/*.day."
-            )
-        if limit_symbols is not None:
-            files = files[:limit_symbols]
-        total_files = len(files)
-        _progress(progress, f"Parsing {total_files} day files")
+    _progress(progress, f"Wrote {preflight.raw_writer.rows_written} raw rows")
+    return LoadSourcesResult(
+        preflight=preflight,
+        from_date=from_date,
+        to_date=to_date,
+        limit_symbols=limit_symbols,
+        files=tuple(files),
+        total_files=total_files,
+        parsed_files=parsed_files,
+        raw_rows_written=preflight.raw_writer.rows_written,
+    )
 
-        report_every = max(1, total_files // 20) if total_files else 1
-        for path in files:
-            raw_writer.add_many(read_day_records(path, from_date=from_date, to_date=to_date))
-            parsed_files += 1
-            if parsed_files == 1 or parsed_files == total_files or parsed_files % report_every == 0:
-                _progress(progress, f"Parsed {parsed_files}/{total_files} day files")
-        raw_writer.flush()
-        if raw_writer.rows_written == 0:
-            filters: list[str] = []
-            if from_date is not None:
-                filters.append(f"from_date={from_date.isoformat()}")
-            if to_date is not None:
-                filters.append(f"to_date={to_date.isoformat()}")
-            filter_text = f" with filters: {', '.join(filters)}" if filters else ""
-            raise NoDataError(
-                f"No raw_daily rows were parsed from {total_files} selected TDX day files{filter_text}.\n"
-                f"Check that {config.paths.tdx_vipdoc} contains valid .day records."
-            )
-        _progress(progress, f"Wrote {raw_writer.rows_written} raw rows")
 
-        con = connect_duckdb(run_paths.duckdb_tmp_dir, config.build.duckdb_memory_limit)
-        if has_parquet_files(cache_corporate_actions_dir):
-            _progress(progress, "Copying cached corporate_actions")
-            copy_parquet_dataset(
-                con,
-                cache_corporate_actions_dir,
-                run_paths.corporate_actions_dir,
-                config.build.compression,
-            )
-        else:
-            write_empty_corporate_actions(
-                run_paths.corporate_actions_dir,
-                compression=config.build.compression,
-            )
-            _progress(progress, "Wrote empty corporate_actions table")
+def _transform(
+    preflight: PreflightResult,
+    sources: LoadSourcesResult,
+    *,
+    progress: ProgressCallback | None = None,
+) -> TransformResult:
+    con = connect_duckdb(preflight.run_paths.duckdb_tmp_dir, preflight.config.build.duckdb_memory_limit)
+    cache_corporate_actions_dir = preflight.cache_corporate_actions_dir
+    cache_adjustment_factors_dir = preflight.cache_adjustment_factors_dir
 
-        if has_parquet_files(cache_adjustment_factors_dir):
-            _progress(progress, "Copying cached adjustment_factors")
-            copy_parquet_dataset(
-                con,
-                cache_adjustment_factors_dir,
-                run_paths.adjustment_factors_dir,
-                config.build.compression,
-            )
-        else:
-            write_empty_adjustment_factors(
-                run_paths.adjustment_factors_dir,
-                compression=config.build.compression,
-            )
-            _progress(progress, "Wrote empty adjustment_factors table")
-
-        _progress(progress, "Checking raw_daily")
-        checks.append(check_raw_daily(con, run_paths.raw_daily_dir))
-        _raise_on_errors(checks)
-
-        _progress(progress, "Checking adjustment_factors")
-        checks.append(check_adjustment_factors(con, run_paths.adjustment_factors_dir))
-        _raise_on_errors(checks)
-
-        _progress(progress, "Building adj_daily")
-        copy_adj_daily(
+    if has_parquet_files(cache_corporate_actions_dir):
+        _progress(progress, "Copying cached corporate_actions")
+        copy_parquet_dataset(
             con,
-            run_paths.raw_daily_dir,
-            run_paths.adj_daily_dir,
-            config.build.compression,
-            run_paths.adjustment_factors_dir,
-            factor_column="qfq_factor",
+            cache_corporate_actions_dir,
+            preflight.run_paths.corporate_actions_dir,
+            preflight.config.build.compression,
         )
-        _progress(progress, "Checking adj_daily")
-        checks.append(check_adj_daily(con, run_paths.adj_daily_dir))
-        _raise_on_errors(checks)
+    else:
+        write_empty_corporate_actions(
+            preflight.run_paths.corporate_actions_dir,
+            compression=preflight.config.build.compression,
+        )
+        _progress(progress, "Wrote empty corporate_actions table")
 
-        _progress(progress, "Building hfq_daily")
-        copy_adj_daily(
+    if has_parquet_files(cache_adjustment_factors_dir):
+        _progress(progress, "Copying cached adjustment_factors")
+        copy_parquet_dataset(
             con,
-            run_paths.raw_daily_dir,
-            run_paths.hfq_daily_dir,
-            config.build.compression,
-            run_paths.adjustment_factors_dir,
-            factor_column="hfq_factor",
+            cache_adjustment_factors_dir,
+            preflight.run_paths.adjustment_factors_dir,
+            preflight.config.build.compression,
         )
-        _progress(progress, "Checking hfq_daily")
-        checks.append(check_adj_daily(con, run_paths.hfq_daily_dir, name="hfq_daily"))
-        _raise_on_errors(checks)
+    else:
+        write_empty_adjustment_factors(
+            preflight.run_paths.adjustment_factors_dir,
+            compression=preflight.config.build.compression,
+        )
+        _progress(progress, "Wrote empty adjustment_factors table")
 
-        factor_spec = build_factor_spec(config.factors.windows)
-        factor_incremental_plan = _plan_factor_incremental_build(
-            con,
-            run_paths.adjustment_factors_dir,
-            previous_manifest,
-            factor_spec,
+    _progress(progress, "Building adj_daily")
+    copy_adj_daily(
+        con,
+        preflight.run_paths.raw_daily_dir,
+        preflight.run_paths.adj_daily_dir,
+        preflight.config.build.compression,
+        preflight.run_paths.adjustment_factors_dir,
+        factor_column="qfq_factor",
+    )
+    _progress(progress, "Building hfq_daily")
+    copy_adj_daily(
+        con,
+        preflight.run_paths.raw_daily_dir,
+        preflight.run_paths.hfq_daily_dir,
+        preflight.config.build.compression,
+        preflight.run_paths.adjustment_factors_dir,
+        factor_column="hfq_factor",
+    )
+
+    factor_spec = build_factor_spec(preflight.config.factors.windows)
+    factor_incremental_plan = _plan_factor_incremental_build(
+        con,
+        preflight.run_paths.adjustment_factors_dir,
+        preflight.previous_manifest,
+        factor_spec,
+    )
+    if factor_incremental_plan.enabled and factor_incremental_plan.previous_factors_dir is not None:
+        _progress(
+            progress,
+            f"Building factors incrementally from {factor_incremental_plan.from_date}",
         )
-        if factor_incremental_plan.enabled and factor_incremental_plan.previous_factors_dir is not None:
-            _progress(
-                progress,
-                f"Building factors incrementally from {factor_incremental_plan.from_date}",
-            )
-            shutil.copytree(
-                factor_incremental_plan.previous_factors_dir,
-                run_paths.factors_dir,
-                dirs_exist_ok=True,
-            )
-        else:
-            _progress(progress, f"Building factors full ({factor_incremental_plan.reason})")
-        build_factors(
-            con,
-            run_paths.adj_daily_dir,
-            run_paths.factors_dir,
-            config.build.compression,
-            factor_windows=config.factors.windows,
-            from_date=factor_incremental_plan.from_date if factor_incremental_plan.enabled else None,
-            max_window_days=factor_incremental_plan.max_window_days,
+        shutil.copytree(
+            factor_incremental_plan.previous_factors_dir,
+            preflight.run_paths.factors_dir,
+            dirs_exist_ok=True,
         )
-        _progress(progress, "Building factors_xsec")
-        build_xsec_factors(con, run_paths.factors_dir, run_paths.factors_xsec_dir, config.build.compression)
-        _progress(progress, "Building factors_quality")
-        build_factor_quality(
-            con,
-            run_paths.adj_daily_dir,
-            run_paths.factors_dir,
-            run_paths.factors_quality_dir,
-            config.build.compression,
-        )
-        _progress(progress, "Checking factors")
-        checks.append(check_factors(con, run_paths.factors_dir))
-        _raise_on_errors(checks)
-        summary_checks = [check.to_dict() for check in checks]
-        build_report = {
-            "run_id": run_id,
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "tdx_vipdoc": config.paths.tdx_vipdoc.as_posix(),
-            "data_root": config.paths.data_root.as_posix(),
-            "from_date": from_date.isoformat() if from_date else None,
-            "to_date": to_date.isoformat() if to_date else None,
-            "markets": list(config.build.markets),
-            "universe": config.build.universe,
-            "parsed_files": parsed_files,
-            "raw_rows_written": raw_writer.rows_written,
-            "compression": config.build.compression,
-            "cached_corporate_actions": has_parquet_files(cache_corporate_actions_dir),
-            "cached_adjustment_factors": has_parquet_files(cache_adjustment_factors_dir),
-            "factor_incremental": factor_incremental_plan.enabled,
-            "factor_incremental_from_date": (
-                factor_incremental_plan.from_date.isoformat()
-                if factor_incremental_plan.from_date is not None
-                else None
-            ),
-            "factor_incremental_reason": factor_incremental_plan.reason,
-            "factor_max_window_days": factor_incremental_plan.max_window_days,
-            **factor_build_report(factor_spec),
+    else:
+        _progress(progress, f"Building factors full ({factor_incremental_plan.reason})")
+    build_factors(
+        con,
+        preflight.run_paths.adj_daily_dir,
+        preflight.run_paths.factors_dir,
+        preflight.config.build.compression,
+        factor_windows=preflight.config.factors.windows,
+        from_date=factor_incremental_plan.from_date if factor_incremental_plan.enabled else None,
+        max_window_days=factor_incremental_plan.max_window_days,
+    )
+    _progress(progress, "Building factors_xsec")
+    build_xsec_factors(
+        con,
+        preflight.run_paths.factors_dir,
+        preflight.run_paths.factors_xsec_dir,
+        preflight.config.build.compression,
+    )
+    _progress(progress, "Building factors_quality")
+    build_factor_quality(
+        con,
+        preflight.run_paths.adj_daily_dir,
+        preflight.run_paths.factors_dir,
+        preflight.run_paths.factors_quality_dir,
+        preflight.config.build.compression,
+    )
+    return TransformResult(
+        preflight=preflight,
+        sources=sources,
+        con=con,
+        factor_spec=factor_spec,
+        factor_incremental_plan=factor_incremental_plan,
+        factor_quality_summary=build_factor_quality_summary(con, preflight.run_paths.factors_dir),
+    )
+
+
+def _validate(
+    transform: TransformResult,
+    *,
+    progress: ProgressCallback | None = None,
+) -> ValidateResult:
+    checks: list[CheckResult] = []
+    _progress(progress, "Checking raw_daily")
+    checks.append(check_raw_daily(transform.con, transform.preflight.run_paths.raw_daily_dir))
+    _raise_on_errors(checks)
+
+    _progress(progress, "Checking adjustment_factors")
+    checks.append(check_adjustment_factors(transform.con, transform.preflight.run_paths.adjustment_factors_dir))
+    _raise_on_errors(checks)
+
+    _progress(progress, "Checking adj_daily")
+    checks.append(check_adj_daily(transform.con, transform.preflight.run_paths.adj_daily_dir))
+    _raise_on_errors(checks)
+
+    _progress(progress, "Checking hfq_daily")
+    checks.append(check_adj_daily(transform.con, transform.preflight.run_paths.hfq_daily_dir, name="hfq_daily"))
+    _raise_on_errors(checks)
+
+    _progress(progress, "Checking factors")
+    checks.append(check_factors(transform.con, transform.preflight.run_paths.factors_dir))
+    _raise_on_errors(checks)
+
+    summary_checks = [check.to_dict() for check in checks]
+    build_report = {
+        "run_id": transform.preflight.run_id,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "tdx_vipdoc": transform.preflight.config.paths.tdx_vipdoc.as_posix(),
+        "data_root": transform.preflight.config.paths.data_root.as_posix(),
+        "from_date": transform.sources.from_date.isoformat() if transform.sources.from_date else None,
+        "to_date": transform.sources.to_date.isoformat() if transform.sources.to_date else None,
+        "markets": list(transform.preflight.config.build.markets),
+        "universe": transform.preflight.config.build.universe,
+        "parsed_files": transform.sources.parsed_files,
+        "raw_rows_written": transform.sources.raw_rows_written,
+        "compression": transform.preflight.config.build.compression,
+        "cached_corporate_actions": has_parquet_files(transform.preflight.cache_corporate_actions_dir),
+        "cached_adjustment_factors": has_parquet_files(transform.preflight.cache_adjustment_factors_dir),
+        "factor_incremental": transform.factor_incremental_plan.enabled,
+        "factor_incremental_from_date": (
+            transform.factor_incremental_plan.from_date.isoformat()
+            if transform.factor_incremental_plan.from_date is not None
+            else None
+        ),
+        "factor_incremental_reason": transform.factor_incremental_plan.reason,
+        "factor_max_window_days": transform.factor_incremental_plan.max_window_days,
+        **factor_build_report(transform.factor_spec),
+        "checks": summary_checks,
+    }
+    factor_catalog_report = build_factor_catalog_report(transform.preflight.run_id, build_report["factor_version"])
+    factor_quality_report = build_factor_quality_report(
+        transform.factor_quality_summary,
+        [
+            {"name": "missing_price_flag", "description": "缺失价格标记"},
+            {"name": "zero_amount_flag", "description": "零成交额标记"},
+            {"name": "invalid_ohlc_flag", "description": "OHLC 异常标记"},
+            {"name": "stale_price_flag", "description": "价格停滞标记"},
+            {"name": "extreme_return_flag", "description": "极端收益标记"},
+            {"name": "low_history_flag", "description": "历史长度不足标记"},
+        ],
+    )
+    data_quality_report = build_data_quality_report(
+        {
+            "run_id": transform.preflight.run_id,
+            "data_root": transform.preflight.config.paths.data_root.as_posix(),
+            "raw_rows_written": transform.sources.raw_rows_written,
+            "parsed_files": transform.sources.parsed_files,
+            "factor_version": build_report["factor_version"],
             "checks": summary_checks,
-        }
-        write_json_atomic(
-            run_paths.reports_dir / "factor_catalog_report.json",
-            build_factor_catalog_report(run_id, build_report["factor_version"]),
-        )
-        factor_quality_report = build_factor_quality_report(
-            build_factor_quality_summary(con, run_paths.factors_dir),
-            [
-                {"name": "missing_price_flag", "description": "缺失价格标记"},
-                {"name": "zero_amount_flag", "description": "零成交额标记"},
-                {"name": "invalid_ohlc_flag", "description": "OHLC 异常标记"},
-                {"name": "stale_price_flag", "description": "价格停滞标记"},
-                {"name": "extreme_return_flag", "description": "极端收益标记"},
-                {"name": "low_history_flag", "description": "历史长度不足标记"},
-            ],
-        )
-        write_json_atomic(
-            run_paths.reports_dir / "factor_quality_report.json",
-            factor_quality_report,
-        )
-        write_json_atomic(
-            run_paths.reports_dir / "data_quality_report.json",
-            build_data_quality_report(
-                {
-                    "run_id": run_id,
-                    "data_root": config.paths.data_root.as_posix(),
-                    "raw_rows_written": raw_writer.rows_written,
-                    "parsed_files": parsed_files,
-                    "factor_version": build_report["factor_version"],
-                    "checks": summary_checks,
-                },
-                summary_checks,
-                factor_quality=factor_quality_report,
-            ),
-        )
-        report = build_report
-        write_json_atomic(run_paths.reports_dir / "build_report.json", report)
+        },
+        summary_checks,
+        factor_quality=factor_quality_report,
+    )
+    return ValidateResult(
+        transform=transform,
+        checks=checks,
+        summary_checks=summary_checks,
+        build_report=build_report,
+        factor_catalog_report=factor_catalog_report,
+        factor_quality_report=factor_quality_report,
+        data_quality_report=data_quality_report,
+    )
 
-        _progress(progress, "Writing build report")
-        commit_version(run_paths, report)
-        _progress(progress, f"Completed run_id={run_id}")
-        success = True
-        return report | {"version_dir": run_paths.version_dir.as_posix()}
-    finally:
-        raw_writer.close()
-        if con is not None:
-            con.close()
-        if not success:
-            shutil.rmtree(run_paths.staging_dir, ignore_errors=True)
+
+def _persist(validated: ValidateResult) -> PersistResult:
+    run_paths = validated.transform.preflight.run_paths
+    report_paths = {
+        "factor_catalog_report": run_paths.reports_dir / "factor_catalog_report.json",
+        "factor_quality_report": run_paths.reports_dir / "factor_quality_report.json",
+        "data_quality_report": run_paths.reports_dir / "data_quality_report.json",
+        "build_report": run_paths.reports_dir / "build_report.json",
+    }
+    write_json_atomic(report_paths["factor_catalog_report"], validated.factor_catalog_report)
+    write_json_atomic(report_paths["factor_quality_report"], validated.factor_quality_report)
+    write_json_atomic(report_paths["data_quality_report"], validated.data_quality_report)
+    write_json_atomic(report_paths["build_report"], validated.build_report)
+    return PersistResult(validate=validated, report_paths=report_paths, report=validated.build_report)
+
+
+def _finalize_manifest(persisted: PersistResult, *, progress: ProgressCallback | None = None) -> FinalizeManifestResult:
+    run_paths = persisted.validate.transform.preflight.run_paths
+    _progress(progress, "Writing build report")
+    commit_version(run_paths, persisted.report)
+    _progress(progress, f"Completed run_id={run_paths.run_id}")
+    return FinalizeManifestResult(
+        persist=persisted,
+        report=persisted.report | {"version_dir": run_paths.version_dir.as_posix()},
+        version_dir=run_paths.version_dir,
+    )
 
 
 def rebuild_dataset(
@@ -623,30 +777,27 @@ def update_actions(
             universe=config.build.universe,
         )
         rows = result.rows
-        report["adjustment_factors_report"] = result.report
         if not dry_run:
             clear_parquet_files(cache_adjustment_factors_dir)
-            if rows:
-                write_records_table(
-                    cache_adjustment_factors_dir,
-                    adjustment_factors_schema(),
-                    rows,
-                    compression=config.build.compression,
-                )
-            else:
-                write_empty_adjustment_factors(
-                    cache_adjustment_factors_dir,
-                    compression=config.build.compression,
-                )
-        if not rows:
+            write_records_table(
+                cache_adjustment_factors_dir,
+                adjustment_factors_schema(),
+                rows,
+                compression=config.build.compression,
+            )
+        else:
+            rows = list(rows)
+
+        report["adjustment_factors_report"] = result.report
+        if result.row_count == 0:
             _progress(progress, f"No export adjustment factors were loaded from {export_dir}")
-        report["adjustment_factors_rows"] = len(rows)
+        report["adjustment_factors_rows"] = result.row_count
         report["adjustment_factors_state"] = "updated" if not dry_run else "dry-run"
         report["input_path"] = export_dir.as_posix()
         if dry_run:
-            _progress(progress, f"Dry run: derived {len(rows)} export adjustment_factors rows")
+            _progress(progress, f"Dry run: derived {result.row_count} export adjustment_factors rows")
         else:
-            _progress(progress, f"Wrote {len(rows)} export adjustment_factors rows")
+            _progress(progress, f"Wrote {result.row_count} export adjustment_factors rows")
         if not dry_run and not has_parquet_files(cache_corporate_actions_dir):
             write_empty_corporate_actions(
                 cache_corporate_actions_dir,

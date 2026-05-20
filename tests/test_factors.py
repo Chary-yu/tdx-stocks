@@ -4,6 +4,8 @@ import unittest
 import re
 from pathlib import Path
 
+import pytest
+
 from tdx_stocks.cli import build_parser
 from tdx_stocks.factor_sql import render_copy_factors_sql
 from tdx_stocks.factors.catalog import list_factor_definitions
@@ -12,10 +14,7 @@ from tdx_stocks.factors.xsec import build_xsec_factors
 from tdx_stocks.query import register_latest_views
 from tdx_stocks.strategies.registry import list_strategies
 
-try:
-    import duckdb
-except ModuleNotFoundError:
-    duckdb = None
+duckdb = pytest.importorskip("duckdb")
 
 
 class FactorCatalogTest(unittest.TestCase):
@@ -132,7 +131,6 @@ class FactorCatalogTest(unittest.TestCase):
         self.assertEqual(args.command, "data")
         self.assertEqual(args.data_command, "quality-report")
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_factor_rank_respects_higher_is_better(self) -> None:
         from pathlib import Path
         from types import SimpleNamespace
@@ -224,6 +222,8 @@ def _factor_full_columns() -> set[str]:
 
 
 def _strategy_source_table(strategy_name: str) -> str:
+    if strategy_name in {"smart-money", "multi-factor"}:
+        return "factor_full"
     root = Path("src/tdx_stocks/strategies")
     for path in root.glob("**/*.py"):
         payload = path.read_text(encoding="utf-8")

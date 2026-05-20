@@ -7,7 +7,7 @@ from datetime import date
 from ..config import load_config
 from ..console import print_json, print_table
 from ..pipeline import parse_iso_date
-from ..query import normalize_output_data, open_query_context, table_columns, table_column_names
+from ..query import normalize_output_data, open_query_context, table_columns, table_column_names, table_exists
 from ..factors.registry import get_factor_definition, list_factor_definitions_by_name
 from .common import add_config_arg
 
@@ -78,7 +78,7 @@ def cmd_factors_schema(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
-        tables = [table for table in ("factors", "factors_xsec", "factors_quality", "factor_full") if _table_exists(ctx, table)]
+        tables = [table for table in ("factors", "factors_xsec", "factors_quality", "factor_full") if table_exists(ctx.con, table)]
         rows = [
             {
                 "table": table,
@@ -100,7 +100,7 @@ def cmd_factors_rank(args: argparse.Namespace) -> int:
     definition = get_factor_definition(args.factor)
     ctx = open_query_context(config)
     try:
-        table = "factor_full" if _table_exists(ctx, "factor_full") else "factors"
+        table = "factor_full" if table_exists(ctx.con, "factor_full") else "factors"
         if args.factor not in table_column_names(ctx.con, table):
             raise ValueError(f"{table} has no factor column: {args.factor}")
         if args.as_of == "latest":
@@ -138,11 +138,3 @@ def cmd_factors_rank(args: argparse.Namespace) -> int:
     else:
         print_table(["market", "symbol", "trade_date", "factor_value", "factor_rank"], payload)
     return 0
-
-
-def _table_exists(ctx, table: str) -> bool:
-    try:
-        table_columns(ctx.con, table)
-    except Exception:
-        return False
-    return True

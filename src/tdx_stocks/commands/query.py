@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 from ..config import load_config
 from ..console import print_json, print_key_values
@@ -56,10 +56,12 @@ def register_query_group(
         "price",
         help="Show merged daily rows and factors for one stock code.",
     )
+    add_config_arg(price_parser)
     add_stock_args(price_parser)
     price_parser.set_defaults(func=cmd_stock)
 
     table_parser = query_subparsers.add_parser("table", help="Show rows from a latest table.")
+    add_config_arg(table_parser)
     add_query_args(table_parser, default_limit=20)
     table_parser.set_defaults(func=cmd_head)
 
@@ -78,10 +80,16 @@ def register_query_group(
     add_config_arg(sql_parser)
     sql_parser.add_argument("sql")
     sql_parser.add_argument("--limit", type=int, default=100)
+    sql_parser.add_argument(
+        "--unsafe-sql",
+        action="store_true",
+        help="Allow arbitrary SQL. Disabled by default because DuckDB can expose file and function access.",
+    )
     sql_parser.add_argument("--json", action="store_true")
     sql_parser.set_defaults(func=cmd_sql)
 
     export_parser = query_subparsers.add_parser("export", help="Export a filtered table query to CSV.")
+    add_config_arg(export_parser)
     add_query_args(export_parser, default_limit=1000)
     add_output_arg(export_parser, required=True)
     export_parser.add_argument("--no-limit", action="store_true")
@@ -136,6 +144,7 @@ def register_legacy_query_aliases(
     add_config_arg(sql_parser)
     sql_parser.add_argument("sql")
     sql_parser.add_argument("--limit", type=int, default=100)
+    sql_parser.add_argument("--unsafe-sql", action="store_true", help=argparse.SUPPRESS)
     sql_parser.add_argument("--json", action="store_true")
     sql_parser.set_defaults(func=cmd_sql)
 
@@ -194,6 +203,68 @@ def summarize_cached_table(con, root: Path, date_column: str) -> dict[str, objec
 def _is_select_like(sql: str) -> bool:
     stripped = sql.lstrip().lower()
     return stripped.startswith(("select", "with"))
+
+
+def _sql_has_top_level_keyword(sql: str, keyword: str) -> bool:
+    target = keyword.lower()
+    depth = 0
+    in_single = False
+    in_double = False
+    index = 0
+    while index < len(sql):
+        char = sql[index]
+        nxt = sql[index + 1] if index + 1 < len(sql) else ""
+        if in_single:
+            if char == "'" and nxt == "'":
+                index += 2
+                continue
+            if char == "'":
+                in_single = False
+            index += 1
+            continue
+        if in_double:
+            if char == '"':
+                in_double = False
+            index += 1
+            continue
+        if char == "-" and nxt == "-":
+            newline = sql.find("\n", index + 2)
+            if newline == -1:
+                return False
+            index = newline + 1
+            continue
+        if char == "/" and nxt == "*":
+            end = sql.find("*/", index + 2)
+            if end == -1:
+                return False
+            index = end + 2
+            continue
+        if char == "'":
+            in_single = True
+            index += 1
+            continue
+        if char == '"':
+            in_double = True
+            index += 1
+            continue
+        if char == "(":
+            depth += 1
+            index += 1
+            continue
+        if char == ")" and depth > 0:
+            depth -= 1
+            index += 1
+            continue
+        if depth == 0 and (char.isalpha() or char == "_"):
+            start = index
+            index += 1
+            while index < len(sql) and (sql[index].isalnum() or sql[index] == "_"):
+                index += 1
+            if sql[start:index].lower() == target:
+                return True
+            continue
+        index += 1
+    return False
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -308,8 +379,10 @@ def cmd_sql(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
+        if not getattr(args, "unsafe_sql", False):
+            raise ValueError("query sql is disabled by default; pass --unsafe-sql to run arbitrary SQL")
         sql = ensure_read_only_sql(args.sql)
-        if args.limit and _is_select_like(sql) and " limit " not in f" {sql.lower()} ":
+        if args.limit and _is_select_like(sql) and not _sql_has_top_level_keyword(sql, "limit"):
             sql = f"{sql.rstrip().rstrip(';')}\nLIMIT {args.limit}"
         columns, rows = fetch_dicts(ctx.con, sql)
         if args.json:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-import tempfile
+import json
+import math
 from pathlib import Path
 
 import streamlit as st
@@ -43,9 +44,25 @@ def _render_kpis(summary: dict[str, object]) -> None:
 
 def _format_pct(value: object) -> str:
     try:
-        return f"{float(value) * 100:.2f}%"
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError
+        return f"{number * 100:.2f}%"
     except (TypeError, ValueError):
-        return "0.00%"
+        return "N/A"
+
+
+def _load_uploaded_report(upload, *, max_bytes: int = 5_000_000) -> dict:
+    raw = upload.getvalue()
+    if len(raw) > max_bytes:
+        raise ValueError(f"uploaded report is too large: {len(raw)} bytes")
+    try:
+        report = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("uploaded report must be valid JSON") from exc
+    if not isinstance(report, dict) or not report:
+        raise ValueError("uploaded report must be a non-empty JSON object")
+    return report
 
 
 st.title("tdx-stocks 投研可视化中台")
@@ -68,14 +85,11 @@ with st.sidebar:
         chosen = None
 
 if upload is not None:
-    raw = upload.getvalue().decode("utf-8")
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
-        handle.write(raw)
-        temp_path = Path(handle.name)
     try:
-        report = load_backtest_report(temp_path)
-    finally:
-        temp_path.unlink(missing_ok=True)
+        report = _load_uploaded_report(upload)
+    except ValueError as exc:
+        st.error(str(exc))
+        st.stop()
 else:
     if chosen is None:
         st.error(f"未找到报告文件。当前扫描目录: {report_scan_root}")

@@ -16,6 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "coverage>=7",
+  "mypy>=1.10",
   "pytest>=8",
   "ruff>=0.7",
 ]
@@ -31,6 +33,32 @@ tdx-stocks = "tdx_stocks.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-ra"
+markers = [
+  "integration: CLI, workflow, and end-to-end smoke tests",
+  "requires_pyarrow: tests that need pyarrow-backed parquet helpers",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["tdx_stocks"]
+omit = [
+  "tests/*",
+  "src/tdx_stocks/web/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/tdx_stocks"]
+check_untyped_defs = true
+ignore_missing_imports = true
+pretty = true
+warn_unused_ignores = true
 
 [tool.ruff]
 line-length = 100

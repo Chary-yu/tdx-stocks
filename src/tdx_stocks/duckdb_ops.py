@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
 from .factor_sql import build_factors_statements
+
+_MEMORY_LIMIT_RE = re.compile(r"^\s*\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB|KIB|MIB|GIB|TIB|%)?\s*$", re.IGNORECASE)
 
 
 def connect_duckdb(temp_directory: Path, memory_limit: str):
@@ -16,8 +19,8 @@ def connect_duckdb(temp_directory: Path, memory_limit: str):
 
     temp_directory.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(":memory:")
-    con.execute(f"SET temp_directory='{temp_directory.as_posix()}'")
-    con.execute(f"SET memory_limit='{memory_limit}'")
+    con.execute(f"SET temp_directory='{sql_literal(temp_directory.as_posix())}'")
+    con.execute(f"SET memory_limit='{sql_literal(_validate_memory_limit(memory_limit))}'")
     return con
 
 
@@ -31,6 +34,17 @@ def has_parquet_files(path: Path | None) -> bool:
 
 def sql_literal(value: str | Path) -> str:
     return str(value).replace("'", "''")
+
+
+def _validate_memory_limit(memory_limit: str) -> str:
+    cleaned = str(memory_limit).strip()
+    if not cleaned:
+        raise ValueError("memory_limit must not be empty")
+    if not _MEMORY_LIMIT_RE.fullmatch(cleaned):
+        raise ValueError(
+            "invalid memory_limit value; expected a size such as 1GB, 512MB, or a percentage"
+        )
+    return cleaned.upper()
 
 
 def copy_adj_daily(

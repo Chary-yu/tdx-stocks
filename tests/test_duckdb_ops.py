@@ -4,16 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tdx_stocks.duckdb_ops import copy_adj_daily, copy_parquet_dataset
+import pytest
 
-try:
-    import duckdb
-except ModuleNotFoundError:
-    duckdb = None
+from tdx_stocks.duckdb_ops import connect_duckdb, copy_adj_daily, copy_parquet_dataset, sql_literal
+
+duckdb = pytest.importorskip("duckdb")
 
 
 class CopyAdjDailyTest(unittest.TestCase):
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_dense_factor_map_matches_exact_trade_dates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -53,7 +51,6 @@ class CopyAdjDailyTest(unittest.TestCase):
             finally:
                 con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_sparse_interval_map_crosses_suspended_ex_date_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -91,7 +88,6 @@ class CopyAdjDailyTest(unittest.TestCase):
             finally:
                 con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_copy_parquet_dataset_writes_file_under_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -113,6 +109,24 @@ class CopyAdjDailyTest(unittest.TestCase):
                 self.assertTrue((output_dir / "data.parquet").exists())
                 rows = _read_generic_parquet(con, output_dir)
                 self.assertEqual(len(rows), 2)
+            finally:
+                con.close()
+
+    def test_connect_duckdb_rejects_invalid_memory_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_dir = Path(tmp) / "duckdb tmp"
+            with self.assertRaises(ValueError):
+                connect_duckdb(temp_dir, "not-a-limit")
+
+    def test_sql_literal_escapes_single_quotes(self) -> None:
+        self.assertEqual(sql_literal("O'Reilly"), "O''Reilly")
+
+    def test_connect_duckdb_accepts_special_characters_in_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_dir = Path(tmp) / "tmp'space"
+            con = connect_duckdb(temp_dir, "1GB")
+            try:
+                self.assertTrue(temp_dir.exists())
             finally:
                 con.close()
 

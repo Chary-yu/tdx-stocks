@@ -11,13 +11,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from tdx_stocks import __version__
 from tdx_stocks.cli import _rewrite_legacy_argv, build_parser
 from tdx_stocks.cli import main as cli_main
 from tdx_stocks.config import AppConfig, PathsConfig, load_config, write_default_config
+from tdx_stocks.commands.ui import cmd_ui
 from tdx_stocks.daily.models import DailyRunReport
 from tdx_stocks.daily.report import render_daily_markdown
-from tdx_stocks.daily.store import load_daily_report, load_latest_daily_report, save_daily_report
+from tdx_stocks.daily.store import list_daily_reports, load_daily_report, load_latest_daily_report, save_daily_report
 from tdx_stocks.daily.workflow import run_daily_workflow
 from tdx_stocks.commands.common import validate_output_alias
 from tdx_stocks.portfolio import build_portfolio
@@ -164,6 +167,10 @@ class DailyStoreTest(unittest.TestCase):
             self.assertIsNotNone(load_latest_daily_report(data_root))
             self.assertIsNotNone(load_daily_report(data_root, "2024-01-31"))
 
+            rows = list_daily_reports(data_root)
+            self.assertEqual(rows[0]["status"], "success")
+            self.assertEqual(rows[0]["warnings"], 0)
+
     def test_save_daily_report_keeps_existing_json_when_replace_fails(self) -> None:
         report = DailyRunReport(
             schema_version="daily-report-v1",
@@ -241,6 +248,56 @@ class DailyWorkflowTest(unittest.TestCase):
                                                         )
         self.assertEqual(result.report.status, "success")
         self.assertIn("strategy_json", result.outputs)
+
+    def test_daily_workflow_writes_report_with_empty_strategy_outputs(self) -> None:
+        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1"}, close=lambda: None)
+        config = AppConfig(paths=PathsConfig(data_root=Path(tempfile.gettempdir()) / "tdx-stocks-daily-test"))
+        strategy_step = SimpleNamespace(
+            to_dict=lambda: {
+                "step_name": "strategy:trend-strength",
+                "status": "success",
+                "message": "saved",
+                "output_paths": [],
+                "metrics": {"picked": 0},
+                "duration_seconds": 0.0,
+            }
+        )
+        fake_strategy_payload = {"steps": [strategy_step], "warnings": [], "errors": []}
+        with (
+            patch("tdx_stocks.daily.workflow.build_dataset", return_value={"run_id": "run-1"}),
+            patch("tdx_stocks.daily.workflow.open_query_context", return_value=fake_ctx),
+            patch("tdx_stocks.daily.workflow._load_latest_trade_date", return_value=date(2024, 1, 31)),
+            patch("tdx_stocks.daily.workflow._run_strategies", return_value=(fake_strategy_payload, {})),
+            patch("tdx_stocks.daily.workflow.compare_strategies", return_value=SimpleNamespace(to_dict=lambda: {"rows": []})),
+            patch("tdx_stocks.daily.workflow.build_consensus", return_value=SimpleNamespace(to_dict=lambda: {"rows": []})),
+            patch("tdx_stocks.daily.workflow.write_daily_json_file", side_effect=[Path("/tmp/compare.json"), Path("/tmp/consensus.json")]),
+            patch(
+                "tdx_stocks.daily.workflow.save_daily_report",
+                return_value={
+                    "latest_json": "/tmp/daily.json",
+                    "latest_md": "/tmp/daily.md",
+                    "daily_json": "/tmp/daily.json",
+                    "daily_md": "/tmp/daily.md",
+                    "manifest": "/tmp/manifest.json",
+                },
+            ),
+            patch("tdx_stocks.daily.workflow.build_portfolio", return_value=SimpleNamespace(to_dict=lambda: {"holdings": [], "risk_summary": {}}, holdings=[])),
+            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"latest_json": "/tmp/portfolio.json"}),
+            patch("tdx_stocks.daily.workflow.build_rebalance_plan") as mocked_rebalance,
+            patch("tdx_stocks.daily.workflow.check_portfolio_risk", return_value=SimpleNamespace(passed=True, summary={})),
+        ):
+            mocked_rebalance.return_value = SimpleNamespace(to_dict=lambda: {"turnover": 0.0}, turnover=0.0)
+            result = run_daily_workflow(
+                config,
+                as_of=date(2024, 1, 31),
+                skip_portfolio=True,
+                skip_report=False,
+            )
+
+        self.assertEqual(result.report.status, "success")
+        self.assertEqual(result.outputs["compare_json"], "/tmp/compare.json")
+        self.assertEqual(result.outputs["consensus_json"], "/tmp/consensus.json")
+        self.assertEqual(result.outputs["latest_json"], "/tmp/daily.json")
 
     def test_daily_workflow_skips_portfolio_when_strategies_are_skipped(self) -> None:
         fake_ctx = SimpleNamespace(
@@ -345,6 +402,21 @@ class DailyWorkflowTest(unittest.TestCase):
             code = cli_main(["query", "export", "factors", "--output", "a.csv", "--to", "b.csv"])
         self.assertEqual(code, 6)
         self.assertIn("use either --output or --to", buffer.getvalue())
+
+    @pytest.mark.integration
+    def test_ui_command_launches_packaged_streamlit_app(self) -> None:
+        args = SimpleNamespace(config=Path("tdx_stocks.toml"), host="127.0.0.1", port=8501, no_browser=True)
+        with patch("tdx_stocks.commands.ui.importlib.util.find_spec", return_value=object()), patch(
+            "tdx_stocks.commands.ui.subprocess.call",
+            return_value=0,
+        ) as mocked_call:
+            code = cmd_ui(args)
+
+        self.assertEqual(code, 0)
+        called_args, called_kwargs = mocked_call.call_args
+        self.assertIn("streamlit", called_args[0])
+        self.assertTrue(str(called_args[0][4]).endswith("src/tdx_stocks/web/app.py"))
+        self.assertEqual(called_kwargs["env"]["TDX_STOCKS_CONFIG"], "tdx_stocks.toml")
 
 
 if __name__ == "__main__":

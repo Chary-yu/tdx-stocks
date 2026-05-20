@@ -7,11 +7,14 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from tdx_stocks.duckdb_ops import build_factors
 from tdx_stocks.factor_sql import build_factor_spec, factor_build_report, render_build_factors_sql
 from tdx_stocks.query import (
     build_stock_sql,
     build_select_sql,
+    export_query_csv,
     ensure_read_only_sql,
     format_bytes,
     normalize_output_data,
@@ -20,10 +23,7 @@ from tdx_stocks.query import (
     validate_table,
 )
 
-try:
-    import duckdb
-except ModuleNotFoundError:
-    duckdb = None
+duckdb = pytest.importorskip("duckdb")
 
 
 class QueryHelpersTest(unittest.TestCase):
@@ -66,8 +66,15 @@ class QueryHelpersTest(unittest.TestCase):
             ensure_read_only_sql("CREATE TABLE demo(id INT)")
         with self.assertRaises(ValueError):
             ensure_read_only_sql("SELECT 1; DROP TABLE demo")
+        with self.assertRaises(ValueError):
+            ensure_read_only_sql("")
+        with self.assertRaises(ValueError):
+            ensure_read_only_sql("-- comment only")
+        with self.assertRaises(ValueError):
+            ensure_read_only_sql("SELECT read_parquet('file.parquet')")
+        with self.assertRaises(ValueError):
+            ensure_read_only_sql("SELECT read_csv_auto('file.csv')")
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_select_sql_rejects_unsafe_where_expression(self) -> None:
         con = duckdb.connect(":memory:")
         try:
@@ -85,7 +92,26 @@ class QueryHelpersTest(unittest.TestCase):
         finally:
             con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
+    def test_export_query_csv_uses_batches_and_preserves_row_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "export.csv"
+            con = duckdb.connect(":memory:")
+            try:
+                con.execute("CREATE TABLE raw_daily (market VARCHAR, symbol VARCHAR, trade_date DATE)")
+                con.executemany(
+                    "INSERT INTO raw_daily VALUES (?, ?, ?)",
+                    [("sh", f"600{i:03d}", date(2024, 1, 1)) for i in range(250)],
+                )
+                sql = "SELECT market, symbol, trade_date FROM raw_daily ORDER BY symbol"
+                count = export_query_csv(con, sql, output, batch_size=37)
+            finally:
+                con.close()
+
+            self.assertEqual(count, 250)
+            content = output.read_text(encoding="utf-8")
+            self.assertIn("market,symbol,trade_date", content.splitlines()[0])
+            self.assertEqual(len(content.splitlines()) - 1, 250)
+
     def test_register_query_macros_last_n_days(self) -> None:
         con = duckdb.connect(":memory:")
         try:
@@ -149,7 +175,6 @@ class QueryHelpersTest(unittest.TestCase):
         finally:
             con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_stock_sql_joins_daily_and_factors(self) -> None:
         con = duckdb.connect(":memory:")
         try:
@@ -399,7 +424,6 @@ class QueryHelpersTest(unittest.TestCase):
         finally:
             con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_stock_sql_supports_adjust_modes(self) -> None:
         con = duckdb.connect(":memory:")
         try:
@@ -421,7 +445,6 @@ class QueryHelpersTest(unittest.TestCase):
         finally:
             con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_stock_sql_appends_dynamic_factor_columns(self) -> None:
         con = duckdb.connect(":memory:")
         try:
@@ -570,7 +593,6 @@ class QueryHelpersTest(unittest.TestCase):
         finally:
             con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_register_latest_views_allows_missing_optional_xsec_columns(self) -> None:
         from tdx_stocks.query import register_latest_views, table_column_names
 
@@ -663,7 +685,6 @@ class QueryHelpersTest(unittest.TestCase):
             finally:
                 con.close()
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_factors_generates_core_indicators_and_kdj(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -913,7 +934,6 @@ class QueryHelpersTest(unittest.TestCase):
         self.assertIn("ROWS BETWEEN 6 PRECEDING AND CURRENT ROW", sql)
         self.assertIn("ROWS BETWEEN 29 PRECEDING AND CURRENT ROW", sql)
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_build_factors_supports_configured_windows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

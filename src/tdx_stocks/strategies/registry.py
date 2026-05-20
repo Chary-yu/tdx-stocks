@@ -109,9 +109,9 @@ def load_plugins(plugin_dir: Path) -> None:
         sys.modules[module_name] = module
         try:
             spec.loader.exec_module(module)
-        except Exception as exc:
+        except Exception:
             sys.modules.pop(module_name, None)
-            raise RuntimeError(f"failed to load strategy plugin {resolved_path}: {exc}") from exc
+            raise
         _LOADED_PLUGIN_PATHS.add(resolved_path)
 
 

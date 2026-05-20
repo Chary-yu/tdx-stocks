@@ -1,0 +1,9 @@
+duckdb==1.5.2
+iniconfig==2.3.0
+packaging==26.2
+pluggy==1.6.0
+pyarrow==24.0.0
+Pygments==2.20.0
+pytest==9.0.3
+ruff==0.15.13
+-e git+ssh://git@github.com/Chary-yu/tdx-stocks.git@3f2774d937631b623986cbe615b613f9f1bd2bf8#egg=tdx_stocks

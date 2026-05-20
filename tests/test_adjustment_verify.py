@@ -9,6 +9,8 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from tdx_stocks.cli import cmd_verify_adjustment
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.export_io import read_export_records
@@ -19,10 +21,7 @@ from tdx_stocks.parquet_io import (
     write_empty_table,
 )
 
-try:
-    import duckdb
-except ModuleNotFoundError:
-    duckdb = None
+duckdb = pytest.importorskip("duckdb")
 
 
 class AdjustmentVerifyTest(unittest.TestCase):
@@ -47,7 +46,6 @@ class AdjustmentVerifyTest(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].trade_date.isoformat(), "2020-01-02")
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_verify_adjustment_reports_zero_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -151,7 +149,6 @@ class AdjustmentVerifyTest(unittest.TestCase):
             self.assertIn("max_abs_error=0.0", output)
             self.assertIn("mismatch_count=0", output)
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_verify_adjustment_reports_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
