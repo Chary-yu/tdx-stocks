@@ -120,7 +120,7 @@ def _load_candidates(
     as_of: date | str | None,
 ) -> tuple[list[dict[str, Any]], str | None, str | date]:
     if source == "consensus":
-        strategy_names = [definition.name for definition in list_strategies()]
+        strategy_names = [definition.name for definition in list_strategies() if definition.group != "pair"]
         result = build_consensus(config, strategy_names, as_of=as_of, min_hit=2)
         rows = []
         for row in result.rows:

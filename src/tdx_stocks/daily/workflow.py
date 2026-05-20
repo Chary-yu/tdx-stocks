@@ -169,7 +169,11 @@ def run_daily_workflow(
                 as_of=latest_trade_date,
                 exclude_risk_tags=tuple(daily_config.exclude_risk_tags),
             )
-            portfolio_outputs = save_portfolio_report(config.paths.data_root, portfolio_report)
+            portfolio_saved = save_portfolio_report(config.paths.data_root, portfolio_report)
+            if isinstance(portfolio_saved, dict):
+                portfolio_outputs = {str(key): str(value) for key, value in portfolio_saved.items()}
+            else:
+                portfolio_outputs = {"portfolio_json": portfolio_saved.as_posix()}
             portfolio_payload = portfolio_report.to_dict()
             outputs.update(portfolio_outputs)
             steps.append(

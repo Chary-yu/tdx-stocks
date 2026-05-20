@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from itertools import combinations
 from statistics import mean
 from typing import Any
 
 from ..config import AppConfig
-from .base import StrategyParams
 from .registry import get_strategy
 from .storage import load_saved_report
 
@@ -139,8 +138,9 @@ def _resolve_report_doc(
         )
         if saved is not None:
             return saved
-    params = StrategyParams(as_of=as_of)
-    report = get_strategy(strategy_name).runner(config, params)
+    definition = get_strategy(strategy_name)
+    params = replace(definition.default_params, as_of=as_of)
+    report = definition.runner(config, params)
     return {
         "candidate_count": report.summary.get("eligible"),
         "excluded_count": report.summary.get("excluded"),

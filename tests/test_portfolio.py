@@ -138,6 +138,26 @@ class PortfolioBuilderTest(unittest.TestCase):
         self.assertEqual(portfolio.summary["source"], "consensus")
         self.assertEqual(portfolio.holdings[0]["symbol"], "600000")
 
+    def test_build_portfolio_consensus_skips_pair_strategies(self) -> None:
+        fake_defs = [
+            SimpleNamespace(name="trend-strength", group="momentum"),
+            SimpleNamespace(name="pairs-arb", group="pair"),
+            SimpleNamespace(name="relative-strength", group="momentum"),
+        ]
+        captured: dict[str, object] = {}
+
+        def fake_build_consensus(_config, strategy_names, **kwargs):
+            captured["strategy_names"] = list(strategy_names)
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(rows=[], as_of="latest")
+
+        with patch("tdx_stocks.portfolio.builder.list_strategies", return_value=fake_defs):
+            with patch("tdx_stocks.portfolio.builder.build_consensus", side_effect=fake_build_consensus):
+                build_portfolio(AppConfig(), source="consensus", top=1)
+
+        self.assertEqual(captured["strategy_names"], ["trend-strength", "relative-strength"])
+        self.assertEqual(captured["kwargs"]["min_hit"], 2)
+
     def test_build_portfolio_from_report_accepts_latest(self) -> None:
         fake_doc = {
             "candidates": [

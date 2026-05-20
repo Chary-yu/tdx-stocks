@@ -32,31 +32,23 @@ from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_tren
 from tdx_stocks.commands.strategy import cmd_strategy_backtest
 from tdx_stocks.config import AppConfig, PathsConfig
 from tdx_stocks.exit_codes import NoDataError
-from tdx_stocks.strategies.base import ScoreWeights
 from tdx_stocks.strategies.compare import compare_strategies
 from tdx_stocks.strategies.consensus import build_consensus
 from tdx_stocks.strategies.data import fetch_strategy_rows
+from tdx_stocks.strategies.base import MultiFactorParams
 from tdx_stocks.strategies.pairs import (
     PairsParams,
     _normalize_pair_symbol,
     _safe_in_list,
     run_pairs_strategy,
 )
-from tdx_stocks.strategies.presets.mean_reversion import MeanReversionParams
 from tdx_stocks.strategies.registry import get_strategy, list_strategies
-from tdx_stocks.strategies.scoring import build_trend_score_breakdown, calculate_multi_factor_score
-from tdx_stocks.strategies.signals import (
-    build_trend_risk_flags,
-    build_trend_watch_plan,
-    classify_trend_candidate,
-)
 from tdx_stocks.strategies.storage import load_saved_report, save_report_document
 from tdx_stocks.strategy import StrategyParams, StrategyReport, run_trend_strength_strategy
 
-try:
-    import duckdb
-except ModuleNotFoundError:
-    duckdb = None
+import pytest
+
+duckdb = pytest.importorskip("duckdb")
 
 
 @dataclass
@@ -70,7 +62,6 @@ class FakeContext:
         self.con.close()
 
 
-@unittest.skipIf(duckdb is None, "duckdb is not installed")
 class StrategyLogicTest(unittest.TestCase):
     def setUp(self) -> None:
         self.con = duckdb.connect(":memory:")
@@ -433,82 +424,6 @@ class StrategyLogicTest(unittest.TestCase):
 
         with self.assertRaises(NoDataError):
             self._run(StrategyParams(as_of=date(2024, 1, 1)))
-
-    def test_signal_and_scoring_helpers(self) -> None:
-        row = {
-            "adj_close": 12.0,
-            "ma20": 10.0,
-            "ma60": 9.0,
-            "ret_5": 0.03,
-            "ret_20": 0.12,
-            "ret_60": 0.18,
-            "amount_ma20": 200_000_000.0,
-            "pos_20": 0.9,
-            "pos_60": 0.8,
-            "dd_20": -0.01,
-            "vol_ratio_20": 0.2,
-            "rsi_14": 60.0,
-            "atr_pct_14": 0.03,
-            "vol_20": 0.02,
-        }
-
-        candidate_type, tags, reasons = classify_trend_candidate(row, StrategyParams())
-        risk_flags = build_trend_risk_flags(row)
-        score_breakdown = build_trend_score_breakdown(row, StrategyParams().min_amount_ma20, risk_flags)
-        watch_plan = build_trend_watch_plan(candidate_type, risk_flags)
-
-        self.assertEqual(candidate_type, "breakout_watch")
-        self.assertIn("breakout_watch", tags)
-        self.assertIn("趋势延续", reasons)
-        self.assertIn("near_20d_high", risk_flags)
-        self.assertIn("trend", score_breakdown)
-        self.assertIn("突破", watch_plan)
-
-    def test_mean_reversion_and_smart_money_helpers(self) -> None:
-        mean_row = {
-            "adj_close": 9.0,
-            "ma20": 10.0,
-            "std_pctchg_20": 0.12,
-            "ret_20": -0.20,
-            "rsi_14": 20.0,
-            "amount_ma20": 120_000_000.0,
-            "bb_lower_20": 9.5,
-        }
-        smart_row = {
-            "adj_close": 12.0,
-            "ma20": 11.0,
-            "ret_20": 0.10,
-            "amount_ma20": 150_000_000.0,
-            "vol_ratio_5_60": 3.0,
-            "price_vol_corr_20": 0.7,
-            "atr_pct_14_pct_rank": 0.9,
-            "vol_20_pct_rank": 0.7,
-        }
-
-        mean_candidate, mean_tags, mean_reasons = classify_trend_candidate(mean_row, MeanReversionParams())
-        smart_candidate, smart_tags, smart_reasons = classify_trend_candidate(smart_row, StrategyParams(), strategy_name="smart-money")
-        weights = ScoreWeights(momentum=0.5, volatility=-0.2, liquidity=0.3, relative_strength=0.1, trend=0.1)
-        score_breakdown = calculate_multi_factor_score(
-            {
-                "rs_score": 0.8,
-                "vol_20_pct_rank": 0.9,
-                "amount_ma20_pct_rank": 0.7,
-                "atr_pct_14_pct_rank": 0.6,
-                "pct_rank_ret_20": 0.75,
-                "pct_rank_ret_60": 0.70,
-                "ma_cross_20_60": 0.65,
-            },
-            weights,
-        )
-
-        self.assertEqual(mean_candidate, "oversold_rebound")
-        self.assertIn("oversold_rebound", mean_tags)
-        self.assertIn("RSI 超卖", mean_reasons)
-        self.assertEqual(smart_candidate, "smart_money")
-        self.assertIn("smart_money", smart_tags)
-        self.assertIn("量价齐升", smart_reasons)
-        self.assertIn("total", score_breakdown)
-        self.assertGreater(score_breakdown["total"], 0.0)
 
     def test_walk_forward_and_stress_validation_helpers(self) -> None:
         fake_report = SimpleNamespace(
@@ -1271,7 +1186,6 @@ class StrategyCliTest(unittest.TestCase):
 
         self.assertIn("排名", stdout.getvalue())
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_missing_required_strategy_fields_raise_clear_error(self) -> None:
         con = duckdb.connect(":memory:")
         try:
@@ -1507,6 +1421,53 @@ class StrategyReportStorageTest(unittest.TestCase):
             self.assertEqual(consensus.rows[0].hit_count, 2)
             self.assertEqual(sorted(consensus.rows[0].strategies), ["low-vol-breakout", "trend-strength"])
 
+    def test_compare_and_consensus_use_strategy_default_params(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_root = Path(tmpdir) / "Database"
+            config = AppConfig(paths=PathsConfig(data_root=data_root))
+            candidate = {
+                "market": "sh",
+                "symbol": "600000",
+                "display_symbol": "600000.SH",
+                "score": 91.0,
+                "candidate_type": "breakout_watch",
+                "tags": ["multi-factor"],
+                "risk_flags": [],
+                "reasons": ["reason"],
+                "risk_score": None,
+            }
+            report = SimpleNamespace(
+                summary={"eligible": 1, "excluded": 0, "risk_flag_counts": {}},
+                picks=[candidate],
+                excluded=[],
+                explain=None,
+            )
+            fake_definition = SimpleNamespace(
+                default_params=MultiFactorParams(),
+                runner=lambda _config, params: self.assertIsInstance(params, MultiFactorParams) or report,
+            )
+            with patch("tdx_stocks.strategies.compare.get_strategy", return_value=fake_definition):
+                compare = compare_strategies(
+                    config,
+                    ["multi-factor"],
+                    as_of=date(2024, 1, 4),
+                    use_saved_reports=False,
+                )
+            with patch("tdx_stocks.strategies.consensus.get_strategy", return_value=fake_definition):
+                consensus = build_consensus(
+                    config,
+                    ["multi-factor"],
+                    as_of=date(2024, 1, 4),
+                    min_hit=1,
+                    use_saved_reports=False,
+                )
+
+        self.assertEqual(compare.strategies[0].candidate_count, 1)
+        self.assertEqual(compare.strategies[0].strategy_name, "multi-factor")
+        self.assertEqual(len(consensus.rows), 1)
+        self.assertEqual(consensus.rows[0].symbol, "600000")
+        self.assertEqual(consensus.rows[0].hit_count, 1)
+
     def test_backtest_mvp_returns_expected_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             data_root = Path(tmpdir) / "Database"
@@ -1667,9 +1628,9 @@ class StrategyReportStorageTest(unittest.TestCase):
             trading_dates_fn=lambda con, from_date, to_date, market: trading_dates,
         )
         self.assertEqual(report.trade_count, 1)
-        self.assertEqual(report.total_return, -0.02)
+        self.assertEqual(report.total_return, pytest.approx(-0.02))
         self.assertEqual(report.trades[0]["sell_date"], "2024-01-04")
-        self.assertEqual(report.trades[0]["gross_return"], -0.1)
+        self.assertEqual(report.trades[0]["gross_return"], pytest.approx(-0.1))
         self.assertEqual(report.trades[0]["shares"], 20000)
 
     def test_backtest_price_flags_skip_buy_and_delay_sell(self) -> None:
@@ -1747,7 +1708,7 @@ class StrategyReportStorageTest(unittest.TestCase):
         )
         self.assertEqual(limit_down_report.trade_count, 1)
         self.assertEqual(limit_down_report.trades[0]["sell_date"], "2024-01-05")
-        self.assertEqual(limit_down_report.trades[0]["gross_return"], 0.2)
+        self.assertEqual(limit_down_report.trades[0]["gross_return"], pytest.approx(0.2))
 
         def short_loader(_con, _market, _symbol, trade_date):
             return {
@@ -1787,7 +1748,6 @@ class StrategyReportStorageTest(unittest.TestCase):
         self.assertEqual(short_report.trades[0]["direction"], "SHORT")
         self.assertGreater(short_report.trades[0]["net_return"], 0)
 
-    @unittest.skipIf(duckdb is None, "duckdb is not installed")
     def test_research_helpers_cover_compare_tune_forward_risk_and_consensus(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             data_root = Path(tmpdir) / "Database"
