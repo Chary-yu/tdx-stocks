@@ -11,10 +11,11 @@ from unittest.mock import patch
 
 import pytest
 
-from tdx_stocks.cli import cmd_actions_status, cmd_build, cmd_rebuild, cmd_sync, cmd_update_actions
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.exit_codes import BuildCheckFailedError, NoDataError
 from tdx_stocks.export_io import load_export_adjustment_factor_rows
+from tdx_stocks.commands.data import cmd_actions_status, cmd_build, cmd_rebuild, cmd_update_actions
+from tdx_stocks.commands.sync import cmd_sync
 from tdx_stocks.parquet_io import (
     adjustment_factors_schema,
     corporate_actions_schema,

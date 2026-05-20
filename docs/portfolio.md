@@ -1,6 +1,8 @@
 # Portfolio
 
 Portfolio commands build a target basket from strategy or consensus candidates.
+The current CLI exposes this capability through `run portfolio` presets and the
+report/query workflows.
 
 Supported sources:
 

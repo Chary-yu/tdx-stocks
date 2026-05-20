@@ -103,6 +103,7 @@ tdx-stocks help run
 
 ```bash
 tdx-stocks query stock 600519.SH --limit 20
+tdx-stocks query stock 600519.SH --format csv --output out.csv
 tdx-stocks query stock 600519.SH --no-limit
 ```
 
@@ -146,40 +147,41 @@ tdx-stocks query sql --unsafe-sql "select * from last_n_days('600519.SH', 10)"
 tdx-stocks query export factors --symbol 600000 --to ../Database/exports/factors_600000.csv
 ```
 
-### `query factor list`
+### `query factors`
 
 查看因子目录。
 
 ```bash
-tdx-stocks query factor list
+tdx-stocks query factors
 ```
 
-### `query factor describe`
+### `query factor`
 
 查看单个因子定义。
 
 ```bash
-tdx-stocks query factor describe rs_score
+tdx-stocks query factor rs_score
 ```
 
-### `query factor schema`
-
-查看因子相关表的字段。
-
-```bash
-tdx-stocks query factor schema
-```
-
-### `query factor rank`
+### `query rank`
 
 按指定日期做横截面排名。
 
 ```bash
-tdx-stocks query factor rank rs_score --as-of latest --limit 20
+tdx-stocks query rank rs_score --as-of latest --limit 20
+```
+
+### `query strategies`
+
+```bash
+tdx-stocks query strategies
+tdx-stocks query strategies --grouped
+tdx-stocks query strategy trend-strength
+tdx-stocks query strategy trend-strength --symbol 600519.SH --explain
 ```
 
 ## 4. 说明
 
 - `sync` 是推荐的一键入口。
-- 旧入口不再作为顶层 CLI 命令提供，`query stock` 与 `query factor ...` 是新的查询入口。
+- 旧入口不再作为顶层 CLI 命令提供，`query stock`、`query factors`、`query factor`、`query rank`、`query strategies` 和 `query strategy` 是新的查询入口。
 - `run` 可以直接使用预设名，不必手写 `.toml` 路径。

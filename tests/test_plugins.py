@@ -156,7 +156,7 @@ register_strategy(
                 with patch("tdx_stocks.cli.AppConfig", return_value=config), contextlib.redirect_stdout(
                     io.StringIO()
                 ), contextlib.redirect_stderr(io.StringIO()):
-                    self.assertEqual(main(["--enable-plugins", "strategy", "list", "--json"]), 0)
+                    self.assertEqual(main(["--enable-plugins", "query", "strategies", "--json"]), 0)
                 self.assertEqual(get_strategy(strategy_name).name, strategy_name)
             finally:
                 _unregister_strategy(strategy_name)

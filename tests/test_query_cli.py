@@ -174,7 +174,31 @@ class QueryCliSmokeTest(unittest.TestCase):
                         status_code = cli_main(
                             [
                                 "query",
+                                "factors",
+                                "--json",
+                            ]
+                        )
+                    self.assertEqual(status_code, 0)
+                    self.assertIn("pct_rank_ret_20", stdout.getvalue())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        status_code = cli_main(
+                            [
+                                "query",
                                 "factor",
+                                "pct_rank_ret_20",
+                                "--json",
+                            ]
+                        )
+                    self.assertEqual(status_code, 0)
+                    self.assertIn("pct_rank_ret_20", stdout.getvalue())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        status_code = cli_main(
+                            [
+                                "query",
                                 "rank",
                                 "pct_rank_ret_20",
                                 "--as-of",
@@ -193,6 +217,31 @@ class QueryCliSmokeTest(unittest.TestCase):
                         status_code = cli_main(
                             [
                                 "query",
+                                "strategies",
+                                "--json",
+                            ]
+                        )
+                    self.assertEqual(status_code, 0)
+                    self.assertIn("trend-strength", stdout.getvalue())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        status_code = cli_main(
+                            [
+                                "query",
+                                "strategy",
+                                "trend-strength",
+                                "--json",
+                            ]
+                        )
+                    self.assertEqual(status_code, 0)
+                    self.assertIn("trend-strength", stdout.getvalue())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        status_code = cli_main(
+                            [
+                                "query",
                                 "export",
                                 "raw_daily",
                                 "--output",
@@ -205,6 +254,52 @@ class QueryCliSmokeTest(unittest.TestCase):
                     self.assertEqual(status_code, 0)
                     self.assertTrue(export_path.exists())
                     self.assertIn("exported_rows", stdout.getvalue())
+
+                    stock_csv = Path(tmp) / "stock.csv"
+                    status_code = cli_main(
+                        [
+                            "query",
+                            "stock",
+                            "600519.SH",
+                            "--format",
+                            "csv",
+                            "--output",
+                            stock_csv.as_posix(),
+                            "--limit",
+                            "1",
+                        ]
+                    )
+                    self.assertEqual(status_code, 0)
+                    self.assertTrue(stock_csv.exists())
+            finally:
+                ctx.con.close()
+
+    def test_query_strategy_explain_delegates_to_strategy_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "Database"
+            config = AppConfig(paths=PathsConfig(data_root=data_root, tdx_export=Path(tmp)))
+            ctx = self._make_context()
+            try:
+                with (
+                    patch("tdx_stocks.commands.query.load_config", return_value=config),
+                    patch("tdx_stocks.commands.query.get_strategy") as get_strategy_mock,
+                    patch("tdx_stocks.commands.strategy.cmd_strategy_explain", return_value=0) as explain_mock,
+                ):
+                    get_strategy_mock.return_value = SimpleNamespace(name="trend-strength")
+                    status_code = cli_main(
+                        [
+                            "query",
+                            "strategy",
+                            "trend-strength",
+                            "--symbol",
+                            "600519.SH",
+                            "--explain",
+                            "--config",
+                            "dummy.toml",
+                        ]
+                    )
+                self.assertEqual(status_code, 0)
+                explain_mock.assert_called_once()
             finally:
                 ctx.con.close()
 

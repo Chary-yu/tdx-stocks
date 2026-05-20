@@ -1,6 +1,6 @@
 # Daily Workflow
 
-`tdx-stocks daily run` is the recommended entry point for the end-to-end
+`tdx-stocks run daily` is the recommended entry point for the end-to-end
 research workflow.
 
 ## What It Does
@@ -42,19 +42,19 @@ these fields:
 Run the workflow:
 
 ```bash
-tdx-stocks daily run --config tdx_stocks.toml
+tdx-stocks run daily --config tdx_stocks.toml
 ```
 
 Check the latest status:
 
 ```bash
-tdx-stocks daily status --config tdx_stocks.toml
+tdx-stocks status --config tdx_stocks.toml
 ```
 
 Render a saved report:
 
 ```bash
-tdx-stocks daily report --as-of latest --config tdx_stocks.toml
+tdx-stocks report --as-of latest --config tdx_stocks.toml
 ```
 
 Use `--format json` when you want machine-readable output.

@@ -9,7 +9,8 @@ HELP_TOPICS: dict[str, str] = {
         "Typical flow:\n"
         "  init -> sync -> run daily -> report -> status -> ui\n"
         "  query stock <code> for a merged row view\n"
-        "  query factor rank <factor> for factor ranking\n"
+        "  query factors / query factor <name> / query rank <name>\n"
+        "  query strategies / query strategy <name> [--symbol ... --explain]\n"
     ),
     "init": (
         "Create a workspace with default config and example experiment files.\n\n"
@@ -36,13 +37,19 @@ HELP_TOPICS: dict[str, str] = {
         "Examples:\n"
         "  tdx-stocks query stock 600519.SH\n"
         "  tdx-stocks query table raw_daily --limit 20\n"
-        "  tdx-stocks query factor rank rs_score --as-of latest\n"
+        "  tdx-stocks query factors\n"
+        "  tdx-stocks query factor rs_score\n"
+        "  tdx-stocks query rank rs_score --as-of latest\n"
+        "  tdx-stocks query strategies\n"
+        "  tdx-stocks query strategy trend-strength --symbol 600519.SH --explain\n"
     ),
     "report": (
-        "Render the latest daily report in markdown or JSON.\n\n"
+        "Render the latest daily report or inspect strategy reports.\n\n"
         "Examples:\n"
         "  tdx-stocks report\n"
         "  tdx-stocks report --format json\n"
+        "  tdx-stocks report strategy --list\n"
+        "  tdx-stocks report strategy trend-strength --as-of latest\n"
     ),
     "status": (
         "Show the latest workspace, dataset, and report status.\n\n"

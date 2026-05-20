@@ -29,7 +29,7 @@ from tdx_stocks.portfolio import build_portfolio
 
 class ReleaseConfigTest(unittest.TestCase):
     def test_version_is_0_6_0(self) -> None:
-        self.assertEqual(__version__, "0.6.0")
+        self.assertEqual(__version__, "0.7.0")
 
     def test_pyproject_contains_hatch_targets(self) -> None:
         payload = Path("pyproject.toml").read_text(encoding="utf-8")

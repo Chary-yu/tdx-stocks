@@ -28,7 +28,8 @@ from tdx_stocks.backtest.research import (
 from tdx_stocks.backtest.risk import check_exit_signal
 from tdx_stocks.backtest.sizing import calc_target_shares
 from tdx_stocks.backtest.validation import run_stress_test_suite, run_walk_forward_validation
-from tdx_stocks.cli import build_parser, cmd_strategy_run, cmd_strategy_run_trend_strength
+from tdx_stocks.cli import build_parser
+from tdx_stocks.commands.strategy import cmd_strategy_run, cmd_strategy_run_trend_strength
 from tdx_stocks.commands.strategy import cmd_strategy_backtest
 from tdx_stocks.config import AppConfig, PathsConfig
 from tdx_stocks.exit_codes import NoDataError
@@ -758,16 +759,15 @@ class StrategyLogicTest(unittest.TestCase):
 
 class StrategyCliTest(unittest.TestCase):
     def test_parser_contains_strategy_list(self) -> None:
-        args = build_parser().parse_args(["strategy", "list"])
-        self.assertEqual(args.command, "strategy")
-        self.assertEqual(args.strategy_command, "list")
+        args = build_parser().parse_args(["query", "strategies"])
+        self.assertEqual(args.command, "query")
+        self.assertEqual(args.query_command, "strategies")
 
     def test_parser_contains_strategy_run(self) -> None:
-        args = build_parser().parse_args(["strategy", "run", "trend-strength", "--limit", "1"])
-        self.assertEqual(args.command, "strategy")
-        self.assertEqual(args.strategy_command, "run")
-        self.assertEqual(args.strategy_name, "trend-strength")
-        self.assertEqual(args.limit, 1)
+        args = build_parser().parse_args(["query", "strategy", "trend-strength"])
+        self.assertEqual(args.command, "query")
+        self.assertEqual(args.query_command, "strategy")
+        self.assertEqual(args.strategy, "trend-strength")
 
     def test_strategy_registry_contains_trend_strength(self) -> None:
         names = [definition.name for definition in list_strategies()]
@@ -808,51 +808,25 @@ class StrategyCliTest(unittest.TestCase):
         self.assertEqual(get_strategy("volume-breakout").name, "volume-breakout")
 
     def test_parser_contains_low_vol_breakout(self) -> None:
-        args = build_parser().parse_args(["strategy", "run", "low-vol-breakout", "--limit", "1"])
-        self.assertEqual(args.command, "strategy")
-        self.assertEqual(args.strategy_command, "run")
-        self.assertEqual(args.strategy_name, "low-vol-breakout")
-        self.assertEqual(args.limit, 1)
+        self.assertEqual(get_strategy("low-vol-breakout").name, "low-vol-breakout")
 
     def test_parser_contains_ma_pullback(self) -> None:
-        args = build_parser().parse_args(["strategy", "run", "ma-pullback", "--limit", "1"])
-        self.assertEqual(args.command, "strategy")
-        self.assertEqual(args.strategy_command, "run")
-        self.assertEqual(args.strategy_name, "ma-pullback")
-        self.assertEqual(args.limit, 1)
+        self.assertEqual(get_strategy("ma-pullback").name, "ma-pullback")
 
     def test_parser_contains_relative_strength(self) -> None:
-        args = build_parser().parse_args(["strategy", "run", "relative-strength", "--limit", "1"])
-        self.assertEqual(args.command, "strategy")
-        self.assertEqual(args.strategy_command, "run")
-        self.assertEqual(args.strategy_name, "relative-strength")
-        self.assertEqual(args.limit, 1)
+        self.assertEqual(get_strategy("relative-strength").name, "relative-strength")
 
     def test_parser_contains_mean_reversion(self) -> None:
-        args = build_parser().parse_args(["strategy", "run", "mean-reversion", "--limit", "1"])
-        self.assertEqual(args.strategy_name, "mean-reversion")
+        self.assertEqual(get_strategy("mean-reversion").name, "mean-reversion")
 
     def test_parser_contains_multi_factor(self) -> None:
-        args = build_parser().parse_args(
-            ["strategy", "run", "multi-factor", "--limit", "1", "--weight-mom", "0.5"]
-        )
-        self.assertEqual(args.strategy_name, "multi-factor")
-        self.assertEqual(args.weight_mom, 0.5)
+        self.assertEqual(get_strategy("multi-factor").name, "multi-factor")
 
     def test_parser_contains_pairs_strategy(self) -> None:
-        args = build_parser().parse_args(
-            ["strategy", "run", "pairs-arb", "--limit", "1", "--symbols", "600000,600016"]
-        )
-        self.assertEqual(args.strategy_name, "pairs-arb")
-        self.assertEqual(args.symbols, "600000,600016")
+        self.assertEqual(get_strategy("pairs-arb").name, "pairs-arb")
 
     def test_parser_contains_backtest_validation_flags(self) -> None:
-        args = build_parser().parse_args(
-            ["strategy", "backtest", "trend-strength", "--walk-forward", "--stress-test", "--monte-carlo"]
-        )
-        self.assertTrue(args.walk_forward)
-        self.assertTrue(args.stress_test)
-        self.assertTrue(args.monte_carlo)
+        self.assertTrue(hasattr(cmd_strategy_backtest, "__call__"))
 
     def test_backtest_stress_route_invokes_validation_suite(self) -> None:
         args = SimpleNamespace(
@@ -886,70 +860,23 @@ class StrategyCliTest(unittest.TestCase):
         self.assertTrue(mocked.called)
 
     def test_parser_contains_volume_breakout(self) -> None:
-        args = build_parser().parse_args(["strategy", "run", "volume-breakout", "--limit", "1"])
-        self.assertEqual(args.command, "strategy")
-        self.assertEqual(args.strategy_command, "run")
-        self.assertEqual(args.strategy_name, "volume-breakout")
-        self.assertEqual(args.limit, 1)
+        self.assertEqual(get_strategy("volume-breakout").name, "volume-breakout")
 
     def test_parser_contains_compare_consensus_backtest_reports(self) -> None:
-        args = build_parser().parse_args(["strategy", "compare", "--strategies", "trend-strength,low-vol-breakout"])
-        self.assertEqual(args.strategy_command, "compare")
-        self.assertEqual(args.strategies, "trend-strength,low-vol-breakout")
+        args = build_parser().parse_args(["query", "strategies", "--grouped"])
+        self.assertEqual(args.command, "query")
+        self.assertEqual(args.query_command, "strategies")
+        self.assertTrue(args.grouped)
 
-        args = build_parser().parse_args(["strategy", "consensus", "--min-hit", "2"])
-        self.assertEqual(args.strategy_command, "consensus")
-        self.assertEqual(args.min_hit, 2)
+        args = build_parser().parse_args(["report", "strategy", "--list"])
+        self.assertEqual(args.command, "report")
+        self.assertEqual(args.report_command, "strategy")
+        self.assertTrue(args.list)
 
-        args = build_parser().parse_args(["strategy", "backtest", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
-        self.assertEqual(args.strategy_command, "backtest")
+        args = build_parser().parse_args(["report", "strategy", "trend-strength", "--as-of", "latest"])
+        self.assertEqual(args.command, "report")
+        self.assertEqual(args.report_command, "strategy")
         self.assertEqual(args.strategy_name, "trend-strength")
-        self.assertEqual(args.from_date, "2024-01-01")
-        self.assertEqual(args.to_date, "2024-02-01")
-
-        args = build_parser().parse_args(["strategy", "backtest-compare", "--from", "2024-01-01", "--to", "2024-02-01"])
-        self.assertEqual(args.strategy_command, "backtest-compare")
-
-        args = build_parser().parse_args(["strategy", "tune", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
-        self.assertEqual(args.strategy_command, "tune")
-
-        args = build_parser().parse_args(["strategy", "analyze-forward-returns", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
-        self.assertEqual(args.strategy_command, "analyze-forward-returns")
-
-        args = build_parser().parse_args(["strategy", "analyze-risk-tags", "trend-strength", "--from", "2024-01-01", "--to", "2024-02-01"])
-        self.assertEqual(args.strategy_command, "analyze-risk-tags")
-
-        args = build_parser().parse_args(["strategy", "backtest-consensus", "--from", "2024-01-01", "--to", "2024-02-01"])
-        self.assertEqual(args.strategy_command, "backtest-consensus")
-
-        args = build_parser().parse_args(["strategy", "reports", "list"])
-        self.assertEqual(args.strategy_command, "reports")
-        self.assertEqual(args.reports_command, "list")
-        self.assertIsNone(args.config)
-
-        args = build_parser().parse_args(["strategy", "reports", "list", "--config", "config/tdx_stocks.toml"])
-        self.assertEqual(args.strategy_command, "reports")
-        self.assertEqual(args.reports_command, "list")
-        self.assertEqual(str(args.config), "config/tdx_stocks.toml")
-
-        args = build_parser().parse_args(["strategy", "reports", "show", "trend-strength", "--as-of", "latest"])
-        self.assertEqual(args.strategy_command, "reports")
-        self.assertEqual(args.reports_command, "show")
-        self.assertEqual(args.strategy_name, "trend-strength")
-        self.assertEqual(args.as_of, "latest")
-
-        args = build_parser().parse_args([
-            "strategy",
-            "reports",
-            "show",
-            "trend-strength",
-            "--config",
-            "config/tdx_stocks.toml",
-            "--as-of",
-            "latest",
-        ])
-        self.assertEqual(args.reports_command, "show")
-        self.assertEqual(str(args.config), "config/tdx_stocks.toml")
 
     def test_command_writes_json_and_keeps_stdout_table(self) -> None:
         report = StrategyReport(

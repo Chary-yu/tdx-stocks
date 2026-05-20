@@ -8,39 +8,14 @@ import traceback
 from pathlib import Path
 
 from .commands.doctor import register_doctor_command
-from .commands.audit import cmd_verify_adjustment as _audit_cmd_verify_adjustment
 from .commands.help import register_help_command
 from .commands.init import register_init_command
-from .commands.portfolio import register_portfolio_group
-from .commands.data import (
-    cmd_actions_status as _data_cmd_actions_status,
-)
-from .commands.data import (
-    cmd_build as _data_cmd_build,
-)
-from .commands.data import (
-    cmd_rebuild as _data_cmd_rebuild,
-)
-from .commands.data import (
-    cmd_update_actions as _data_cmd_update_actions,
-)
 from .commands.query import register_query_group
 from .commands.report import register_report_command
 from .commands.run import register_run_command
 from .commands.status import register_status_command
 from .commands.sync import register_sync_group
-from .commands.sync import cmd_sync as _sync_cmd_sync
 from .commands.ui import register_ui_command
-from .commands.strategy import (
-    cmd_strategy_list as _strategy_cmd_strategy_list,
-)
-from .commands.strategy import (
-    cmd_strategy_run as _strategy_cmd_strategy_run,
-)
-from .commands.strategy import register_strategy_group
-from .commands.strategy import (
-    cmd_strategy_run_trend_strength as _strategy_cmd_strategy_run_trend_strength,
-)
 from .config import AppConfig, load_config
 from .exit_codes import CliError, ExitCode, UsageError
 from .query import TABLES
@@ -136,6 +111,8 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
             "  tdx-stocks sync\n"
             "  tdx-stocks run daily\n"
             "  tdx-stocks query stock 600519.SH\n"
+            "  tdx-stocks query factors\n"
+            "  tdx-stocks query strategy trend-strength --symbol 600519.SH --explain\n"
             "  tdx-stocks report\n"
             "  tdx-stocks status\n"
             "  tdx-stocks ui\n"
@@ -170,13 +147,6 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
     register_status_command(subparsers)
     register_ui_command(subparsers)
     register_help_command(subparsers)
-    register_strategy_group(
-        subparsers,
-        cmd_strategy_list=_strategy_cmd_strategy_list,
-        cmd_strategy_run=_strategy_cmd_strategy_run,
-        hidden=True,
-    )
-    register_portfolio_group(subparsers, hidden=True)
     return parser
 
 
@@ -218,39 +188,5 @@ def _print_cli_error(message: str, *, debug: bool, exc: Exception | None = None)
     print(f"error: {rendered}", file=sys.stderr)
     if debug and exc is not None:
         traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
-
-
-def cmd_build(args):  # type: ignore[no-untyped-def]
-    return _data_cmd_build(args)
-
-
-def cmd_rebuild(args):  # type: ignore[no-untyped-def]
-    return _data_cmd_rebuild(args)
-
-
-def cmd_update_actions(args):  # type: ignore[no-untyped-def]
-    return _data_cmd_update_actions(args)
-
-
-def cmd_actions_status(args):  # type: ignore[no-untyped-def]
-    return _data_cmd_actions_status(args)
-
-
-def cmd_verify_adjustment(args):  # type: ignore[no-untyped-def]
-    return _audit_cmd_verify_adjustment(args)
-
-
-def cmd_strategy_run(args):  # type: ignore[no-untyped-def]
-    return _strategy_cmd_strategy_run(args)
-
-
-def cmd_strategy_run_trend_strength(args):  # type: ignore[no-untyped-def]
-    return _strategy_cmd_strategy_run_trend_strength(args)
-
-
-def cmd_sync(args):  # type: ignore[no-untyped-def]
-    return _sync_cmd_sync(args)
-
-
 if __name__ == "__main__":
     raise SystemExit(main())

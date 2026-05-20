@@ -22,6 +22,10 @@ class CliSurfaceTest(unittest.TestCase):
             ["stock", "600519.SH"],
             ["data", "sync"],
             ["factors", "list"],
+            ["strategy", "list"],
+            ["portfolio", "build"],
+            ["daily", "run"],
+            ["audit", "verify-adjustment"],
             ["query", "price", "600519.SH"],
             ["query", "status"],
             ["examples"],
@@ -34,6 +38,19 @@ class CliSurfaceTest(unittest.TestCase):
                     code = cli_main(argv)
                 self.assertNotEqual(code, 0)
                 self.assertIn("invalid choice", stderr.getvalue())
+
+    def test_new_flat_query_commands_work(self) -> None:
+        for argv in (
+            ["query", "factors"],
+            ["query", "factor", "pct_rank_ret_20"],
+            ["query", "strategies"],
+            ["query", "strategy", "trend-strength"],
+        ):
+            with self.subTest(argv=argv):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    code = cli_main(argv)
+                self.assertEqual(code, 0, stderr.getvalue())
 
     def test_help_topics_are_static(self) -> None:
         stdout = io.StringIO()

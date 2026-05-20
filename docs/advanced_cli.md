@@ -14,6 +14,7 @@ The following commands remain available for advanced use:
 - `query`
 - `status`
 - `report`
+- `run`
 - `help`
 
 Use `tdx-stocks help <topic>` for static guidance topics.

@@ -129,7 +129,7 @@ Inspect the latest tables and factor catalog:
 
 ```bash
 tdx-stocks query tables
-tdx-stocks query factor list
+tdx-stocks query factors
 ```
 
 Use `help` for static guidance:

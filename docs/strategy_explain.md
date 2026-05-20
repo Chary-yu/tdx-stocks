@@ -1,6 +1,6 @@
 # Strategy Explain
 
-`tdx-stocks strategy explain <strategy> <symbol> --as-of latest` returns a read-only explanation for one symbol.
+`tdx-stocks query strategy <strategy> --symbol <symbol> --explain` returns a read-only explanation for one symbol.
 
 Main fields:
 
@@ -16,8 +16,7 @@ Main fields:
 Example:
 
 ```bash
-tdx-stocks strategy explain trend-strength 000001 --as-of latest --json
+tdx-stocks query strategy trend-strength --symbol 000001 --explain --json
 ```
 
-This command is independent from `strategy run --explain-symbol`.
-
+This command is independent from `run --explain-symbol`.

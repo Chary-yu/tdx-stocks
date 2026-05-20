@@ -1,6 +1,6 @@
 # Strategies
 
-`tdx-stocks strategy` now exposes a standard metadata model for every preset:
+The strategy metadata model is exposed through the `query` surface for every preset:
 
 - `name`
 - `display_name`
@@ -20,13 +20,12 @@
 Useful commands:
 
 ```bash
-tdx-stocks strategy list
-tdx-stocks strategy groups
-tdx-stocks strategy describe trend-strength --json
-tdx-stocks strategy explain trend-strength 000001 --as-of latest
+tdx-stocks query strategies
+tdx-stocks query strategies --grouped
+tdx-stocks query strategy trend-strength --json
+tdx-stocks query strategy trend-strength --symbol 000001 --explain
 ```
 
-`strategy list` shows the high-level catalogue.
-`strategy groups` shows how presets are distributed by group.
-`strategy describe` prints the strategy schema and factor requirements.
-
+`query strategies` shows the high-level catalogue.
+`query strategies --grouped` shows how presets are distributed by group.
+`query strategy` prints the strategy schema and factor requirements.

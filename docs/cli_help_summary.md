@@ -10,7 +10,7 @@ TDX Stocks - local stock research workflow
 | `help` | Show built-in guidance topics. |
 | `init` | Initialize a new research workspace. |
 | `query` | Read-only inspection and query commands. |
-| `report` | Show the latest daily report. |
+| `report` | Show daily or strategy reports. |
 | `run` | Run a preset name or TOML experiment config. |
 | `status` | Show project status. |
 | `sync` | Synchronize local caches and the latest dataset. |
@@ -26,7 +26,7 @@ TDX Stocks - local stock research workflow
 | `doctor` | Diagnose setup issues. |
 | `sync` | Synchronize local caches and the latest dataset. |
 | `run` | Run a preset name or TOML experiment config. |
-| `report` | Show the latest daily report. |
+| `report` | Show daily or strategy reports. |
 | `query` | Read-only inspection and query commands. |
 | `status` | Show project status. |
 | `ui` | Launch the read-only Web UI. |
@@ -79,6 +79,23 @@ TDX Stocks - local stock research workflow
 | `--format` | (default: markdown) |
 | `--output` |  |
 
+#### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `strategy` | Inspect saved strategy reports. |
+
+##### `report strategy`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `strategy_name` |  |
+| `--list` |  |
+| `--as-of` | (default: latest) |
+| `--format` | (default: markdown) |
+| `--output` |  |
+
 #### `query`
 
 | 参数 | 说明 |
@@ -94,7 +111,11 @@ TDX Stocks - local stock research workflow
 | `schema` | Show a table schema. |
 | `sql` | Run SQL against latest table views. |
 | `export` | Export a filtered table query to CSV. |
-| `factor` | Factor catalog, schema inspection, and ranking commands. |
+| `factors` | List available factors. |
+| `factor` | Describe one factor. |
+| `rank` | Rank one factor on a chosen date. |
+| `strategies` | List available strategies. |
+| `strategy` | Inspect one strategy. |
 
 ##### `query stock`
 
@@ -109,6 +130,8 @@ TDX Stocks - local stock research workflow
 | `--asc` | (default: True) |
 | `--no-limit` |  |
 | `--json` |  |
+| `--format` | (default: table) |
+| `--output, --to` |  |
 
 ##### `query table`
 
@@ -171,41 +194,20 @@ TDX Stocks - local stock research workflow
 | `--output, --to` |  |
 | `--no-limit` |  |
 
-##### `query factor`
-
-| 参数 | 说明 |
-| --- | --- |
-
-##### 子命令
-
-| 命令 | 功能 |
-| --- | --- |
-| `list` | List available factors. |
-| `describe` | Describe one factor. |
-| `schema` | Show factor table schema. |
-| `rank` | Rank one factor on a chosen date. |
-
-###### `query factor list`
+##### `query factors`
 
 | 参数 | 说明 |
 | --- | --- |
 | `--json` |  |
 
-###### `query factor describe`
+##### `query factor`
 
 | 参数 | 说明 |
 | --- | --- |
 | `factor` |  |
 | `--json` |  |
 
-###### `query factor schema`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--json` |  |
-
-###### `query factor rank`
+##### `query rank`
 
 | 参数 | 说明 |
 | --- | --- |
@@ -215,6 +217,30 @@ TDX Stocks - local stock research workflow
 | `--limit` | (default: 50) |
 | `--market` |  |
 | `--json` |  |
+
+##### `query strategies`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--json` |  |
+| `--grouped` |  |
+
+##### `query strategy`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `strategy` |  |
+| `--json` |  |
+| `--symbol` |  |
+| `--explain` |  |
+| `--as-of` | (default: latest) |
+| `--limit` | (default: 20) |
+| `--min-score` | (default: 60.0) |
+| `--min-amount-ma20` | (default: 50000000.0) |
+| `--candidate-type` |  |
+| `--include-excluded` |  |
+| `--show-excluded-limit` | (default: 20) |
 
 #### `status`
 

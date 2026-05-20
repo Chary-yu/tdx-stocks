@@ -331,20 +331,16 @@ class PortfolioBacktestTest(unittest.TestCase):
 
 class PortfolioCliParserTest(unittest.TestCase):
     def test_new_commands_are_registered(self) -> None:
-        args = build_parser().parse_args(["strategy", "groups"])
-        self.assertEqual(args.strategy_command, "groups")
-        args = build_parser().parse_args(["strategy", "describe", "trend-strength"])
-        self.assertEqual(args.strategy_command, "describe")
-        args = build_parser().parse_args(["strategy", "explain", "trend-strength", "000001", "--as-of", "latest"])
-        self.assertEqual(args.strategy_command, "explain")
-        args = build_parser().parse_args(["portfolio", "build", "--from", "consensus", "--top", "20"])
-        self.assertEqual(args.portfolio_command, "build")
-        args = build_parser().parse_args(["portfolio", "risk", "--portfolio", "latest"])
-        self.assertEqual(args.portfolio_command, "risk")
-        args = build_parser().parse_args(["portfolio", "rebalance-plan", "--current", "holdings.csv", "--from", "consensus"])
-        self.assertEqual(args.portfolio_command, "rebalance-plan")
-        args = build_parser().parse_args(["portfolio", "backtest", "--from", "consensus", "--from-date", "2024-01-01", "--to-date", "2024-01-31"])
-        self.assertEqual(args.portfolio_command, "backtest")
+        args = build_parser().parse_args(["query", "strategies"])
+        self.assertEqual(args.query_command, "strategies")
+        args = build_parser().parse_args(["query", "strategy", "trend-strength"])
+        self.assertEqual(args.query_command, "strategy")
+        args = build_parser().parse_args(["report", "strategy", "--list"])
+        self.assertEqual(args.report_command, "strategy")
+        self.assertTrue(args.list)
+        args = build_parser().parse_args(["report", "strategy", "trend-strength", "--as-of", "latest"])
+        self.assertEqual(args.report_command, "strategy")
+        self.assertEqual(args.strategy_name, "trend-strength")
 
 
 if __name__ == "__main__":

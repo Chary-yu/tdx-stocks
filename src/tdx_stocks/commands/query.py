@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from ..config import load_config
-from ..console import print_json
+from ..console import print_json, print_key_values
+from ..strategies.registry import get_strategy, list_strategies
 from ..query import (
     TABLES,
     build_select_sql,
@@ -22,6 +24,7 @@ from ..query import (
 )
 from .common import add_config_arg, add_output_arg, add_query_args, add_stock_args
 from .common import validate_output_alias
+from .output import write_rows
 
 
 def register_query_group(
@@ -43,6 +46,8 @@ def register_query_group(
     )
     add_config_arg(stock_parser)
     add_stock_args(stock_parser)
+    stock_parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
+    add_output_arg(stock_parser)
     stock_parser.set_defaults(func=cmd_stock)
 
     table_parser = query_subparsers.add_parser("table", help="Show rows from a latest table.")
@@ -57,7 +62,7 @@ def register_query_group(
 
     schema_parser = query_subparsers.add_parser("schema", help="Show a table schema.")
     add_config_arg(schema_parser)
-    schema_parser.add_argument("table", choices=tables)
+    schema_parser.add_argument("table", nargs="?", default="factor_full", choices=tables)
     schema_parser.add_argument("--json", action="store_true")
     schema_parser.set_defaults(func=cmd_schema)
 
@@ -80,36 +85,43 @@ def register_query_group(
     export_parser.add_argument("--no-limit", action="store_true")
     export_parser.set_defaults(func=cmd_export)
 
+    factors_parser = query_subparsers.add_parser("factors", help="List available factors.")
+    factors_parser.add_argument("--json", action="store_true")
+    factors_parser.set_defaults(func=cmd_factors)
 
-    factor_parser = query_subparsers.add_parser(
-        "factor",
-        help="Factor catalog, schema inspection, and ranking commands.",
-        description="Commands for factor catalog browsing and ranking.",
-    )
-    factor_subparsers = factor_parser.add_subparsers(dest="factor_command", required=True)
+    factor_parser = query_subparsers.add_parser("factor", help="Describe one factor.")
+    factor_parser.add_argument("factor")
+    factor_parser.add_argument("--json", action="store_true")
+    factor_parser.set_defaults(func=cmd_factor)
 
-    factor_list_parser = factor_subparsers.add_parser("list", help="List available factors.")
-    factor_list_parser.add_argument("--json", action="store_true")
-    factor_list_parser.set_defaults(func=cmd_factor_list)
+    rank_parser = query_subparsers.add_parser("rank", help="Rank one factor on a chosen date.")
+    add_config_arg(rank_parser)
+    rank_parser.add_argument("factor")
+    rank_parser.add_argument("--as-of", default="latest")
+    rank_parser.add_argument("--limit", type=int, default=50)
+    rank_parser.add_argument("--market", choices=("sh", "sz", "bj"))
+    rank_parser.add_argument("--json", action="store_true")
+    rank_parser.set_defaults(func=cmd_rank)
 
-    factor_describe_parser = factor_subparsers.add_parser("describe", help="Describe one factor.")
-    factor_describe_parser.add_argument("factor")
-    factor_describe_parser.add_argument("--json", action="store_true")
-    factor_describe_parser.set_defaults(func=cmd_factor_describe)
+    strategies_parser = query_subparsers.add_parser("strategies", help="List available strategies.")
+    strategies_parser.add_argument("--json", action="store_true")
+    strategies_parser.add_argument("--grouped", action="store_true")
+    strategies_parser.set_defaults(func=cmd_query_strategies)
 
-    factor_schema_parser = factor_subparsers.add_parser("schema", help="Show factor table schema.")
-    add_config_arg(factor_schema_parser)
-    factor_schema_parser.add_argument("--json", action="store_true")
-    factor_schema_parser.set_defaults(func=cmd_factor_schema)
-
-    factor_rank_parser = factor_subparsers.add_parser("rank", help="Rank one factor on a chosen date.")
-    add_config_arg(factor_rank_parser)
-    factor_rank_parser.add_argument("factor")
-    factor_rank_parser.add_argument("--as-of", default="latest")
-    factor_rank_parser.add_argument("--limit", type=int, default=50)
-    factor_rank_parser.add_argument("--market", choices=("sh", "sz", "bj"))
-    factor_rank_parser.add_argument("--json", action="store_true")
-    factor_rank_parser.set_defaults(func=cmd_factor_rank)
+    strategy_parser = query_subparsers.add_parser("strategy", help="Inspect one strategy.")
+    add_config_arg(strategy_parser)
+    strategy_parser.add_argument("strategy")
+    strategy_parser.add_argument("--json", action="store_true")
+    strategy_parser.add_argument("--symbol")
+    strategy_parser.add_argument("--explain", action="store_true")
+    strategy_parser.add_argument("--as-of", default="latest")
+    strategy_parser.add_argument("--limit", type=int, default=20)
+    strategy_parser.add_argument("--min-score", type=float, default=60.0)
+    strategy_parser.add_argument("--min-amount-ma20", type=float, default=50_000_000.0)
+    strategy_parser.add_argument("--candidate-type")
+    strategy_parser.add_argument("--include-excluded", action="store_true")
+    strategy_parser.add_argument("--show-excluded-limit", type=int, default=20)
+    strategy_parser.set_defaults(func=cmd_query_strategy)
 
 
 def parse_columns(value: str | None) -> list[str] | None:
@@ -325,6 +337,10 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_stock(args: argparse.Namespace) -> int:
+    if getattr(args, "json", False) and getattr(args, "format", "table") != "table":
+        raise ValueError("use either --json or --format, not both")
+    format_name = "json" if getattr(args, "json", False) else getattr(args, "format", "table")
+    output_path = getattr(args, "output", None) or getattr(args, "to", None)
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
@@ -338,34 +354,151 @@ def cmd_stock(args: argparse.Namespace) -> int:
             adjust=args.adjust,
         )
         columns, rows = fetch_dicts(ctx.con, sql)
-        if args.json:
-            print_json(normalize_output_data(rows))
-        else:
-            print_rows(columns, rows)
+        write_rows(rows, columns=columns, format_name=format_name, to=output_path)
     finally:
         ctx.close()
     return 0
 
 
-def cmd_factor_list(args: argparse.Namespace) -> int:
+def cmd_factors(args: argparse.Namespace) -> int:
     from .factors import cmd_factors_list as _cmd_factors_list
 
     return _cmd_factors_list(args)
 
 
-def cmd_factor_describe(args: argparse.Namespace) -> int:
+def cmd_factor(args: argparse.Namespace) -> int:
     from .factors import cmd_factors_describe as _cmd_factors_describe
 
-    return _cmd_factors_describe(args)
+    try:
+        return _cmd_factors_describe(args)
+    except KeyError as exc:
+        raise ValueError(str(exc)) from exc
 
 
-def cmd_factor_schema(args: argparse.Namespace) -> int:
-    from .factors import cmd_factors_schema as _cmd_factors_schema
-
-    return _cmd_factors_schema(args)
-
-
-def cmd_factor_rank(args: argparse.Namespace) -> int:
+def cmd_rank(args: argparse.Namespace) -> int:
     from .factors import cmd_factors_rank as _cmd_factors_rank
 
-    return _cmd_factors_rank(args)
+    try:
+        return _cmd_factors_rank(args)
+    except KeyError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def cmd_query_strategies(args: argparse.Namespace) -> int:
+    rows = [
+        {
+            "name": definition.name,
+            "display_name": definition.display_name or definition.name,
+            "group": definition.group,
+            "style": definition.style,
+            "description": definition.description,
+            "candidate_types": ", ".join(definition.candidate_types) or "无",
+            "risk_tags": ", ".join(definition.risk_tags) or "无",
+            "aliases": ", ".join(definition.aliases) or "无",
+        }
+        for definition in list_strategies()
+    ]
+    if getattr(args, "grouped", False):
+        grouped: dict[str, dict[str, object]] = {}
+        for row in rows:
+            group = str(row["group"])
+            item = grouped.setdefault(
+                group,
+                {
+                    "group": group,
+                    "strategy_count": 0,
+                    "strategies": [],
+                },
+            )
+            item["strategy_count"] = int(item["strategy_count"]) + 1
+            item["strategies"].append(str(row["name"]))
+        output = sorted(
+            (
+                {
+                    "group": group,
+                    "strategy_count": item["strategy_count"],
+                    "strategies": ", ".join(sorted(item["strategies"])),
+                }
+                for group, item in grouped.items()
+            ),
+            key=lambda item: item["group"],
+        )
+        if getattr(args, "json", False):
+            print_json(normalize_output_data(output))
+        else:
+            print_rows(["group", "strategy_count", "strategies"], output)
+        return 0
+    if getattr(args, "json", False):
+        print_json(normalize_output_data(rows))
+    else:
+        print_rows(["name", "display_name", "group", "style", "aliases", "description"], rows)
+    return 0
+
+
+def cmd_query_strategy(args: argparse.Namespace) -> int:
+    try:
+        definition = get_strategy(args.strategy)
+    except KeyError as exc:
+        raise ValueError(str(exc)) from exc
+    if bool(args.symbol) != bool(args.explain):
+        raise ValueError("--symbol and --explain must be used together")
+    if args.explain:
+        from .strategy import cmd_strategy_explain as _cmd_strategy_explain
+
+        explain_args = argparse.Namespace(
+            config=getattr(args, "config", None),
+            strategy=args.strategy,
+            symbol=args.symbol,
+            as_of=args.as_of,
+            json=args.json,
+            output=getattr(args, "output", None),
+            to=getattr(args, "to", None),
+            market=None,
+            limit=args.limit,
+            min_score=args.min_score,
+            min_amount_ma20=args.min_amount_ma20,
+            candidate_type=args.candidate_type,
+            include_excluded=args.include_excluded,
+            show_excluded_limit=args.show_excluded_limit,
+            explain_symbol=args.symbol,
+        )
+        return _cmd_strategy_explain(explain_args)
+
+    payload = {
+        "name": definition.name,
+        "display_name": definition.display_name or definition.name,
+        "description": definition.description,
+        "group": definition.group,
+        "style": definition.style,
+        "required_fields": list(definition.required_fields),
+        "optional_fields": list(definition.optional_fields),
+        "default_params": definition.default_params.to_dict(),
+        "param_schema": definition.param_schema,
+        "candidate_types": list(definition.candidate_types),
+        "risk_tags": list(definition.risk_tags),
+        "introduced_in": definition.introduced_in,
+        "aliases": list(definition.aliases),
+        "supported_research_capabilities": list(definition.research_capabilities()),
+    }
+    if getattr(args, "json", False):
+        print_json(normalize_output_data(payload))
+    else:
+        print_key_values(
+            f"strategy: {definition.name}",
+            [
+                ("策略名称", payload["display_name"]),
+                ("策略分组", payload["group"]),
+                ("策略风格", payload["style"]),
+                ("策略说明", payload["description"]),
+                ("依赖因子", ", ".join(payload["required_fields"]) or "无"),
+                ("可选因子", ", ".join(payload["optional_fields"]) or "无"),
+                ("默认参数", json.dumps(payload["default_params"], ensure_ascii=False, default=str)),
+                ("参数模式", json.dumps(payload["param_schema"], ensure_ascii=False, default=str)),
+                ("候选类型", ", ".join(payload["candidate_types"]) or "无"),
+                ("风险标签", ", ".join(payload["risk_tags"]) or "无"),
+                ("支持能力", ", ".join(payload["supported_research_capabilities"]) or "无"),
+                ("别名", ", ".join(payload["aliases"]) or "无"),
+                ("首次引入", payload["introduced_in"]),
+            ],
+        )
+    return 0

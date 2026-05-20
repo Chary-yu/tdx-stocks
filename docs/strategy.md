@@ -1,15 +1,15 @@
 # Strategy Framework
 
-`tdx-stocks` currently exposes a registry-driven strategy entrypoint under `strategy`.
+`tdx-stocks` exposes strategy metadata through `query` and strategy execution
+through `run`.
 
 Available commands:
 
-- `tdx-stocks strategy list`
-- `tdx-stocks strategy run trend-strength`
-- `tdx-stocks strategy run low-vol-breakout`
-- `tdx-stocks strategy run ma-pullback`
-- `tdx-stocks strategy run relative-strength`
-- `tdx-stocks strategy run volume-breakout`
+- `tdx-stocks query strategies`
+- `tdx-stocks query strategy trend-strength`
+- `tdx-stocks query strategy trend-strength --symbol 600000.SH --explain`
+- `tdx-stocks run signal`
+- `tdx-stocks run daily`
 
 ## Output shape
 
@@ -25,7 +25,7 @@ This keeps JSON output, table output, exports, and future backtest adapters alig
 ## Compatibility
 
 `trend-strength` remains the compatibility baseline. Existing imports from
-`tdx_stocks.strategy` still work.
+`tdx_stocks.strategy` still work for internal code.
 
 ## Current implementation notes
 
@@ -33,4 +33,3 @@ This keeps JSON output, table output, exports, and future backtest adapters alig
 - Shared candidate classification and scoring live in `signals.py` and `scoring.py`.
 - Data access lives in `data.py`.
 - Hard filters and basic symbol formatting live in `universe.py`.
-

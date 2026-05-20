@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import pytest
 
-from tdx_stocks.cli import cmd_verify_adjustment
 from tdx_stocks.config import AppConfig, BuildConfig, PathsConfig
 from tdx_stocks.export_io import read_export_records
 from tdx_stocks.parquet_io import (
@@ -20,6 +19,7 @@ from tdx_stocks.parquet_io import (
     raw_daily_schema,
     write_empty_table,
 )
+from tdx_stocks.commands.audit import cmd_verify_adjustment
 
 duckdb = pytest.importorskip("duckdb")
 

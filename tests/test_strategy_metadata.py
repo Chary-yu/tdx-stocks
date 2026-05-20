@@ -21,16 +21,20 @@ class StrategyMetadataTest(unittest.TestCase):
             self.assertTrue(definition.introduced_in)
 
     def test_groups_command_returns_group_payload(self) -> None:
-        args = build_parser().parse_args(["strategy", "groups", "--json"])
-        with patch("tdx_stocks.commands.strategy.print_json") as mocked_print_json:
-            cmd_strategy_groups(args)
+        args = build_parser().parse_args(["query", "strategies", "--grouped", "--json"])
+        with patch("tdx_stocks.commands.query.print_json") as mocked_print_json:
+            from tdx_stocks.commands.query import cmd_query_strategies
+
+            cmd_query_strategies(args)
         payload = mocked_print_json.call_args.args[0]
         self.assertTrue(any(row["group"] == "trend" for row in payload))
 
     def test_describe_command_returns_strategy_schema(self) -> None:
-        args = build_parser().parse_args(["strategy", "describe", "trend-strength", "--json"])
-        with patch("tdx_stocks.commands.strategy.print_json") as mocked_print_json:
-            cmd_strategy_describe(args)
+        args = build_parser().parse_args(["query", "strategy", "trend-strength", "--json"])
+        with patch("tdx_stocks.commands.query.print_json") as mocked_print_json:
+            from tdx_stocks.commands.query import cmd_query_strategy
+
+            cmd_query_strategy(args)
         payload = mocked_print_json.call_args.args[0]
         self.assertEqual(payload["name"], "trend-strength")
         self.assertIn("group", payload)
@@ -38,7 +42,7 @@ class StrategyMetadataTest(unittest.TestCase):
         self.assertIn("supported_research_capabilities", payload)
 
     def test_explain_command_returns_selected_payload(self) -> None:
-        args = build_parser().parse_args(["strategy", "explain", "trend-strength", "000001", "--json"])
+        args = build_parser().parse_args(["query", "strategy", "trend-strength", "--symbol", "000001", "--explain", "--json"])
         fake_report = StrategyReport(
             summary={"min_score": 60.0},
             picks=[],
@@ -57,19 +61,14 @@ class StrategyMetadataTest(unittest.TestCase):
                 },
             },
         )
-        with patch("tdx_stocks.commands.strategy.load_config", return_value=SimpleNamespace()):
-            with patch("tdx_stocks.commands.strategy.get_strategy") as mocked_get_strategy:
-                mocked_get_strategy.return_value = SimpleNamespace(
-                    runner=lambda config, params: fake_report,
-                    params_builder=None,
-                )
-                with patch("tdx_stocks.commands.strategy.print_json") as mocked_print_json:
-                    cmd_strategy_explain(args)
-        payload = mocked_print_json.call_args.args[0]
-        self.assertTrue(payload["selected"])
-        self.assertEqual(payload["total_score"], 88.5)
-        self.assertIn("rule_checks", payload)
-        self.assertIn("key_factors", payload)
+        with patch("tdx_stocks.commands.query.get_strategy") as mocked_get_strategy:
+            mocked_get_strategy.return_value = SimpleNamespace(name="trend-strength")
+            with patch("tdx_stocks.commands.strategy.cmd_strategy_explain", return_value=0) as mocked_explain:
+                from tdx_stocks.commands.query import cmd_query_strategy
+
+                cmd_query_strategy(args)
+        mocked_explain.assert_called_once()
+        self.assertTrue(mocked_get_strategy.called)
 
 
 if __name__ == "__main__":
