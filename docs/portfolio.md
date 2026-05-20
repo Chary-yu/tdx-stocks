@@ -30,9 +30,9 @@ Important constraints:
 Example:
 
 ```bash
-tdx-stocks portfolio build --from consensus --top 20
-tdx-stocks portfolio build --from strategy --strategy trend-strength --top 20 --weighting score
-tdx-stocks portfolio build --from report --strategy trend-strength --as-of latest
+tdx-stocks run portfolio
+tdx-stocks run portfolio --json --output reports/portfolio.json
+tdx-stocks report strategy trend-strength
 ```
 
 The portfolio layer does not connect to a broker and does not place orders.

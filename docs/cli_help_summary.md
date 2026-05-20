@@ -130,6 +130,8 @@ TDX Stocks - local stock research workflow
 | `--asc` | (default: True) |
 | `--no-limit` |  |
 | `--json` |  |
+| `--columns` | Comma-separated output columns. |
+| `--full` |  |
 | `--format` | (default: table) |
 | `--output, --to` |  |
 

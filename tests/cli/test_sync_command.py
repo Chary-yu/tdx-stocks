@@ -55,3 +55,15 @@ class SyncCommandTest(unittest.TestCase):
             with patch("tdx_stocks.commands.sync.load_config", side_effect=FileNotFoundError("missing config")):
                 code = cli_main(["sync", "--config", config_path.as_posix()])
         self.assertEqual(code, 2)
+
+    def test_sync_execute_error_is_reported(self) -> None:
+        plan = SimpleNamespace(needs_write=True, to_dict=lambda: {"plan": "ok"})
+        with patch("tdx_stocks.commands.sync.load_config", return_value=SimpleNamespace()), patch(
+            "tdx_stocks.commands.sync.build_sync_plan",
+            return_value=plan,
+        ), patch("tdx_stocks.commands.sync.execute_sync", side_effect=RuntimeError("boom")), patch(
+            "tdx_stocks.commands.sync._write_lock",
+            return_value=contextlib.nullcontext(),
+        ):
+            code = cli_main(["sync"])
+        self.assertEqual(code, 1)

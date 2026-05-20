@@ -29,4 +29,5 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
         name=run_config.task_name,
         status="success",
         summary=report.to_dict(),
+        outputs={"portfolio_markdown": (run_config.app_config.paths.data_root / "reports" / "portfolio_markdown.md").as_posix()},
     )

@@ -36,4 +36,5 @@ def run_grid_search_task(run_config: LoadedRunConfig, *, dry_run: bool = False) 
         name=run_config.task_name,
         status="success",
         summary=report,
+        outputs={"grid_markdown": (run_config.app_config.paths.data_root / "reports" / "grid_markdown.md").as_posix()},
     )

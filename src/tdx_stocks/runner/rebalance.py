@@ -41,4 +41,5 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
         name=run_config.task_name,
         status="success",
         summary=plan.to_dict(),
+        outputs={"rebalance_markdown": (run_config.app_config.paths.data_root / "reports" / "rebalance_markdown.md").as_posix()},
     )

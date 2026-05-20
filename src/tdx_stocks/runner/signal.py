@@ -25,4 +25,5 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> Ru
             "compare": compare.to_dict(),
             "consensus": consensus_report.to_dict(),
         },
+        outputs={"signal_markdown": (run_config.app_config.paths.data_root / "reports" / "signal_markdown.md").as_posix()},
     )

@@ -23,6 +23,7 @@ from ..portfolio import (
 )
 from ..portfolio.models import Holding, PortfolioBacktestReport, PortfolioReport, RebalancePlan
 from ..query import normalize_output_data
+from ..reports.renderers import render_portfolio_markdown
 from .common import add_config_arg, add_output_arg, validate_output_alias
 
 
@@ -230,7 +231,7 @@ def cmd_portfolio_report_latest(args: argparse.Namespace) -> int:
     if args.json:
         print_json(normalize_output_data(doc))
     else:
-        print_json(doc)
+        print(render_portfolio_markdown(doc), end="")
     return 0
 
 
@@ -239,7 +240,7 @@ def cmd_portfolio_report_show(args: argparse.Namespace) -> int:
     if args.json:
         print_json(normalize_output_data(doc))
     else:
-        print_json(doc)
+        print(render_portfolio_markdown(doc), end="")
     return 0
 
 

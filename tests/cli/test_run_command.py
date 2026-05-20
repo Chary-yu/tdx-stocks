@@ -34,15 +34,17 @@ class RunCommandTest(unittest.TestCase):
                 patch("tdx_stocks.commands.run.load_run_config", return_value=loaded) as mocked_load,
                 patch("tdx_stocks.commands.run.build_run_plan", return_value={"plan": 1}),
                 patch("tdx_stocks.commands.run.render_run_plan", return_value="plan"),
-                patch("tdx_stocks.commands.run.dispatch_run", return_value=SimpleNamespace(task_type="daily", status="success", to_dict=lambda: {"ok": True})),
+                patch("tdx_stocks.commands.run.dispatch_run", return_value=SimpleNamespace(task_type="daily", status="success", to_dict=lambda: {"ok": True})) as mocked_dispatch,
                 patch("tdx_stocks.commands.run.save_latest_run_report"),
             ):
                 code = cli_main(["run", toml_path.as_posix(), "--dry-run"])
             self.assertEqual(code, 0)
             mocked_load.assert_called_once_with(toml_path)
+            mocked_dispatch.assert_not_called()
 
     def test_run_daily_preset_and_json_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "run.json"
             loaded = SimpleNamespace(
                 app_config=SimpleNamespace(paths=SimpleNamespace(data_root=Path(tmp))),
                 task_type="daily",
@@ -58,5 +60,27 @@ class RunCommandTest(unittest.TestCase):
                 patch("tdx_stocks.commands.run.build_latest_run_report", return_value={"status": "success"}),
                 patch("tdx_stocks.commands.run.save_latest_run_report"),
             ):
-                code = cli_main(["run", "daily", "--json"])
+                code = cli_main(["run", "daily", "--json", "--output", output_path.as_posix()])
             self.assertEqual(code, 0)
+            self.assertTrue(output_path.exists())
+
+    def test_dry_run_and_explain_do_not_dispatch(self) -> None:
+        loaded = SimpleNamespace(
+            app_config=SimpleNamespace(paths=SimpleNamespace(data_root=Path("/tmp"))),
+            task_type="daily",
+            task_name="daily",
+            path=Path("experiments/daily.toml"),
+            config={"task": {"type": "daily"}},
+        )
+        with (
+            patch("tdx_stocks.commands.run.load_run_config", return_value=loaded),
+            patch("tdx_stocks.commands.run.build_run_plan", return_value={"plan": 1}),
+            patch("tdx_stocks.commands.run.render_run_plan", return_value="plan"),
+            patch("tdx_stocks.commands.run.dispatch_run") as mocked_dispatch,
+            patch("tdx_stocks.commands.run.save_latest_run_report"),
+        ):
+            code = cli_main(["run", "daily", "--dry-run"])
+            self.assertEqual(code, 0)
+            code = cli_main(["run", "daily", "--explain", "--json"])
+        self.assertEqual(code, 0)
+        mocked_dispatch.assert_not_called()

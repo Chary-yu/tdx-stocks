@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..io_utils import write_json_atomic, write_text_atomic
+from ..reports.rendering import save_run_result_markdown
 from .config import LoadedRunConfig
 from .models import RunResult
 
@@ -140,6 +141,16 @@ def save_latest_run_report(data_root: Path, document: dict[str, Any]) -> Path:
     return report_path
 
 
+def main_report_path(outputs: dict[str, str]) -> Path | None:
+    for value in outputs.values():
+        if value.endswith(".md"):
+            return Path(value)
+    for value in outputs.values():
+        if value.endswith(".json"):
+            return Path(value)
+    return None
+
+
 def load_latest_run_report(data_root: Path) -> dict[str, Any] | None:
     path = data_root / "reports" / "latest.json"
     if not path.exists():
@@ -179,3 +190,7 @@ def save_run_output(path: Path, result: RunResult, *, json_mode: bool = False) -
         write_json_atomic(path, result.to_dict())
         return
     write_text_atomic(path, render_run_result(result) + "\n")
+
+
+def ensure_run_report_markdown(path: Path, result: RunResult) -> Path:
+    return save_run_result_markdown(path, result)

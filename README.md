@@ -142,6 +142,19 @@ tdx-stocks help query
 Use `status --json` when you want to inspect the current workspace and latest
 run / report state from tooling or `jq`.
 
+## Report Opening on Windows/WSL
+
+Default `report` and `run` flows print the resolved report path and open it
+with the local desktop app when possible.
+
+- On WSL, `/mnt/d/.../report.md` is converted to `D:\...\report.md` and opened with `explorer.exe`.
+- On Windows, the native file handler is used.
+- On macOS, the file is opened with `open`.
+- On Linux, the file is opened with `xdg-open`.
+
+Use `--no-open` to print the path without launching a viewer.
+Use `--format json`, `--dry-run`, or `--explain` when you do not want report opening.
+
 Web UI entry point:
 
 ```bash
@@ -281,7 +294,9 @@ Show one stock's merged daily rows and factors:
 
 ```bash
 tdx-stocks query stock 600519.SH --limit 20
+tdx-stocks query stock 600519.SH --columns symbol,trade_date,close,ret_20 --limit 20
 tdx-stocks query stock 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
+tdx-stocks query stock 600519.SH --full --format csv --output reports/stock.csv
 tdx-stocks query stock 600519.SH --no-limit
 ```
 

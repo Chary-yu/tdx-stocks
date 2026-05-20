@@ -57,15 +57,18 @@ tdx-stocks sync --config tdx_stocks.toml --dry-run
 tdx-stocks run daily --explain
 tdx-stocks run backtest
 tdx-stocks run experiments/backtest.toml
+tdx-stocks run daily --no-open
 ```
 
 ### `report`
 
-输出最新日报。
+输出最新日报或策略报告。默认会打印报告路径并尝试打开。
 
 ```bash
 tdx-stocks report --config tdx_stocks.toml
 tdx-stocks report --format json
+tdx-stocks report --no-open
+tdx-stocks report strategy trend-strength --no-open
 ```
 
 ### `status`
@@ -103,6 +106,8 @@ tdx-stocks help run
 
 ```bash
 tdx-stocks query stock 600519.SH --limit 20
+tdx-stocks query stock 600519.SH --columns symbol,trade_date,close,ret_20 --limit 20
+tdx-stocks query stock 600519.SH --full --format csv --output out.csv
 tdx-stocks query stock 600519.SH --format csv --output out.csv
 tdx-stocks query stock 600519.SH --no-limit
 ```

@@ -28,6 +28,10 @@ HELP_TOPICS: dict[str, str] = {
         "Run a preset or custom TOML workflow config.\n\n"
         "Built-in presets:\n"
         "  daily, signal, portfolio, rebalance, backtest, grid\n"
+        "Report opening:\n"
+        "  - default mode prints the main report path and opens it\n"
+        "  - use --no-open to print the path without opening\n"
+        "  - use --json, --dry-run, or --explain to skip opening\n"
         "Examples:\n"
         "  tdx-stocks run daily --explain\n"
         "  tdx-stocks run experiments/backtest.toml\n"
@@ -45,6 +49,10 @@ HELP_TOPICS: dict[str, str] = {
     ),
     "report": (
         "Render the latest daily report or inspect strategy reports.\n\n"
+        "Report opening:\n"
+        "  - default mode prints the report path and opens it\n"
+        "  - use --no-open to print the path without opening\n"
+        "  - use --format json to skip path printing and opening\n"
         "Examples:\n"
         "  tdx-stocks report\n"
         "  tdx-stocks report --format json\n"

@@ -22,9 +22,28 @@ from ..query import (
     table_columns,
     table_summary,
 )
+from ..console import print_notice
 from .common import add_config_arg, add_output_arg, add_query_args, add_stock_args
 from .common import validate_output_alias
 from .output import write_rows
+
+
+DEFAULT_STOCK_COLUMNS: tuple[str, ...] = (
+    "market",
+    "symbol",
+    "trade_date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "adj_close",
+    "adj_factor",
+    "pct_chg",
+    "ret_5",
+    "ma20",
+)
 
 
 def register_query_group(
@@ -44,6 +63,8 @@ def register_query_group(
     )
     add_config_arg(stock_parser)
     add_stock_args(stock_parser)
+    stock_parser.add_argument("--columns", help="Comma-separated output columns.")
+    stock_parser.add_argument("--full", action="store_true")
     stock_parser.add_argument("--format", choices=("table", "json", "csv"), default="table")
     add_output_arg(stock_parser)
     stock_parser.set_defaults(func=cmd_stock)
@@ -353,7 +374,11 @@ def cmd_stock(args: argparse.Namespace) -> int:
             adjust=args.adjust,
         )
         columns, rows = fetch_dicts(ctx.con, sql)
-        write_rows(rows, columns=columns, format_name=format_name, to=output_path)
+        selected_columns = _select_stock_columns(columns, getattr(args, "columns", None), getattr(args, "full", False))
+        selected_rows = [{column: row.get(column) for column in selected_columns} for row in rows]
+        if getattr(args, "full", False):
+            print_notice("建议使用 --columns 控制列数，或使用 --format csv --output 导出全字段。")
+        write_rows(selected_rows, columns=selected_columns, format_name=format_name, to=output_path)
     finally:
         ctx.close()
     return 0
@@ -513,3 +538,20 @@ def cmd_query_strategy(args: argparse.Namespace) -> int:
             ],
         )
     return 0
+
+
+def _select_stock_columns(
+    available_columns: list[str],
+    columns_value: str | None,
+    full: bool,
+) -> list[str]:
+    if full:
+        return list(available_columns)
+    if columns_value:
+        selected = parse_columns(columns_value) or []
+        unknown = [column for column in selected if column not in available_columns]
+        if unknown:
+            raise ValueError(f"unknown stock columns: {', '.join(unknown)}")
+        return selected
+    default_columns = [column for column in DEFAULT_STOCK_COLUMNS if column in available_columns]
+    return default_columns or list(available_columns)

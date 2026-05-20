@@ -16,3 +16,17 @@ class HelpCommandTest(unittest.TestCase):
         text = stdout.getvalue()
         self.assertIn("Recommended workspace workflow", text)
         self.assertIn("tdx-stocks run daily --explain", text)
+
+    def test_report_and_run_help_mentions_opening_flags(self) -> None:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = cli_main(["help", "report"])
+        self.assertEqual(code, 0)
+        self.assertIn("--no-open", stdout.getvalue())
+        self.assertIn("--format json", stdout.getvalue())
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = cli_main(["help", "run"])
+        self.assertEqual(code, 0)
+        self.assertIn("--no-open", stdout.getvalue())

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import json
+from datetime import date
 from pathlib import Path
 
 from ..config import load_config
-from ..console import print_json, print_key_values, print_table
-from ..daily import load_daily_report, render_daily_json, render_daily_markdown
+from ..console import print_json, print_table
+from ..daily import load_daily_report, render_daily_json
+from ..daily.store import daily_md_path, latest_daily_md_path
 from ..io_utils import write_json_atomic, write_text_atomic
 from ..query import normalize_output_data
-from ..strategies.storage import list_saved_reports, load_saved_report
+from ..reports.opening import open_report_if_needed, print_report_path
+from ..reports.renderers import render_daily_markdown, render_strategy_markdown
+from ..strategies.storage import list_saved_reports, load_saved_report, report_path
 from .common import add_config_arg
 
 
@@ -23,6 +26,7 @@ def register_report_command(subparsers: argparse._SubParsersAction[argparse.Argu
     parser.add_argument("--as-of", default="latest")
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--no-open", action="store_true")
     parser.set_defaults(func=cmd_report)
     report_subparsers = parser.add_subparsers(dest="report_command")
     strategy_parser = report_subparsers.add_parser("strategy", help="Inspect saved strategy reports.")
@@ -32,6 +36,7 @@ def register_report_command(subparsers: argparse._SubParsersAction[argparse.Argu
     strategy_parser.add_argument("--as-of", default="latest")
     strategy_parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
     strategy_parser.add_argument("--output", type=Path)
+    strategy_parser.add_argument("--no-open", action="store_true")
     strategy_parser.set_defaults(func=cmd_report_strategy)
 
 
@@ -45,11 +50,13 @@ def cmd_report(args: argparse.Namespace) -> int:
         if args.output is not None:
             write_json_atomic(args.output, payload)
         print_json(normalize_output_data(payload))
-    else:
-        markdown = render_daily_markdown(_to_report(doc))
-        if args.output is not None:
-            write_text_atomic(args.output, markdown)
-        print(markdown, end="")
+        return 0
+
+    markdown = render_daily_markdown(_to_report(doc))
+    output_path = args.output or _daily_report_markdown_path(config.paths.data_root, args.as_of)
+    write_text_atomic(output_path, markdown)
+    print_report_path(output_path, json_mode=False)
+    open_report_if_needed(args, output_path, json_mode=False)
     return 0
 
 
@@ -88,9 +95,11 @@ def cmd_report_strategy(args: argparse.Namespace) -> int:
         print_json(normalize_output_data(report))
         return 0
 
-    if args.output is not None:
-        write_text_atomic(args.output, _render_strategy_report_text(report))
-    print(_render_strategy_report_text(report), end="")
+    markdown = render_strategy_markdown(report)
+    output_path = args.output or _strategy_report_markdown_path(config.paths.data_root, args.strategy_name, args.as_of)
+    write_text_atomic(output_path, markdown)
+    print_report_path(output_path, json_mode=False)
+    open_report_if_needed(args, output_path, json_mode=False)
     return 0
 
 
@@ -117,26 +126,12 @@ def _to_report(doc) -> object:
     )
 
 
-def _render_strategy_report_text(report: dict[str, object]) -> str:
-    lines = [
-        f"strategy_name: {report.get('strategy_name')}",
-        f"as_of: {report.get('as_of')}",
-        f"generated_at: {report.get('generated_at')}",
-        f"data_run_id: {report.get('data_run_id')}",
-        f"candidate_count: {report.get('candidate_count')}",
-        f"excluded_count: {report.get('excluded_count')}",
-        "",
-    ]
-    candidates = report.get("candidates")
-    if isinstance(candidates, list) and candidates:
-        lines.append("candidates:")
-        for row in candidates:
-            if isinstance(row, dict):
-                lines.append(
-                    "  - "
-                    + ", ".join(
-                        f"{key}={json.dumps(value, ensure_ascii=False, default=str)}"
-                        for key, value in row.items()
-                    )
-                )
-    return "\n".join(lines) + "\n"
+def _daily_report_markdown_path(data_root: Path, as_of: str) -> Path:
+    if as_of == "latest":
+        return latest_daily_md_path(data_root)
+    return daily_md_path(data_root, date.fromisoformat(as_of))
+
+
+def _strategy_report_markdown_path(data_root: Path, strategy_name: str, as_of: str) -> Path:
+    path = report_path(data_root, strategy_name, as_of=None if as_of == "latest" else date.fromisoformat(as_of))
+    return path.with_suffix(".md")

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from ..console import print_json
 from ..io_utils import write_json_atomic, write_text_atomic
+from ..reports.opening import open_report_if_needed, print_report_path
+from ..runner.outputs import ensure_run_report_markdown, main_report_path
 from ..runner import (
     build_latest_run_report,
     build_run_plan,
@@ -44,7 +46,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.json:
         print_json(result.to_dict())
     else:
-        print(f"{result.task_type}: {result.status}")
+        report_path = main_report_path(result.outputs)
+        if report_path is not None:
+            if report_path.suffix.lower() == ".md":
+                ensure_run_report_markdown(report_path, result)
+            print_report_path(report_path, json_mode=False)
+            open_report_if_needed(args, report_path, json_mode=False)
+        else:
+            print(f"{result.task_type}: {result.status}")
     return 0
 
 
@@ -60,6 +69,7 @@ def register_run_command(subparsers: argparse._SubParsersAction[argparse.Argumen
     parser.add_argument("--explain", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--no-open", action="store_true")
     parser.set_defaults(func=cmd_run)
 
 

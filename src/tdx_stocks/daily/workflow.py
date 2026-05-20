@@ -25,7 +25,7 @@ from ..strategies.storage import build_report_document, save_report_document
 from .config import DailyRunConfig
 from .diagnostics import collect_warnings_errors
 from .models import DailyRunReport, DailyStepResult
-from .report import render_daily_markdown
+from ..reports.renderers import render_daily_markdown
 from .store import save_daily_report, write_daily_json_file
 
 
