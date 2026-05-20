@@ -73,6 +73,19 @@ HELP_TOPICS: dict[str, str] = {
         "  tdx-stocks help\n"
         "  tdx-stocks help query\n"
     ),
+    "workflow": (
+        "Recommended workspace workflow.\n\n"
+        "Typical order:\n"
+        "  1. tdx-stocks init\n"
+        "  2. tdx-stocks sync\n"
+        "  3. tdx-stocks run daily --explain\n"
+        "  4. tdx-stocks query stock 600519.SH\n"
+        "  5. tdx-stocks query factors\n"
+        "  6. tdx-stocks query strategy trend-strength --symbol 600519.SH --explain\n"
+        "  7. tdx-stocks report\n"
+        "  8. tdx-stocks status\n"
+        "  9. tdx-stocks ui\n"
+    ),
 }
 
 

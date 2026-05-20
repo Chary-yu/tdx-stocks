@@ -29,8 +29,6 @@ from .output import write_rows
 
 def register_query_group(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-    *,
-    tables: tuple[str, ...],
     hidden: bool = False,
 ) -> None:
     query_parser = subparsers.add_parser(
@@ -62,7 +60,7 @@ def register_query_group(
 
     schema_parser = query_subparsers.add_parser("schema", help="Show a table schema.")
     add_config_arg(schema_parser)
-    schema_parser.add_argument("table", nargs="?", default="factor_full", choices=tables)
+    schema_parser.add_argument("table", nargs="?", default="factor_full", choices=TABLES)
     schema_parser.add_argument("--json", action="store_true")
     schema_parser.set_defaults(func=cmd_schema)
 
@@ -91,6 +89,7 @@ def register_query_group(
 
     factor_parser = query_subparsers.add_parser("factor", help="Describe one factor.")
     factor_parser.add_argument("factor")
+    factor_parser.add_argument("legacy_args", nargs="*")
     factor_parser.add_argument("--json", action="store_true")
     factor_parser.set_defaults(func=cmd_factor)
 
@@ -367,6 +366,12 @@ def cmd_factors(args: argparse.Namespace) -> int:
 
 
 def cmd_factor(args: argparse.Namespace) -> int:
+    if args.factor in {"list", "describe", "schema", "rank"} or getattr(args, "legacy_args", []):
+        raise ValueError(
+            "legacy query factor subcommands are no longer supported; use "
+            "'tdx-stocks query factors', 'tdx-stocks query factor <name>', "
+            "'tdx-stocks query schema factor_full', or 'tdx-stocks query rank <name>'"
+        )
     from .factors import cmd_factors_describe as _cmd_factors_describe
 
     try:
@@ -376,6 +381,12 @@ def cmd_factor(args: argparse.Namespace) -> int:
 
 
 def cmd_rank(args: argparse.Namespace) -> int:
+    if args.factor in {"list", "describe", "schema", "rank"} or getattr(args, "legacy_args", []):
+        raise ValueError(
+            "legacy query factor subcommands are no longer supported; use "
+            "'tdx-stocks query factors', 'tdx-stocks query factor <name>', "
+            "'tdx-stocks query schema factor_full', or 'tdx-stocks query rank <name>'"
+        )
     from .factors import cmd_factors_rank as _cmd_factors_rank
 
     try:

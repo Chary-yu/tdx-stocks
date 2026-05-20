@@ -205,6 +205,7 @@ TDX Stocks - local stock research workflow
 | 参数 | 说明 |
 | --- | --- |
 | `factor` |  |
+| `legacy_args` |  |
 | `--json` |  |
 
 ##### `query rank`

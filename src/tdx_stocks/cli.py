@@ -18,7 +18,6 @@ from .commands.sync import register_sync_group
 from .commands.ui import register_ui_command
 from .config import AppConfig, load_config
 from .exit_codes import CliError, ExitCode, UsageError
-from .query import TABLES
 from .strategies.registry import load_plugins
 
 
@@ -143,7 +142,7 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
     register_sync_group(subparsers)
     register_run_command(subparsers)
     register_report_command(subparsers)
-    register_query_group(subparsers, tables=tuple(TABLES))
+    register_query_group(subparsers)
     register_status_command(subparsers)
     register_ui_command(subparsers)
     register_help_command(subparsers)

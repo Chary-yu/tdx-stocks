@@ -10,6 +10,7 @@ from ..query import normalize_output_data
 
 
 def write_rows(rows: list[dict[str, object]], *, columns: list[str], format_name: str, to: Path | None) -> None:
+    _validate_format_name(format_name)
     if format_name == "json":
         payload = normalize_output_data(rows)
         if to is not None:
@@ -46,6 +47,7 @@ def write_csv(rows: list[dict[str, object]], columns: list[str], to: Path | None
 
 
 def emit_report_table(report: dict[str, object], *, format_name: str, to: Path | None) -> None:
+    _validate_format_name(format_name)
     if format_name == "json":
         if to is not None:
             write_json_atomic(to, report)
@@ -96,3 +98,8 @@ def emit_report_table(report: dict[str, object], *, format_name: str, to: Path |
             write_text_atomic(to, buffer.getvalue())
         return
     print_json(report)
+
+
+def _validate_format_name(format_name: str) -> None:
+    if format_name not in {"table", "json", "csv"}:
+        raise ValueError(f"unsupported output format: {format_name}")
