@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import os
 import tempfile
@@ -14,7 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from tdx_stocks import __version__
-from tdx_stocks.cli import _rewrite_legacy_argv, build_parser
+from tdx_stocks.cli import build_parser
 from tdx_stocks.cli import main as cli_main
 from tdx_stocks.config import AppConfig, PathsConfig, load_config, write_default_config
 from tdx_stocks.commands.ui import cmd_ui
@@ -41,9 +42,16 @@ class ReleaseConfigTest(unittest.TestCase):
         self.assertNotIn("stock ==SUPPRESS==", help_text)
         self.assertNotIn("sql ==SUPPRESS==", help_text)
 
-    def test_legacy_rewrite(self) -> None:
-        self.assertEqual(_rewrite_legacy_argv(["build", "--config", "x"]), ["data", "build", "--config", "x"])
-        self.assertEqual(_rewrite_legacy_argv(["stock", "600000.SH"]), ["query", "price", "600000.SH"])
+    def test_root_surface_matches_expected_commands(self) -> None:
+        parser = build_parser()
+        subparsers_action = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
+        visible = [choice.dest for choice in subparsers_action._choices_actions if choice.help != argparse.SUPPRESS]
+        self.assertEqual(visible, ["init", "doctor", "sync", "run", "report", "query", "status", "ui", "help"])
+        self.assertNotIn("data", visible)
+        self.assertNotIn("audit", visible)
+        self.assertNotIn("examples", visible)
+        self.assertNotIn("factors", visible)
+        self.assertNotIn("help-summary", visible)
 
     def test_output_alias_conflict_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "use either --output or --to"):
@@ -115,7 +123,7 @@ plugin_dir = ""
         self.assertEqual(config.paths.tdx_vipdoc, vipdoc)
         self.assertEqual(config.paths.tdx_export, export_dir)
 
-    def test_audit_doctor_reports_missing_required_paths(self) -> None:
+    def test_doctor_reports_missing_required_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "tdx_stocks.toml"
             data_root = Path(tmp) / "missing-Database"
@@ -132,10 +140,10 @@ data_root = "{data_root.as_posix()}"
             )
             buffer = StringIO()
             with redirect_stderr(buffer):
-                code = cli_main(["audit", "doctor", "--config", str(config_path)])
-        self.assertEqual(code, 6)
-        self.assertIn("tdx_vipdoc does not exist", buffer.getvalue())
-        self.assertIn("tdx_export does not exist", buffer.getvalue())
+                code = cli_main(["doctor", "--config", str(config_path)])
+        self.assertEqual(code, 1)
+        self.assertIn("tdx_vipdoc is not configured or missing", buffer.getvalue())
+        self.assertIn("tdx_export is not configured or missing", buffer.getvalue())
 
 
 class DailyStoreTest(unittest.TestCase):

@@ -148,7 +148,7 @@ def _fetch_rows(
             "strategy requires factors fields: "
             + ", ".join(missing_required_fields)
             + f"; rebuild the dataset with a compatible factor version in {source_table}.\n"
-            "Run: tdx-stocks data sync --full\n"
+            "Run: tdx-stocks sync --full\n"
             "If you already rebuilt, check that [paths].data_root points to the active Database directory."
         )
     missing_core_columns = [column for column in ("market", "symbol", "trade_date") if column not in available_columns]

@@ -6,33 +6,15 @@ TDX Stocks - local stock research workflow
 
 | 命令 | 功能 |
 | --- | --- |
-| `data` | Data pipeline commands. |
 | `doctor` | Diagnose setup issues. |
-| `examples` | Show common command examples. |
+| `help` | Show built-in guidance topics. |
 | `init` | Initialize a new research workspace. |
+| `query` | Read-only inspection and query commands. |
 | `report` | Show the latest daily report. |
-| `run` | Run a TOML experiment config. |
+| `run` | Run a preset name or TOML experiment config. |
 | `status` | Show project status. |
+| `sync` | Synchronize local caches and the latest dataset. |
 | `ui` | Launch the read-only Web UI. |
-
-## Advanced commands
-
-| 命令 | 功能 |
-| --- | --- |
-| `audit` | Commands for environment checks and adjustment verification. |
-| `daily` |  |
-| `factors` | Commands for factor catalog, schema inspection, and cross-sectional ranking. |
-| `help-summary` |  |
-| `portfolio` |  |
-| `query` | Commands that inspect the latest versioned dataset. |
-| `strategy` | Commands that generate read-only observation pools from the latest dataset. |
-| `sync` |  |
-
-## 兼容别名
-
-| 命令 | 替代 |
-| --- | --- |
-| `init-config` | `init` |
 
 ## 命令参数
 
@@ -40,32 +22,32 @@ TDX Stocks - local stock research workflow
 
 | 命令 | 功能 |
 | --- | --- |
-| `data` | Data pipeline commands. |
 | `init` | Initialize a new research workspace. |
-| `run` | Run a TOML experiment config. |
-| `ui` | Launch the read-only Web UI. |
-| `examples` | Show common command examples. |
 | `doctor` | Diagnose setup issues. |
-| `status` | Show project status. |
+| `sync` | Synchronize local caches and the latest dataset. |
+| `run` | Run a preset name or TOML experiment config. |
 | `report` | Show the latest daily report. |
+| `query` | Read-only inspection and query commands. |
+| `status` | Show project status. |
+| `ui` | Launch the read-only Web UI. |
+| `help` | Show built-in guidance topics. |
 
-#### `data`
+#### `init`
 
 | 参数 | 说明 |
 | --- | --- |
+| `--force` |  |
+| `--minimal` |  |
+| `--profile` | (default: simple) |
+| `--data-root` | (default: Database) |
 
-#### 子命令
+#### `doctor`
 
-| 命令 | 功能 |
+| 参数 | 说明 |
 | --- | --- |
-| `sync` | Synchronize data and rebuild the latest dataset. |
-| `update` | Refresh cached corporate actions. |
-| `status` | Show cached corporate actions and adjustment factor status. |
-| `build` | Build a versioned local dataset. |
-| `rebuild` | Clear the current database and rebuild from local TDX data. |
-| `quality-report` | Write a data quality report for the latest dataset. |
+| `--config` |  |
 
-##### `data sync`
+#### `sync`
 
 | 参数 | 说明 |
 | --- | --- |
@@ -78,68 +60,168 @@ TDX Stocks - local stock research workflow
 | `--dry-run` |  |
 | `--json` |  |
 
-##### `data update`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--source` | Update source label for the report. (default: local) |
-| `--input` | Optional CSV file or directory containing corporate_actions.csv and adjustment_factors.csv. |
-| `--dry-run` |  |
-| `--json` |  |
-
-##### `data status`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--json` |  |
-
-##### `data build`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--from-date` |  |
-| `--to-date` |  |
-| `--limit-symbols` |  |
-| `--overwrite-staging` |  |
-
-##### `data rebuild`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--from-date` |  |
-| `--to-date` |  |
-| `--limit-symbols` |  |
-| `--overwrite-staging` |  |
-
-##### `data quality-report`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--json` |  |
-
-#### `init`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--force` |  |
-| `--minimal` |  |
-| `--profile` | (default: simple) |
-| `--data-root` | (default: Database) |
-
 #### `run`
 
 | 参数 | 说明 |
 | --- | --- |
-| `config` |  |
+| `config` | Preset name or path to a TOML experiment config. |
 | `--dry-run` |  |
 | `--explain` |  |
 | `--json` |  |
 | `--output` |  |
+
+#### `report`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--as-of` | (default: latest) |
+| `--format` | (default: markdown) |
+| `--output` |  |
+
+#### `query`
+
+| 参数 | 说明 |
+| --- | --- |
+
+#### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `stock` | Show merged daily rows and factors for one stock code. |
+| `table` | Show rows from a latest table. |
+| `tables` | Show latest table summaries. |
+| `schema` | Show a table schema. |
+| `sql` | Run SQL against latest table views. |
+| `export` | Export a filtered table query to CSV. |
+| `factor` | Factor catalog, schema inspection, and ranking commands. |
+
+##### `query stock`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `symbol` | Stock code such as 600519.SH or sh600519. |
+| `--limit` | (default: 100) |
+| `--adjust` | (default: qfq) |
+| `--from-date` |  |
+| `--to-date` |  |
+| `--asc` | (default: True) |
+| `--no-limit` |  |
+| `--json` |  |
+
+##### `query table`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `table` |  |
+| `--limit` | (default: 20) |
+| `--columns` | Comma-separated output columns. |
+| `--symbol` |  |
+| `--market` |  |
+| `--from-date` |  |
+| `--to-date` |  |
+| `--where` | Extra SQL WHERE expression. |
+| `--order-by` |  |
+| `--desc` |  |
+| `--json` |  |
+
+##### `query tables`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--json` |  |
+
+##### `query schema`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `table` |  |
+| `--json` |  |
+
+##### `query sql`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `sql` |  |
+| `--limit` | (default: 100) |
+| `--unsafe-sql` | Allow arbitrary SQL. Disabled by default because DuckDB can expose file and function access. |
+| `--json` |  |
+
+##### `query export`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `table` |  |
+| `--limit` | (default: 1000) |
+| `--columns` | Comma-separated output columns. |
+| `--symbol` |  |
+| `--market` |  |
+| `--from-date` |  |
+| `--to-date` |  |
+| `--where` | Extra SQL WHERE expression. |
+| `--order-by` |  |
+| `--desc` |  |
+| `--json` |  |
+| `--output, --to` |  |
+| `--no-limit` |  |
+
+##### `query factor`
+
+| 参数 | 说明 |
+| --- | --- |
+
+##### 子命令
+
+| 命令 | 功能 |
+| --- | --- |
+| `list` | List available factors. |
+| `describe` | Describe one factor. |
+| `schema` | Show factor table schema. |
+| `rank` | Rank one factor on a chosen date. |
+
+###### `query factor list`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--json` |  |
+
+###### `query factor describe`
+
+| 参数 | 说明 |
+| --- | --- |
+| `factor` |  |
+| `--json` |  |
+
+###### `query factor schema`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--json` |  |
+
+###### `query factor rank`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `factor` |  |
+| `--as-of` | (default: latest) |
+| `--limit` | (default: 50) |
+| `--market` |  |
+| `--json` |  |
+
+#### `status`
+
+| 参数 | 说明 |
+| --- | --- |
+| `--config` |  |
+| `--json` |  |
 
 #### `ui`
 
@@ -150,30 +232,8 @@ TDX Stocks - local stock research workflow
 | `--port` | (default: 8501) |
 | `--no-browser` |  |
 
-#### `examples`
+#### `help`
 
 | 参数 | 说明 |
 | --- | --- |
 | `topic` |  |
-
-#### `doctor`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-
-#### `status`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--json` |  |
-
-#### `report`
-
-| 参数 | 说明 |
-| --- | --- |
-| `--config` |  |
-| `--as-of` | (default: latest) |
-| `--format` | (default: markdown) |
-| `--output` |  |

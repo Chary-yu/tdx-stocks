@@ -15,8 +15,18 @@ from ..runner import (
 )
 
 
+RUN_CONFIG_PRESETS: dict[str, Path] = {
+    "daily": Path("experiments/daily.toml"),
+    "signal": Path("experiments/signal.toml"),
+    "portfolio": Path("experiments/portfolio.toml"),
+    "rebalance": Path("experiments/rebalance.toml"),
+    "backtest": Path("experiments/backtest.toml"),
+    "grid": Path("experiments/grid_search.toml"),
+}
+
+
 def cmd_run(args: argparse.Namespace) -> int:
-    run_config = load_run_config(Path(args.config))
+    run_config = load_run_config(_resolve_run_config(args.config))
     plan = build_run_plan(run_config)
     if args.explain or args.dry_run:
         if args.json:
@@ -39,10 +49,25 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def register_run_command(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    parser = subparsers.add_parser("run", help="Run a TOML experiment config.")
-    parser.add_argument("config", type=Path)
+    parser = subparsers.add_parser(
+        "run",
+        help="Run a preset name or TOML experiment config.",
+        description="Run one of the built-in presets or a custom .toml config file.",
+        epilog="Built-in presets: daily, signal, portfolio, rebalance, backtest, grid.",
+    )
+    parser.add_argument("config", help="Preset name or path to a TOML experiment config.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--explain", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
     parser.set_defaults(func=cmd_run)
+
+
+def _resolve_run_config(value: str | Path) -> Path:
+    path = Path(value)
+    if path.suffix.lower() == ".toml" or path.exists():
+        return path
+    preset = RUN_CONFIG_PRESETS.get(str(value))
+    if preset is not None:
+        return preset
+    return path

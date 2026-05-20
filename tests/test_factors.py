@@ -121,15 +121,16 @@ class FactorCatalogTest(unittest.TestCase):
 
     def test_parser_contains_factors_and_quality_report_commands(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["factors", "list"])
-        self.assertEqual(args.command, "factors")
-        self.assertEqual(args.factors_command, "list")
-        args = parser.parse_args(["factors", "rank", "rs_score", "--as-of", "latest"])
-        self.assertEqual(args.factors_command, "rank")
+        args = parser.parse_args(["query", "factor", "list"])
+        self.assertEqual(args.command, "query")
+        self.assertEqual(args.query_command, "factor")
+        self.assertEqual(args.factor_command, "list")
+        args = parser.parse_args(["query", "factor", "rank", "rs_score", "--as-of", "latest"])
+        self.assertEqual(args.query_command, "factor")
+        self.assertEqual(args.factor_command, "rank")
         self.assertEqual(args.factor, "rs_score")
-        args = parser.parse_args(["data", "quality-report"])
-        self.assertEqual(args.command, "data")
-        self.assertEqual(args.data_command, "quality-report")
+        args = parser.parse_args(["query", "tables"])
+        self.assertEqual(args.query_command, "tables")
 
     def test_factor_rank_respects_higher_is_better(self) -> None:
         from pathlib import Path

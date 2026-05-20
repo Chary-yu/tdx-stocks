@@ -282,7 +282,7 @@
 
         <rect x="244" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
         <rect x="244" y="116" width="150" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="319" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`help-summary`</text>
+        <text x="319" y="140" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`help`</text>
         <text x="319" y="156" fill="#94a3b8" font-size="8" text-anchor="middle">生成 Markdown 摘要</text>
 
         <rect x="418" y="116" width="150" height="60" rx="6" fill="#0f172a"/>
@@ -329,9 +329,9 @@
         <rect x="348" y="270" width="230" height="150" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="463" y="294" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`data`</text>
         <text x="463" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">数据刷新与构建</text>
-        <text x="463" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data update --source export`</text>
-        <text x="463" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data status`</text>
-        <text x="463" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data build --overwrite-staging`</text>
+        <text x="463" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks sync --source export`</text>
+        <text x="463" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks status`</text>
+        <text x="463" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks run daily --explain`</text>
         <text x="463" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">写操作会加锁，避免并发破坏缓存</text>
 
         <rect x="614" y="270" width="230" height="150" rx="6" fill="#0f172a"/>
@@ -339,7 +339,7 @@
         <text x="729" y="294" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`audit`</text>
         <text x="729" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">检查与对账</text>
         <text x="729" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit doctor --config tdx_stocks.toml`</text>
-        <text x="729" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit verify 600519.SH`</text>
+        <text x="729" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks doctor 600519.SH`</text>
         <text x="729" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">适合排查复权误差和环境问题</text>
         <text x="729" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">`verify` 失败可直接接入脚本熔断</text>
 
@@ -347,7 +347,7 @@
         <rect x="880" y="270" width="230" height="150" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
         <text x="995" y="294" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">`query`</text>
         <text x="995" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">只读查询与导出</text>
-        <text x="995" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query price 600519.SH --limit 20`</text>
+        <text x="995" y="339" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query stock 600519.SH --limit 20`</text>
         <text x="995" y="355" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query table raw_daily --limit 20`</text>
         <text x="995" y="377" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query sql &quot;select count(*) from raw_daily&quot;`</text>
         <text x="995" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">默认不加锁，适合终端和脚本读取</text>
@@ -372,7 +372,7 @@
         <rect x="318" y="508" width="200" height="112" rx="6" fill="#0f172a"/>
         <rect x="318" y="508" width="200" height="112" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="418" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">只看状态</text>
-        <text x="418" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks data status`</text>
+        <text x="418" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks status`</text>
         <text x="418" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks sync --dry-run`</text>
         <text x="418" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">不会写缓存，不获取写锁</text>
         <text x="418" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">适合 cron 预演和排查</text>
@@ -381,14 +381,14 @@
         <rect x="544" y="508" width="200" height="112" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
         <text x="644" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">检查环境 / 对账</text>
         <text x="644" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit doctor`</text>
-        <text x="644" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks audit verify 600519.SH`</text>
+        <text x="644" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks doctor 600519.SH`</text>
         <text x="644" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">适合提交前和异常排查</text>
         <text x="644" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">误差超限时可返回非零退出码</text>
 
         <rect x="770" y="508" width="200" height="112" rx="6" fill="#0f172a"/>
         <rect x="770" y="508" width="200" height="112" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
         <text x="870" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">查询和导出</text>
-        <text x="870" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query price 600519.SH`</text>
+        <text x="870" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query stock 600519.SH`</text>
         <text x="870" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`tdx-stocks query sql &quot;select * from ...&quot;`</text>
         <text x="870" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">默认只读，终端和脚本都适用</text>
         <text x="870" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">`--json` 时便于下游解析</text>
@@ -397,7 +397,7 @@
         <rect x="996" y="508" width="90" height="112" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
         <text x="1041" y="532" fill="#f8fafc" font-size="11" font-weight="600" text-anchor="middle">兼容</text>
         <text x="1041" y="553" fill="#94a3b8" font-size="8" text-anchor="middle">旧命令仍能跑</text>
-        <text x="1041" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`update-actions`</text>
+        <text x="1041" y="569" fill="#94a3b8" font-size="8" text-anchor="middle">`sync`</text>
         <text x="1041" y="585" fill="#94a3b8" font-size="8" text-anchor="middle">`stock` / `doctor`</text>
         <text x="1041" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">会提示迁移到新入口</text>
 
@@ -406,7 +406,7 @@
         </text>
 
         <text x="600" y="828" fill="#475569" font-size="9" text-anchor="middle">
-          典型执行顺序：`sync` / `data update` / `data rebuild` -&gt; `audit verify` -&gt; `query price` / `query sql` -&gt; `help-summary`
+          典型执行顺序：`sync` / `sync` / `sync` -&gt; `doctor` -&gt; `query stock` / `query sql` -&gt; `help`
         </text>
       </svg>
     </div>
@@ -419,7 +419,7 @@
         </div>
         <ul>
           <li>• 先跑 `tdx-stocks --help` 看完整入口。</li>
-          <li>• 想快速了解命令结构，用 `tdx-stocks help-summary`。</li>
+          <li>• 想快速了解命令结构，用 `tdx-stocks help`。</li>
           <li>• 不确定是否要改数据时，先用 `tdx-stocks sync --dry-run`。</li>
         </ul>
       </div>
@@ -431,8 +431,8 @@
         </div>
         <ul>
           <li>• `sync`：一键同步和重建。</li>
-          <li>• `audit verify`：检查复权一致性。</li>
-          <li>• `query price` / `query sql`：只读查看行情和自定义查询。</li>
+          <li>• `doctor`：检查复权一致性。</li>
+          <li>• `query stock` / `query sql`：只读查看行情和自定义查询。</li>
         </ul>
       </div>
 

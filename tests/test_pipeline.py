@@ -321,7 +321,7 @@ class PipelineTest(unittest.TestCase):
 
         plan = SimpleNamespace(
             needs_write=True,
-            to_dict=lambda: {"steps": [{"name": "data update", "reason": "export newer"}]},
+            to_dict=lambda: {"steps": [{"name": "refresh export cache", "reason": "export newer"}]},
         )
         with patch("builtins.print"), patch(
             "tdx_stocks.commands.sync.load_config"

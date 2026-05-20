@@ -6,19 +6,19 @@ import argparse
 _EXAMPLES: dict[str, list[str]] = {
     "daily": [
         "tdx-stocks init",
-        "tdx-stocks data sync",
-        "tdx-stocks run experiments/daily.toml",
+        "tdx-stocks sync",
+        "tdx-stocks run daily",
         "tdx-stocks report",
     ],
     "backtest": [
         "tdx-stocks init",
-        "tdx-stocks data sync",
-        "tdx-stocks run experiments/backtest.toml",
+        "tdx-stocks sync",
+        "tdx-stocks run backtest",
     ],
     "portfolio": [
         "tdx-stocks init",
-        "tdx-stocks data sync",
-        "tdx-stocks run experiments/portfolio.toml",
+        "tdx-stocks sync",
+        "tdx-stocks run portfolio",
         "tdx-stocks ui",
     ],
 }

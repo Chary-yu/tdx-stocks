@@ -85,20 +85,20 @@ def build_sync_plan(config: AppConfig) -> SyncPlan:
 
     steps: list[SyncPlanStep] = []
     if not export_files_exist and (latest_manifest is None or not cache_corporate_actions or not cache_adjustment_factors):
-        steps.append(SyncPlanStep("data update", "no export text files found; using local sync"))
-        steps.append(SyncPlanStep("data rebuild", "no export text files found; using local sync"))
+        steps.append(SyncPlanStep("refresh export cache", "no export text files found; using local sync"))
+        steps.append(SyncPlanStep("rebuild latest dataset", "no export text files found; using local sync"))
     elif latest_manifest is None:
-        steps.append(SyncPlanStep("data update", "latest.json is missing"))
-        steps.append(SyncPlanStep("data rebuild", "latest.json is missing"))
+        steps.append(SyncPlanStep("refresh export cache", "latest.json is missing"))
+        steps.append(SyncPlanStep("rebuild latest dataset", "latest.json is missing"))
     elif latest_generated_at is None:
-        steps.append(SyncPlanStep("data update", "latest manifest has no generated_at"))
-        steps.append(SyncPlanStep("data rebuild", "latest manifest has no generated_at"))
+        steps.append(SyncPlanStep("refresh export cache", "latest manifest has no generated_at"))
+        steps.append(SyncPlanStep("rebuild latest dataset", "latest manifest has no generated_at"))
     elif latest_export_mtime is not None and latest_export_mtime > latest_generated_at:
-        steps.append(SyncPlanStep("data update", "export text is newer than latest dataset"))
-        steps.append(SyncPlanStep("data rebuild", "export text is newer than latest dataset"))
+        steps.append(SyncPlanStep("refresh export cache", "export text is newer than latest dataset"))
+        steps.append(SyncPlanStep("rebuild latest dataset", "export text is newer than latest dataset"))
     elif not cache_corporate_actions or not cache_adjustment_factors:
-        steps.append(SyncPlanStep("data update", "cache is incomplete"))
-        steps.append(SyncPlanStep("data rebuild", "cache is incomplete"))
+        steps.append(SyncPlanStep("refresh export cache", "cache is incomplete"))
+        steps.append(SyncPlanStep("rebuild latest dataset", "cache is incomplete"))
 
     return SyncPlan(
         data_root=config.paths.data_root.as_posix(),

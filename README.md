@@ -6,17 +6,13 @@ Local TDX daily data pipeline:
 .day -> raw_daily -> checks -> adj_daily / hfq_daily -> checks -> factors -> checks -> atomic latest
 ```
 
-`data update` refreshes the cached `corporate_actions` and
-`adjustment_factors` tables. `data build` and `data rebuild` only consume those
-local caches and do not fetch new rights/dividend data automatically. `data sync`
-is the recommended macro command for refreshing export-derived data and
-rebuilding the dataset. The legacy `sync` alias remains available for
-compatibility.
+`sync` refreshes the cached `corporate_actions` and `adjustment_factors`
+tables and rebuilds the latest dataset when needed.
 
 Recommended workflow:
 
 ```text
-init -> data sync -> run <config.toml> -> ui
+init -> sync -> run daily -> ui
 ```
 
 Quick copy-paste commands:
@@ -61,7 +57,7 @@ python -m pip install -e .
 
 ## Usage
 
-CLI 手册见 `docs/cli_manual.md`，摘要版可用 `tdx-stocks help-summary` 或 `tools/generate_cli_help_summary.py` 生成到 `docs/cli_help_summary.md`。
+CLI 手册见 `docs/cli_manual.md`，静态帮助可用 `tdx-stocks help [topic]`，摘要版可用 `tools/generate_cli_help_summary.py` 生成到 `docs/cli_help_summary.md`。
 
 New workflow docs:
 
@@ -84,13 +80,13 @@ Main entry points:
 
 ```bash
 tdx-stocks init
-tdx-stocks data sync
-tdx-stocks run experiments/daily.toml
+tdx-stocks sync
+tdx-stocks run daily
 tdx-stocks ui
 tdx-stocks status
 tdx-stocks report
-tdx-stocks examples
 tdx-stocks doctor
+tdx-stocks help run
 ```
 
 Create a config file:
@@ -111,7 +107,7 @@ switch between lighter, research-oriented, and portfolio-oriented defaults.
 Sync the local dataset:
 
 ```bash
-tdx-stocks data sync --config tdx_stocks.toml
+tdx-stocks sync --config tdx_stocks.toml
 ```
 
 Inspect the local TDX directory:
@@ -126,45 +122,25 @@ suggests the matching environment variable fallback.
 Inspect a stock in read-only mode:
 
 ```bash
-tdx-stocks query price 600519.SH --config tdx_stocks.toml
+tdx-stocks query stock 600519.SH --config tdx_stocks.toml
 ```
 
-Run a small smoke build:
+Inspect the latest tables and factor catalog:
 
 ```bash
-tdx-stocks data build --config tdx_stocks.toml --limit-symbols 20 --overwrite-staging
+tdx-stocks query tables
+tdx-stocks query factor list
 ```
 
-Run a full A-share build:
+Use `help` for static guidance:
 
 ```bash
-tdx-stocks data build --config tdx_stocks.toml --overwrite-staging
+tdx-stocks help run
+tdx-stocks help query
 ```
 
-Clear `Database/` and rebuild from local TDX data:
-
-```bash
-tdx-stocks data rebuild --config tdx_stocks.toml --overwrite-staging
-```
-
-Refresh cached rights/dividend data separately:
-
-```bash
-tdx-stocks data update --config tdx_stocks.toml --source file --input action_inputs/
-tdx-stocks data update --config tdx_stocks.toml --source export
-tdx-stocks data update --config tdx_stocks.toml --source export --dry-run
-tdx-stocks data status --config tdx_stocks.toml
-tdx-stocks audit verify 600519.SH --config tdx_stocks.toml
-tdx-stocks sync --config tdx_stocks.toml --dry-run
-```
-
-Use `data status --json` when you want to inspect the current cache and the
-latest update report from tooling or `jq`. `data update --dry-run` now writes
-`action_update_report.dry_run.json` in addition to the legacy report file so
-dry-run results can be inspected without mutating cache tables.
-
-Use `audit verify --json` when you want to compare `adj_daily` against a
-specific TDX export file from tooling or `jq`.
+Use `status --json` when you want to inspect the current workspace and latest
+run / report state from tooling or `jq`.
 
 Web UI entry point:
 
@@ -174,10 +150,7 @@ tdx-stocks ui --config tdx_stocks.toml
 
 The packaged import path is `tdx_stocks.web.app`.
 
-`data build` and `data rebuild` print stage progress to stderr while they run.
-Internally the factor build now runs in staged DuckDB temp tables so the heavy
-rolling-window and recursive calculations stay easier to debug and less memory
-hungry than one giant query.
+`run daily --explain` prints the current workflow plan before execution.
 
 The new portfolio layer is research-only:
 
@@ -189,11 +162,10 @@ The new portfolio layer is research-only:
 Recommended daily entry point:
 
 ```bash
-tdx-stocks run experiments/daily.toml
+tdx-stocks run daily
 ```
 
-`run` reads the experiment TOML and dispatches to the matching runner.
-`daily run` remains available as a compatibility command for direct orchestration.
+`run` reads the experiment TOML or preset name and dispatches to the matching runner.
 
 Daily reports are written under:
 
@@ -216,10 +188,10 @@ If you want to verify a specific feature, run the matching test case below:
 | --- | --- |
 | 重建时保留缓存 | `tests.test_pipeline.PipelineTest.test_rebuild_dataset_preserves_cache_and_clears_staging` |
 | `build` / `rebuild` 进度输出 | `tests.test_pipeline.PipelineTest.test_build_and_rebuild_commands_pass_progress` |
-| `update-actions` 进度输出 | `tests.test_pipeline.PipelineTest.test_update_actions_command_passes_progress` |
+| `sync` 进度输出 | `tests.test_pipeline.PipelineTest.test_update_actions_command_passes_progress` |
 | 导出源正常反推因子 | `tests.test_pipeline.PipelineTest.test_export_source_derives_adjustment_factors` |
 | 导出源跳过非正价格行 | `tests.test_pipeline.PipelineTest.test_export_source_skips_nonpositive_export_rows` |
-| `update-actions --dry-run` 报告跳过项 | `tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols` |
+| `sync --dry-run` 报告跳过项 | `tests.test_pipeline.PipelineTest.test_update_actions_export_dry_run_reports_skipped_symbols` |
 | 缓存状态与最近更新报告 | `tests.test_pipeline.PipelineTest.test_actions_status_reports_cache_and_update_report` |
 | 复权对账零误差 | `tests.test_adjustment_verify.AdjustmentVerifyTest.test_verify_adjustment_reports_zero_error` |
 | 复权对账偏差样本 | `tests.test_adjustment_verify.AdjustmentVerifyTest.test_verify_adjustment_reports_mismatch` |
@@ -282,7 +254,7 @@ and `factors`.
 Show current version status:
 
 ```bash
-tdx-stocks query status
+tdx-stocks query tables
 ```
 
 Show table-level row counts, date ranges, and disk usage:
@@ -308,9 +280,9 @@ tdx-stocks query table factors --columns symbol,trade_date,pct_chg,ret_20,vol_20
 Show one stock's merged daily rows and factors:
 
 ```bash
-tdx-stocks query price 600519.SH --limit 20
-tdx-stocks query price 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
-tdx-stocks query price 600519.SH --no-limit
+tdx-stocks query stock 600519.SH --limit 20
+tdx-stocks query stock 600519.SH --from-date 2024-01-01 --to-date 2024-12-31 --limit 50
+tdx-stocks query stock 600519.SH --no-limit
 ```
 
 CLI output rounds numeric values to at most two decimals. `volume` and `amount`
@@ -350,7 +322,7 @@ tdx-stocks query export factors --symbol 600000 --from-date 2024-01-01 --to ../D
   `bias_10`, `bias_20`, `bias_60`, `rsv_9`, `k_9`, `d_9`, `j_9`,
   `plus_di_14`, `minus_di_14`, `adx_14`, `amount_ma20`, `amount_ma60`,
   `vol_ratio_20`, `amp_1`, and MACD.
-- `query price` shows a compact subset of the merged daily data and highlights core
+- `query stock` shows a compact subset of the merged daily data and highlights core
   factor columns such as `ret_20`, `vol_20`, `rsi_14`, `atr_pct_14`, `adx_14`,
   and KDJ.
 - `latest.json` is replaced only after all stages and checks complete.

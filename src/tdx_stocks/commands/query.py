@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
 from pathlib import Path
 
 from ..config import load_config
-from ..console import print_json, print_key_values
+from ..console import print_json
 from ..query import (
     TABLES,
     build_select_sql,
     build_stock_sql,
-    disk_usage,
     ensure_read_only_sql,
     export_query_csv,
     fetch_dicts,
-    format_bytes,
     normalize_output_data,
     open_query_context,
     parquet_glob,
@@ -23,7 +20,7 @@ from ..query import (
     table_columns,
     table_summary,
 )
-from .common import add_config_arg, add_output_arg, add_query_args, add_stock_args, legacy_notice as _legacy_notice
+from .common import add_config_arg, add_output_arg, add_query_args, add_stock_args
 from .common import validate_output_alias
 
 
@@ -31,13 +28,6 @@ def register_query_group(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     *,
     tables: tuple[str, ...],
-    cmd_status: Callable[[argparse.Namespace], int],
-    cmd_stock: Callable[[argparse.Namespace], int],
-    cmd_head: Callable[[argparse.Namespace], int],
-    cmd_tables: Callable[[argparse.Namespace], int],
-    cmd_schema: Callable[[argparse.Namespace], int],
-    cmd_sql: Callable[[argparse.Namespace], int],
-    cmd_export: Callable[[argparse.Namespace], int],
     hidden: bool = False,
 ) -> None:
     query_parser = subparsers.add_parser(
@@ -47,18 +37,13 @@ def register_query_group(
     )
     query_subparsers = query_parser.add_subparsers(dest="query_command", required=True)
 
-    status_parser = query_subparsers.add_parser("status", help="Show latest dataset status.")
-    add_config_arg(status_parser)
-    status_parser.add_argument("--json", action="store_true")
-    status_parser.set_defaults(func=cmd_status)
-
-    price_parser = query_subparsers.add_parser(
-        "price",
+    stock_parser = query_subparsers.add_parser(
+        "stock",
         help="Show merged daily rows and factors for one stock code.",
     )
-    add_config_arg(price_parser)
-    add_stock_args(price_parser)
-    price_parser.set_defaults(func=cmd_stock)
+    add_config_arg(stock_parser)
+    add_stock_args(stock_parser)
+    stock_parser.set_defaults(func=cmd_stock)
 
     table_parser = query_subparsers.add_parser("table", help="Show rows from a latest table.")
     add_config_arg(table_parser)
@@ -96,65 +81,35 @@ def register_query_group(
     export_parser.set_defaults(func=cmd_export)
 
 
-def register_legacy_query_aliases(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-    *,
-    tables: tuple[str, ...],
-    cmd_status: Callable[[argparse.Namespace], int],
-    cmd_tables: Callable[[argparse.Namespace], int],
-    cmd_schema: Callable[[argparse.Namespace], int],
-    cmd_head: Callable[[argparse.Namespace], int],
-    cmd_stock: Callable[[argparse.Namespace], int],
-    cmd_sql: Callable[[argparse.Namespace], int],
-    cmd_export: Callable[[argparse.Namespace], int],
-) -> None:
-    status_parser = subparsers.add_parser("status", help=argparse.SUPPRESS)
-    status_parser._legacy_target = "query status"
-    add_config_arg(status_parser)
-    status_parser.add_argument("--json", action="store_true")
-    status_parser.set_defaults(func=cmd_status)
+    factor_parser = query_subparsers.add_parser(
+        "factor",
+        help="Factor catalog, schema inspection, and ranking commands.",
+        description="Commands for factor catalog browsing and ranking.",
+    )
+    factor_subparsers = factor_parser.add_subparsers(dest="factor_command", required=True)
 
-    tables_parser = subparsers.add_parser("tables", help=argparse.SUPPRESS)
-    tables_parser._legacy_target = "query tables"
-    add_config_arg(tables_parser)
-    tables_parser.add_argument("--json", action="store_true")
-    tables_parser.set_defaults(func=cmd_tables)
+    factor_list_parser = factor_subparsers.add_parser("list", help="List available factors.")
+    factor_list_parser.add_argument("--json", action="store_true")
+    factor_list_parser.set_defaults(func=cmd_factor_list)
 
-    schema_parser = subparsers.add_parser("schema", help=argparse.SUPPRESS)
-    schema_parser._legacy_target = "query schema"
-    add_config_arg(schema_parser)
-    schema_parser.add_argument("table", choices=tables)
-    schema_parser.add_argument("--json", action="store_true")
-    schema_parser.set_defaults(func=cmd_schema)
+    factor_describe_parser = factor_subparsers.add_parser("describe", help="Describe one factor.")
+    factor_describe_parser.add_argument("factor")
+    factor_describe_parser.add_argument("--json", action="store_true")
+    factor_describe_parser.set_defaults(func=cmd_factor_describe)
 
-    head_parser = subparsers.add_parser("head", help=argparse.SUPPRESS)
-    head_parser._legacy_target = "query table"
-    add_config_arg(head_parser)
-    add_query_args(head_parser, default_limit=20)
-    head_parser.set_defaults(func=cmd_head)
+    factor_schema_parser = factor_subparsers.add_parser("schema", help="Show factor table schema.")
+    add_config_arg(factor_schema_parser)
+    factor_schema_parser.add_argument("--json", action="store_true")
+    factor_schema_parser.set_defaults(func=cmd_factor_schema)
 
-    stock_parser = subparsers.add_parser("stock", help=argparse.SUPPRESS)
-    stock_parser._legacy_target = "query price"
-    add_config_arg(stock_parser)
-    add_stock_args(stock_parser)
-    stock_parser.set_defaults(func=cmd_stock)
-
-    sql_parser = subparsers.add_parser("sql", help=argparse.SUPPRESS)
-    sql_parser._legacy_target = "query sql"
-    add_config_arg(sql_parser)
-    sql_parser.add_argument("sql")
-    sql_parser.add_argument("--limit", type=int, default=100)
-    sql_parser.add_argument("--unsafe-sql", action="store_true", help=argparse.SUPPRESS)
-    sql_parser.add_argument("--json", action="store_true")
-    sql_parser.set_defaults(func=cmd_sql)
-
-    export_parser = subparsers.add_parser("export", help=argparse.SUPPRESS)
-    export_parser._legacy_target = "query export"
-    add_config_arg(export_parser)
-    add_query_args(export_parser, default_limit=1000)
-    add_output_arg(export_parser, required=True)
-    export_parser.add_argument("--no-limit", action="store_true")
-    export_parser.set_defaults(func=cmd_export)
+    factor_rank_parser = factor_subparsers.add_parser("rank", help="Rank one factor on a chosen date.")
+    add_config_arg(factor_rank_parser)
+    factor_rank_parser.add_argument("factor")
+    factor_rank_parser.add_argument("--as-of", default="latest")
+    factor_rank_parser.add_argument("--limit", type=int, default=50)
+    factor_rank_parser.add_argument("--market", choices=("sh", "sz", "bj"))
+    factor_rank_parser.add_argument("--json", action="store_true")
+    factor_rank_parser.set_defaults(func=cmd_factor_rank)
 
 
 def parse_columns(value: str | None) -> list[str] | None:
@@ -267,57 +222,7 @@ def _sql_has_top_level_keyword(sql: str, keyword: str) -> bool:
     return False
 
 
-def cmd_status(args: argparse.Namespace) -> int:
-    _legacy_notice(args)
-    config = load_config(args.config)
-    ctx = open_query_context(config)
-    try:
-        manifest = ctx.manifest
-        summary = manifest.get("summary", {})
-        rows = [
-            ("run_id", manifest.get("run_id")),
-            ("generated_at", summary.get("generated_at")),
-            ("version_dir", manifest.get("version_dir")),
-            ("data_root", config.paths.data_root),
-            ("disk_usage", format_bytes(disk_usage(config.paths.data_root))),
-        ]
-        checks = summary.get("checks", [])
-        check_rows = []
-        for check in checks:
-            metrics = check.get("metrics", {})
-            check_rows.append(
-                {
-                    "name": check.get("name"),
-                    "rows": metrics.get("rows"),
-                    "symbols": metrics.get("symbols"),
-                    "errors": len(check.get("errors", [])),
-                    "warnings": len(check.get("warnings", [])),
-                }
-            )
-        if args.json:
-            print_json(
-                normalize_output_data(
-                    {
-                        "run_id": manifest.get("run_id"),
-                        "generated_at": summary.get("generated_at"),
-                        "version_dir": manifest.get("version_dir"),
-                        "data_root": config.paths.data_root.as_posix(),
-                        "disk_usage": format_bytes(disk_usage(config.paths.data_root)),
-                        "checks": check_rows,
-                    }
-                )
-            )
-        else:
-            print_key_values("status", rows)
-            if check_rows:
-                print_rows(["name", "rows", "symbols", "errors", "warnings"], check_rows)
-    finally:
-        ctx.close()
-    return 0
-
-
 def cmd_tables(args: argparse.Namespace) -> int:
-    _legacy_notice(args)
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
@@ -332,7 +237,6 @@ def cmd_tables(args: argparse.Namespace) -> int:
 
 
 def cmd_schema(args: argparse.Namespace) -> int:
-    _legacy_notice(args)
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
@@ -347,7 +251,6 @@ def cmd_schema(args: argparse.Namespace) -> int:
 
 
 def cmd_head(args: argparse.Namespace) -> int:
-    _legacy_notice(args)
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
@@ -375,7 +278,6 @@ def cmd_head(args: argparse.Namespace) -> int:
 
 
 def cmd_sql(args: argparse.Namespace) -> int:
-    _legacy_notice(args)
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
@@ -396,7 +298,6 @@ def cmd_sql(args: argparse.Namespace) -> int:
 
 def cmd_export(args: argparse.Namespace) -> int:
     validate_output_alias(args)
-    _legacy_notice(args)
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
@@ -424,7 +325,6 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_stock(args: argparse.Namespace) -> int:
-    _legacy_notice(args)
     config = load_config(args.config)
     ctx = open_query_context(config)
     try:
@@ -445,3 +345,27 @@ def cmd_stock(args: argparse.Namespace) -> int:
     finally:
         ctx.close()
     return 0
+
+
+def cmd_factor_list(args: argparse.Namespace) -> int:
+    from .factors import cmd_factors_list as _cmd_factors_list
+
+    return _cmd_factors_list(args)
+
+
+def cmd_factor_describe(args: argparse.Namespace) -> int:
+    from .factors import cmd_factors_describe as _cmd_factors_describe
+
+    return _cmd_factors_describe(args)
+
+
+def cmd_factor_schema(args: argparse.Namespace) -> int:
+    from .factors import cmd_factors_schema as _cmd_factors_schema
+
+    return _cmd_factors_schema(args)
+
+
+def cmd_factor_rank(args: argparse.Namespace) -> int:
+    from .factors import cmd_factors_rank as _cmd_factors_rank
+
+    return _cmd_factors_rank(args)

@@ -78,8 +78,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     print("")
     print("Next steps:")
     print("  1. Edit tdx_stocks.toml")
-    print("  2. Run: tdx-stocks data sync")
-    print("  3. Run: tdx-stocks run experiments/daily.toml")
+    print("  2. Run: tdx-stocks sync")
+    print("  3. Run: tdx-stocks run daily --explain")
     return 0
 
 

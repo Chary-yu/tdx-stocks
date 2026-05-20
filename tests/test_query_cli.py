@@ -64,6 +64,8 @@ class QueryCliSmokeTest(unittest.TestCase):
                 pct_chg DOUBLE,
                 ret_1 DOUBLE,
                 ret_20 DOUBLE,
+                pct_rank_ret_20 DOUBLE,
+                rs_score DOUBLE,
                 ma20 DOUBLE,
                 ma60 DOUBLE,
                 pos_20 DOUBLE,
@@ -88,13 +90,13 @@ class QueryCliSmokeTest(unittest.TestCase):
         con.execute(
             """
             INSERT INTO factors VALUES
-                ('sh', '600519', DATE '2024-01-04', 2024, 0.01, 0.01, 0.02, 101.0, 100.0, 0.8, -0.01, 0.2, 120000000.0)
+                ('sh', '600519', DATE '2024-01-04', 2024, 0.01, 0.01, 0.02, 0.9, 0.8, 101.0, 100.0, 0.8, -0.01, 0.2, 120000000.0)
             """
         )
         register_query_macros(con)
         return SimpleNamespace(con=con, manifest={"run_id": "run-1"}, close=lambda: None)
 
-    def test_query_status_schema_head_sql_stock_and_export(self) -> None:
+    def test_query_schema_head_sql_stock_factor_and_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp) / "Database"
             export_path = Path(tmp) / "export.csv"
@@ -104,12 +106,14 @@ class QueryCliSmokeTest(unittest.TestCase):
                 with (
                     patch("tdx_stocks.commands.query.load_config", return_value=config),
                     patch("tdx_stocks.commands.query.open_query_context", return_value=ctx),
+                    patch("tdx_stocks.commands.factors.load_config", return_value=config),
+                    patch("tdx_stocks.commands.factors.open_query_context", return_value=ctx),
                 ):
                     stdout = io.StringIO()
                     with contextlib.redirect_stdout(stdout):
-                        status_code = cli_main(["query", "status", "--config", "dummy.toml", "--json"])
+                        status_code = cli_main(["query", "tables", "--config", "dummy.toml", "--json"])
                     self.assertEqual(status_code, 0)
-                    self.assertIn("run_id", stdout.getvalue())
+                    self.assertIn("raw_daily", stdout.getvalue())
 
                     stdout = io.StringIO()
                     with contextlib.redirect_stdout(stdout):
@@ -155,7 +159,7 @@ class QueryCliSmokeTest(unittest.TestCase):
                         status_code = cli_main(
                             [
                                 "query",
-                                "price",
+                                "stock",
                                 "600519.SH",
                                 "--json",
                                 "--limit",
@@ -164,6 +168,25 @@ class QueryCliSmokeTest(unittest.TestCase):
                         )
                     self.assertEqual(status_code, 0)
                     self.assertIn("adj_close", stdout.getvalue())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        status_code = cli_main(
+                            [
+                                "query",
+                                "factor",
+                                "rank",
+                                "pct_rank_ret_20",
+                                "--as-of",
+                                "2024-01-04",
+                                "--limit",
+                                "1",
+                                "--config",
+                                "dummy.toml",
+                            ]
+                        )
+                    self.assertEqual(status_code, 0)
+                    self.assertIn("factor_rank", stdout.getvalue())
 
                     stdout = io.StringIO()
                     with contextlib.redirect_stdout(stdout):

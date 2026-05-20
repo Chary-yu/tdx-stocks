@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tdx_stocks.cli import build_parser, main as cli_main
+from tdx_stocks.commands.run import RUN_CONFIG_PRESETS, _resolve_run_config
 from tdx_stocks.runner import dispatch_run, load_run_config
 from tdx_stocks.runner.errors import InvalidRunConfigError
 from tdx_stocks.runner.models import RunResult
@@ -235,17 +236,23 @@ class RootHelpTest(unittest.TestCase):
     def test_root_help_mentions_new_primary_commands(self) -> None:
         help_text = build_parser().format_help()
         self.assertIn("tdx-stocks init", help_text)
-        self.assertIn("tdx-stocks data sync", help_text)
-        self.assertIn("tdx-stocks run <config.toml>", help_text)
+        self.assertIn("tdx-stocks sync", help_text)
+        self.assertIn("tdx-stocks run daily", help_text)
+        self.assertIn("tdx-stocks query stock 600519.SH", help_text)
         self.assertIn("tdx-stocks ui", help_text)
-        self.assertIn("tdx-stocks examples", help_text)
         self.assertIn("tdx-stocks doctor", help_text)
         self.assertIn("tdx-stocks status", help_text)
         self.assertIn("tdx-stocks report", help_text)
+        self.assertIn("tdx-stocks help run", help_text)
         self.assertNotIn("==SUPPRESS==", help_text)
 
 
 class RunCommandTest(unittest.TestCase):
+    def test_run_preset_names_resolve_to_templates(self) -> None:
+        for preset, expected in RUN_CONFIG_PRESETS.items():
+            with self.subTest(preset=preset):
+                self.assertEqual(_resolve_run_config(preset), expected)
+
     def test_dry_run_does_not_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "daily.toml"
@@ -263,6 +270,29 @@ enabled = ["trend-strength"]
                 code = cli_main(["run", str(path), "--dry-run"])
             self.assertEqual(code, 0)
             dispatch_run_mock.assert_not_called()
+
+    def test_preset_run_resolves_daily_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path.cwd()
+            try:
+                os.chdir(tmp)
+                (Path("experiments")).mkdir(parents=True, exist_ok=True)
+                (Path("experiments") / "daily.toml").write_text(
+                    """
+[task]
+type = "daily"
+
+[strategies]
+enabled = ["trend-strength"]
+""".strip(),
+                    encoding="utf-8",
+                )
+                with patch("tdx_stocks.commands.run.dispatch_run") as dispatch_run_mock:
+                    code = cli_main(["run", "daily", "--dry-run"])
+                self.assertEqual(code, 0)
+                dispatch_run_mock.assert_not_called()
+            finally:
+                os.chdir(cwd)
 
     def test_explain_does_not_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

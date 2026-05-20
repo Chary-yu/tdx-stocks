@@ -53,7 +53,7 @@ def load_latest_manifest(data_root: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(
             f"latest manifest not found: {path}.\n"
-            "Run: tdx-stocks data sync\n"
+            "Run: tdx-stocks sync\n"
             "If the workspace is new, make sure [paths].tdx_vipdoc points to the real vipdoc root first."
         )
     return json.loads(path.read_text(encoding="utf-8"))

@@ -227,7 +227,7 @@ class SyncTest(unittest.TestCase):
 
             self.assertIsNotNone(plan)
             self.assertTrue(plan.needs_write)
-            self.assertEqual(plan.steps[0], SyncPlanStep("data update", "no export text files found; using local sync"))
+            self.assertEqual(plan.steps[0], SyncPlanStep("refresh export cache", "no export text files found; using local sync"))
 
             with (
                 patch("tdx_stocks.sync._has_export_text_files", return_value=True),

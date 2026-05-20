@@ -501,7 +501,7 @@ def rebuild_dataset(
     if not files:
         raise NoDataError(
             f"No TDX day files found under: {config.paths.tdx_vipdoc}.\n"
-            "Set [paths].tdx_vipdoc to the real vipdoc root, then run: tdx-stocks data sync"
+            "Set [paths].tdx_vipdoc to the real vipdoc root, then run: tdx-stocks sync"
         )
     if config.paths.data_root.exists():
         _progress(progress, f"Clearing database root except cache: {config.paths.data_root}")

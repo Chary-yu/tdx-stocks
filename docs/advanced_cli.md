@@ -4,20 +4,16 @@ The recommended entry path is:
 
 ```bash
 tdx-stocks init
-tdx-stocks data sync
-tdx-stocks run experiments/daily.toml
+tdx-stocks sync
+tdx-stocks run daily
 tdx-stocks ui
 ```
 
-The following commands remain available for compatibility and advanced use:
+The following commands remain available for advanced use:
 
-- `strategy`
-- `portfolio`
-- `factors`
 - `query`
-- `audit`
-- `daily`
-- `sync`
-- `help-summary`
+- `status`
+- `report`
+- `help`
 
-Use `tdx-stocks help-summary` to regenerate the CLI markdown reference.
+Use `tdx-stocks help <topic>` for static guidance topics.

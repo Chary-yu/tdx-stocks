@@ -13,7 +13,7 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
         lines.append("")
 
     visible, advanced, hidden = _collect_subcommands(parser)
-    primary_names = {"data", "init", "run", "ui", "examples", "doctor", "status", "report"}
+    primary_names = {"init", "doctor", "sync", "run", "report", "query", "status", "ui", "help"}
     primary = [item for item in visible if item[0] in primary_names]
     primary.sort(key=lambda item: item[0])
     advanced.sort(key=lambda item: item[0])
@@ -62,7 +62,7 @@ def _collect_subcommands(
     visible: list[tuple[str, argparse.ArgumentParser, str]] = []
     advanced: list[tuple[str, argparse.ArgumentParser, str]] = []
     hidden: list[tuple[str, argparse.ArgumentParser, str]] = []
-    advanced_names = {"strategy", "portfolio", "factors", "query", "audit", "daily", "sync", "help-summary"}
+    advanced_names = {"strategy", "portfolio", "factors", "query", "audit", "daily", "sync"}
     for choice_action in subparsers_action._choices_actions:
         command_name = choice_action.dest
         command_parser = subparsers_action.choices[command_name]
