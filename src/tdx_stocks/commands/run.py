@@ -34,41 +34,49 @@ RUN_CONFIG_PRESETS: dict[str, Path] = {
 def cmd_run(args: argparse.Namespace) -> int:
     config_path = _resolve_run_config(args.config)
     project_root = _discover_project_root(config_path)
-    if project_root.exists():
-        os.chdir(project_root)
-    configure_event_logging()
-    run_config = load_run_config(config_path)
-    plan = build_run_plan(run_config)
-    if args.explain or args.dry_run:
+    previous_cwd = Path.cwd()
+    try:
+        if project_root.exists():
+            os.chdir(project_root)
+        configure_event_logging()
+        run_config = load_run_config(config_path)
+        plan = build_run_plan(run_config)
+        if args.explain or args.dry_run:
+            if args.json:
+                print_json(plan)
+            else:
+                print(render_run_plan(plan))
+            return 0
+        progress = None if args.json or args.no_progress else RunProgress(run_config.task_type)
+        if progress is not None:
+            progress.start()
+        result = dispatch_run(run_config, dry_run=args.dry_run, progress=progress)
+        if progress is not None:
+            progress.finish(result.status)
+        if args.output is not None:
+            if args.json:
+                write_json_atomic(args.output, result.to_dict())
+            else:
+                write_text_atomic(args.output, f"{result.task_type}: {result.status}\n")
+        save_latest_run_report(run_config.app_config.paths.data_root, build_latest_run_report(run_config, result))
         if args.json:
-            print_json(plan)
+            print_json(result.to_dict())
         else:
-            print(render_run_plan(plan))
+            report_path = main_report_path(result.outputs)
+            if report_path is not None:
+                if report_path.suffix.lower() == ".md" and result.task_type != "daily":
+                    ensure_run_report_markdown(report_path, result, app_config=run_config.app_config)
+                print_report_path(report_path, json_mode=False)
+                open_report_if_needed(args, report_path, json_mode=False)
+            else:
+                print(f"{result.task_type}: {result.status}")
         return 0
-    progress = None if args.json or args.no_progress else RunProgress(run_config.task_type)
-    if progress is not None:
-        progress.start()
-    result = dispatch_run(run_config, dry_run=args.dry_run, progress=progress)
-    if progress is not None:
-        progress.finish(result.status)
-    if args.output is not None:
-        if args.json:
-            write_json_atomic(args.output, result.to_dict())
-        else:
-            write_text_atomic(args.output, f"{result.task_type}: {result.status}\n")
-    save_latest_run_report(run_config.app_config.paths.data_root, build_latest_run_report(run_config, result))
-    if args.json:
-        print_json(result.to_dict())
-    else:
-        report_path = main_report_path(result.outputs)
-        if report_path is not None:
-            if report_path.suffix.lower() == ".md" and result.task_type != "daily":
-                ensure_run_report_markdown(report_path, result, app_config=run_config.app_config)
-            print_report_path(report_path, json_mode=False)
-            open_report_if_needed(args, report_path, json_mode=False)
-        else:
-            print(f"{result.task_type}: {result.status}")
-    return 0
+    finally:
+        try:
+            os.chdir(previous_cwd)
+        except FileNotFoundError:
+            # Test suites and temporary workspaces may delete the original cwd.
+            os.chdir(Path(__file__).resolve().parents[3])
 
 
 def register_run_command(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:

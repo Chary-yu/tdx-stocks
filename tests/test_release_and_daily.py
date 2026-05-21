@@ -46,7 +46,7 @@ class ReleaseConfigTest(unittest.TestCase):
         parser = build_parser()
         subparsers_action = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
         visible = [choice.dest for choice in subparsers_action._choices_actions if choice.help != argparse.SUPPRESS]
-        self.assertEqual(visible, ["init", "doctor", "sync", "run", "report", "query", "status", "ui", "help"])
+        self.assertEqual(visible, ["init", "doctor", "config", "sync", "run", "report", "query", "status", "ui", "help"])
         self.assertNotIn("data", visible)
         self.assertNotIn("audit", visible)
         self.assertNotIn("examples", visible)
@@ -222,7 +222,7 @@ class DailyStoreTest(unittest.TestCase):
 
 class DailyWorkflowTest(unittest.TestCase):
     def test_daily_workflow_skip_flags_and_outputs(self) -> None:
-        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1"}, close=lambda: None)
+        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1", "summary": {"checks": [{"name": "raw_daily", "status": "success"}]}}, close=lambda: None)
         fake_strategy_step = SimpleNamespace(
             to_dict=lambda: {
                 "step_name": "strategy:trend-strength",
@@ -260,7 +260,7 @@ class DailyWorkflowTest(unittest.TestCase):
         self.assertEqual(result.report.steps[-1]["status"], "skipped")
 
     def test_daily_workflow_preserves_zero_values_and_namespaces_outputs(self) -> None:
-        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1"}, close=lambda: None)
+        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1", "summary": {"checks": [{"name": "raw_daily", "status": "success"}]}}, close=lambda: None)
         fake_portfolio = SimpleNamespace(
             as_of="2024-01-31",
             holdings=[{"market": "sh", "symbol": "600000", "weight": 1.0}],
@@ -300,7 +300,7 @@ class DailyWorkflowTest(unittest.TestCase):
         self.assertEqual(result.report.steps[-1]["step_name"], "daily_report")
 
     def test_daily_workflow_writes_report_with_empty_strategy_outputs(self) -> None:
-        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1"}, close=lambda: None)
+        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1", "summary": {"checks": [{"name": "raw_daily", "status": "success"}]}}, close=lambda: None)
         config = AppConfig(paths=PathsConfig(data_root=Path(tempfile.gettempdir()) / "tdx-stocks-daily-test"))
         strategy_step = SimpleNamespace(
             to_dict=lambda: {
@@ -350,7 +350,7 @@ class DailyWorkflowTest(unittest.TestCase):
     def test_daily_workflow_skips_portfolio_when_strategies_are_skipped(self) -> None:
         fake_ctx = SimpleNamespace(
             con=SimpleNamespace(execute=lambda *args, **kwargs: SimpleNamespace(fetchone=lambda: (date(2024, 1, 31),))),
-            manifest={"run_id": "run-1", "summary": {"trade_date": "2024-01-31"}},
+            manifest={"run_id": "run-1", "summary": {"trade_date": "2024-01-31", "checks": [{"name": "raw_daily", "status": "success"}]}},
             close=lambda: None,
         )
         config = AppConfig(paths=PathsConfig(data_root=Path(tempfile.gettempdir()) / "tdx-stocks-daily-test"))
@@ -380,7 +380,7 @@ class DailyWorkflowTest(unittest.TestCase):
     def test_daily_workflow_skips_rebalance_plan_when_requested(self) -> None:
         fake_ctx = SimpleNamespace(
             con=SimpleNamespace(execute=lambda *args, **kwargs: SimpleNamespace(fetchone=lambda: (date(2024, 1, 31),))),
-            manifest={"run_id": "run-1", "summary": {"trade_date": "2024-01-31"}},
+            manifest={"run_id": "run-1", "summary": {"trade_date": "2024-01-31", "checks": [{"name": "raw_daily", "status": "success"}]}},
             close=lambda: None,
         )
         fake_portfolio = SimpleNamespace(

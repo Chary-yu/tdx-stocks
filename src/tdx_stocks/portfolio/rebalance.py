@@ -33,6 +33,7 @@ def build_rebalance_plan(
     max_turnover: float | None = None,
     target_risk_filter: dict[str, Any] | None = None,
     cost_model: dict[str, Any] | None = None,
+    capital: float = 10_000_000.0,
 ) -> RebalancePlan:
     current_map = {(holding.market, holding.symbol): holding for holding in current_holdings}
     target_map = {(holding.market, holding.symbol): holding for holding in target_holdings}
@@ -55,7 +56,7 @@ def build_rebalance_plan(
             reason = "大盘风控要求暂停开仓，拒绝买入并保持现金"
             delta = 0.0
             target_weight = current_weight
-        elif _is_critical_trade(delta, piecewise):
+        elif _is_critical_trade(delta, piecewise, target or current, capital=capital):
             critical = piecewise.get("critical") if isinstance(piecewise.get("critical"), dict) else {}
             if bool(critical.get("reject", False)):
                 action = "REJECT_TRADE"
@@ -142,11 +143,31 @@ def _classify_action(current_weight: float, target_weight: float, min_trade_weig
     return "HOLD", "no change"
 
 
-def _is_critical_trade(delta: float, piecewise: dict[str, Any]) -> bool:
-    if not piecewise:
+def _is_critical_trade(delta: float, piecewise: dict[str, Any], holding: Holding | None, *, capital: float) -> bool:
+    if not piecewise or holding is None:
         return False
     critical = piecewise.get("critical")
     if not isinstance(critical, dict):
         return False
-    threshold = float(critical.get("delta_threshold") or 0.20)
-    return abs(delta) >= threshold
+    adv = _holding_adv(holding)
+    if adv is None or adv <= 0 or capital <= 0:
+        threshold = float(critical.get("delta_threshold") or 0.20)
+        return abs(delta) >= threshold
+    trade_amount = abs(delta) * capital
+    trade_to_adv = trade_amount / adv
+    # Critical tier in rebalance.toml is defined as >= 10% of ADV unless explicitly overridden.
+    threshold = float(critical.get("adv_ratio_threshold") or critical.get("trade_to_adv") or 0.10)
+    return trade_to_adv >= threshold
+
+
+def _holding_adv(holding: Holding) -> float | None:
+    factors = holding.factor_values if isinstance(holding.factor_values, dict) else {}
+    for key in ("amount_ma20", "adv", "avg_daily_amount", "turnover_amount_ma20"):
+        value = factors.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None

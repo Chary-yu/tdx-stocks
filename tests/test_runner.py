@@ -254,7 +254,7 @@ class RunCommandTest(unittest.TestCase):
     def test_run_preset_names_resolve_to_templates(self) -> None:
         for preset, expected in RUN_CONFIG_PRESETS.items():
             with self.subTest(preset=preset):
-                self.assertEqual(_resolve_run_config(preset), expected)
+                self.assertEqual(_resolve_run_config(preset), expected.resolve())
 
     def test_dry_run_does_not_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

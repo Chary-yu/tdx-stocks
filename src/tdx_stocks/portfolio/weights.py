@@ -17,12 +17,13 @@ def build_portfolio_weights(
     capital: float | None = None,
     max_adv_participation: float = 0.10,
     max_liquidation_days: float = 3.0,
+    hybrid_weights: dict[str, float] | None = None,
 ) -> list[float]:
     rows = [dict(item) for item in items]
     if not rows:
         return []
 
-    weights = _initial_weights(rows, weighting)
+    weights = _initial_weights(rows, weighting, hybrid_weights=hybrid_weights)
     weights = _apply_min_weight(weights, min_weight)
     weights = _apply_liquidity_caps(weights, rows, capital=capital, max_adv_participation=max_adv_participation, max_liquidation_days=max_liquidation_days)
     if not any(weight > 0 for weight in weights):
@@ -33,7 +34,7 @@ def build_portfolio_weights(
     return [round(weight, 12) for weight in weights]
 
 
-def _initial_weights(rows: list[dict[str, Any]], weighting: str) -> list[float]:
+def _initial_weights(rows: list[dict[str, Any]], weighting: str, *, hybrid_weights: dict[str, float] | None = None) -> list[float]:
     if weighting == "equal":
         return [1.0 / len(rows)] * len(rows)
     if weighting == "signal-strength":
@@ -42,9 +43,21 @@ def _initial_weights(rows: list[dict[str, Any]], weighting: str) -> list[float]:
             return [1.0 / len(rows)] * len(rows)
         return _normalize(scores)
     if weighting == "hybrid":
-        scores = [max(float(row.get("score") or 0.0), 0.0) for row in rows]
-        adv_scores = [max(float(amount_ma20(row) or 0.0), 1.0) for row in rows]
-        combo = [(s / max(sum(scores), 1e-9)) * 0.6 + (a / max(sum(adv_scores), 1e-9)) * 0.4 for s, a in zip(scores, adv_scores, strict=True)]
+        cfg = hybrid_weights or {}
+        signal_w = float(cfg.get("signal_strength", 0.40))
+        liquidity_w = float(cfg.get("liquidity_risk", 0.30))
+        sector_w = float(cfg.get("sector_alpha", 0.20))
+        event_w = float(cfg.get("event_confidence", 0.10))
+        total_w = max(signal_w + liquidity_w + sector_w + event_w, 1e-9)
+        signal_w, liquidity_w, sector_w, event_w = (signal_w / total_w, liquidity_w / total_w, sector_w / total_w, event_w / total_w)
+        scores = _normalize([max(float(row.get("score") or 0.0), 0.0) for row in rows])
+        adv_scores = _normalize([max(float(amount_ma20(row) or 0.0), 1.0) for row in rows])
+        sector_scores = _normalize([max(float((row.get("factor_values") or {}).get("sector_score") or row.get("sector_score") or 1.0), 0.0) for row in rows])
+        event_scores = _normalize([max(float(row.get("event_confidence") or (row.get("factor_values") or {}).get("event_confidence") or 1.0), 0.0) for row in rows])
+        combo = [
+            signal_w * s + liquidity_w * a + sector_w * sec + event_w * ev
+            for s, a, sec, ev in zip(scores, adv_scores, sector_scores, event_scores, strict=True)
+        ]
         return _normalize(combo)
 
     scores = [float(row.get("score") or 0.0) for row in rows]

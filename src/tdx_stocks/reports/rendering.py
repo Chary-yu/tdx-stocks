@@ -1055,7 +1055,7 @@ def _grid_warnings(rows_in: list[Any]) -> list[str]:
     if research_scores and all(float(value) < 0 for value in research_scores):
         warnings.append(("研究分提示", "本次所有参数组合研究分均为负，建议扩大参数范围或先检查策略条件与市场环境"))
 
-    effective_counts = [_effective_period_count(row) for row in rows]
+    effective_counts = [count for count in (_effective_period_count(row) for row in rows) if count is not None]
     if effective_counts and min(effective_counts) <= 5:
         warnings.append(("样本提示", "部分参数组合有效周期数较少，结果更适合流程验证，不宜直接作为最终参数选择依据"))
 

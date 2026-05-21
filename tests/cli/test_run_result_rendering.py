@@ -57,10 +57,10 @@ def test_signal_run_result_markdown_has_readable_signal_sections() -> None:
 
     markdown = render_run_result_markdown(result)
 
-    assert "# Signal Report: today-signal" in markdown
-    assert "## Strategy Compare" in markdown
-    assert "### Unique Stocks" in markdown
-    assert "## Consensus" in markdown
+    assert "# TDX 股票信号报告" in markdown
+    assert "## 策略对比" in markdown
+    assert "## 策略重叠" in markdown
+    assert "## 共振股票" in markdown
     assert "600519.SH" in markdown
 
 
@@ -80,8 +80,8 @@ def test_portfolio_backtest_grid_and_rebalance_have_task_sections() -> None:
                 },
                 outputs={"portfolio_markdown": "portfolio.md"},
             ),
-            "# Portfolio Report: portfolio",
-            "## Holdings",
+            "# TDX 股票组合报告",
+            "## 目标持仓",
         ),
         (
             RunResult(
@@ -107,8 +107,8 @@ def test_portfolio_backtest_grid_and_rebalance_have_task_sections() -> None:
                 },
                 outputs={"backtest_markdown": "backtest.md"},
             ),
-            "# Backtest Report: backtest",
-            "## Performance Metrics",
+            "# TDX 股票回测报告",
+            "## 收益表现",
         ),
         (
             RunResult(
@@ -122,8 +122,8 @@ def test_portfolio_backtest_grid_and_rebalance_have_task_sections() -> None:
                 },
                 outputs={"grid_markdown": "grid.md"},
             ),
-            "# Grid Search Report: grid",
-            "## Grid Results",
+            "# TDX 股票参数搜索报告",
+            "## 参数结果",
         ),
         (
             RunResult(
@@ -149,8 +149,8 @@ def test_portfolio_backtest_grid_and_rebalance_have_task_sections() -> None:
                 },
                 outputs={"rebalance_markdown": "rebalance.md"},
             ),
-            "# Rebalance Report: rebalance",
-            "## Rebalance Actions",
+            "# TDX 股票调仓报告",
+            "## 调仓动作",
         ),
     ]
 
@@ -158,16 +158,17 @@ def test_portfolio_backtest_grid_and_rebalance_have_task_sections() -> None:
         markdown = render_run_result_markdown(result)
         assert expected_title in markdown
         assert expected_section in markdown
-        body, _details = markdown.split("<details>", 1)
-        assert '"summary"' not in body
+        assert '"summary"' not in markdown
 
 
-def test_daily_markdown_report_is_not_overwritten(tmp_path) -> None:
-    path = tmp_path / "latest.md"
-    path.write_text("# TDX Stocks Daily Report\n\nrich daily report\n", encoding="utf-8")
+def test_daily_markdown_report_is_overwritten_with_current_normalized_report(tmp_path) -> None:
+    path = tmp_path / "daily_2024-01-31.md"
+    path.write_text("# old report\n", encoding="utf-8")
     result = RunResult(task_type="daily", name="daily", status="success", summary={"daily": {}})
 
     returned = ensure_run_report_markdown(path, result)
 
     assert returned == path
-    assert path.read_text(encoding="utf-8") == "# TDX Stocks Daily Report\n\nrich daily report\n"
+    payload = path.read_text(encoding="utf-8")
+    assert "# TDX 股票每日综合报告" in payload
+    assert "## 当前命令与策略技术面" in payload

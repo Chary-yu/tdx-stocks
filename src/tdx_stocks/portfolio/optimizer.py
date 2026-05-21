@@ -14,6 +14,7 @@ def optimize_weights(
     capital: float,
     max_adv_participation: float,
     max_liquidation_days: float,
+    weighting_hybrid: dict[str, float] | None = None,
 ) -> tuple[list[float], dict[str, Any]]:
     normalized_mode = str(mode or "equal")
     diagnostics: dict[str, Any] = {"requested_weighting": normalized_mode, "effective_weighting": normalized_mode}
@@ -25,6 +26,7 @@ def optimize_weights(
         normalized_mode = "signal-strength"
     if normalized_mode == "hybrid":
         normalized_mode = "hybrid"
+        diagnostics["hybrid_weights"] = dict(weighting_hybrid or {})
     return build_portfolio_weights(
         candidates,
         normalized_mode,
@@ -34,4 +36,5 @@ def optimize_weights(
         capital=capital,
         max_adv_participation=max_adv_participation,
         max_liquidation_days=max_liquidation_days,
+        hybrid_weights=weighting_hybrid,
     ), diagnostics

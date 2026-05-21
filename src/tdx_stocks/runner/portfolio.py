@@ -37,6 +37,7 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         sector_max_weight=float(portfolio.get("max_sector_weight") or 0.25),
         market_regime_config=macro_filter,
         event_calendar_config=event_calendar,
+        weighting_hybrid_config=portfolio.get("weighting_hybrid") if isinstance(portfolio.get("weighting_hybrid"), dict) else None,
         as_of=as_of,
     )
     emit_progress(progress, "准备组合报告输出")

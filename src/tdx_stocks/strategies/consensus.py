@@ -82,7 +82,7 @@ def build_consensus(
     bucket: dict[tuple[str, str], dict[str, Any]] = {}
     for strategy_name, doc in docs.items():
         definition = get_strategy(strategy_name)
-        type_tag = str(definition.strategy_type or definition.group or "other")
+        type_tag = str(getattr(definition, "strategy_type", None) or getattr(definition, "group", None) or "other")
         perf_weight = float(strategy_weights.get(strategy_name) or 1.0)
         for candidate in doc.get("candidates") or []:
             market = str(candidate.get("market") or "").lower()

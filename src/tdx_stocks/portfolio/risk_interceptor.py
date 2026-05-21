@@ -31,5 +31,16 @@ def apply_risk_interceptors(
         if event.action == "reject":
             logs.append({"symbol": item.get("symbol"), "market": item.get("market"), **event.to_dict()})
             continue
+        if event.action == "reduce_weight" and event.weight_multiplier is not None:
+            item = dict(item)
+            item["event_weight_multiplier"] = event.weight_multiplier
+            item["event_confidence"] = event.weight_multiplier
+            logs.append({"symbol": item.get("symbol"), "market": item.get("market"), **event.to_dict()})
+        elif event.action == "postpone":
+            item = dict(item)
+            item.setdefault("tags", [])
+            if isinstance(item["tags"], list):
+                item["tags"].append("event_watchlist")
+            logs.append({"symbol": item.get("symbol"), "market": item.get("market"), **event.to_dict()})
         filtered.append(item)
     return filtered, logs

@@ -12,7 +12,7 @@ class CliSurfaceTest(unittest.TestCase):
         parser = build_parser()
         subparsers_action = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
         visible = [choice.dest for choice in subparsers_action._choices_actions if choice.help != argparse.SUPPRESS]
-        self.assertEqual(visible, ["init", "doctor", "sync", "run", "report", "query", "status", "ui", "help"])
+        self.assertEqual(visible, ["init", "doctor", "config", "sync", "run", "report", "query", "status", "ui", "help"])
 
     def test_old_top_level_commands_fail(self) -> None:
         for argv in (

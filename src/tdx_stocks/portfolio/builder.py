@@ -51,6 +51,7 @@ def build_portfolio(
     sector_max_weight: float = 0.25,
     market_regime_config: dict[str, Any] | None = None,
     event_calendar_config: dict[str, Any] | None = None,
+    weighting_hybrid_config: dict[str, float] | None = None,
 ) -> PortfolioReport:
     candidates, data_run_id, resolved_as_of = _load_candidates(config, source, strategy, as_of)
     normalized_exclude_tags = normalize_exclude_risk_tags(exclude_risk_tags or DEFAULT_EXCLUDE_RISK_TAGS)
@@ -102,20 +103,34 @@ def build_portfolio(
         filtered_candidates = []
         risk_interceptions.extend(risk_interception(candidate, reason="市场环境滤网触发行情熔断，暂停开仓", trigger_tags=["market_regime_block"]) for candidate in candidates[:50])
 
-    filtered_candidates = _apply_near_high_cap(filtered_candidates, max_near_high_weight=0.40)
-
+    near_high_trimmed = []
     if not filtered_candidates:
         holdings: list[Holding] = []
+        weight_diag = {"requested_weighting": weighting, "effective_weighting": weighting}
     else:
-        weights, weight_diag = optimize_weights(
-            filtered_candidates,
-            mode=weighting,
-            max_weight=max_weight,
-            min_weight=min_weight,
-            capital=capital,
-            max_adv_participation=max_adv_participation,
-            max_liquidation_days=max_liquidation_days,
-        )
+        while True:
+            weights, weight_diag = optimize_weights(
+                filtered_candidates,
+                mode=weighting,
+                max_weight=max_weight,
+                min_weight=min_weight,
+                capital=capital,
+                max_adv_participation=max_adv_participation,
+                max_liquidation_days=max_liquidation_days,
+                weighting_hybrid=weighting_hybrid_config,
+            )
+            if _near_high_weight(filtered_candidates, weights) <= 0.40:
+                break
+            near = [item for item in filtered_candidates if _is_near_high(item)]
+            if not near:
+                break
+            weakest = sorted(near, key=lambda item: _float_or_zero(item.get("score")))[0]
+            near_high_trimmed.append(risk_interception(weakest, reason="接近20日高点权重超过上限，按分数末位淘汰", trigger_tags=["near_20d_high"]))
+            filtered_candidates.remove(weakest)
+            if not filtered_candidates:
+                weights = []
+                break
+        risk_interceptions.extend(near_high_trimmed)
         kept_pairs = [(candidate, weight) for candidate, weight in zip(filtered_candidates, weights, strict=True) if weight >= min_weight or min_weight <= 0]
         holdings = [
             _candidate_to_holding(candidate, weight, source, strategy, capital=capital, max_adv_participation=max_adv_participation, max_liquidation_days=max_liquidation_days)
@@ -233,21 +248,18 @@ def _load_candidates(
 
 
 
-def _apply_near_high_cap(candidates: list[dict[str, Any]], *, max_near_high_weight: float) -> list[dict[str, Any]]:
-    if not candidates:
-        return []
-    kept = list(candidates)
-    def is_near(item: dict[str, Any]) -> bool:
-        return "near_20d_high" in set(str(x) for x in (item.get("risk_flags") or [])) | set(str(x) for x in (item.get("tags") or []))
-    while kept:
-        near = [item for item in kept if is_near(item)]
-        if not near or len(near) / len(kept) <= max_near_high_weight:
-            break
-        # Drop the weakest near-high candidate first to control同向技术风险集中度.
-        weakest = sorted(near, key=lambda item: _float_or_zero(item.get("score")))[0]
-        kept.remove(weakest)
-    return kept
 
+def _is_near_high(item: dict[str, Any]) -> bool:
+    flags = set(str(x) for x in (item.get("risk_flags") or [])) | set(str(x) for x in (item.get("tags") or []))
+    return "near_20d_high" in flags
+
+
+def _near_high_weight(candidates: list[dict[str, Any]], weights: list[float]) -> float:
+    total = 0.0
+    for candidate, weight in zip(candidates, weights, strict=True):
+        if _is_near_high(candidate):
+            total += float(weight or 0.0)
+    return total
 
 def _candidate_to_holding(
     candidate: dict[str, Any],

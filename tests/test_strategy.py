@@ -170,7 +170,7 @@ class StrategyLogicTest(unittest.TestCase):
                     9.0,
                     0.00,
                     0.01,
-                    50_000_000.0,
+                    160_000_000.0,
                     0.50,
                     -0.10,
                     0.10,
@@ -265,6 +265,7 @@ class StrategyLogicTest(unittest.TestCase):
                 market="sh",
                 as_of=date(2024, 1, 5),
                 explain_symbol="000001.SZ",
+                min_score=50.0,
             )
         )
 
@@ -309,7 +310,7 @@ class StrategyLogicTest(unittest.TestCase):
             ],
         )
 
-        report = self._run(StrategyParams(market="bj"))
+        report = self._run(StrategyParams(market="bj", min_score=50.0))
 
         self.assertEqual(report.summary["markets"], ["bj"])
         self.assertEqual(report.summary["total_scanned"], 1)
@@ -683,7 +684,7 @@ class StrategyLogicTest(unittest.TestCase):
             }
         )
 
-        report = self._run_preset("ma-pullback")
+        report = self._run_preset("ma-pullback", StrategyParams(min_score=50.0))
 
         self.assertEqual(report.summary["strategy"], "ma-pullback")
         self.assertEqual(report.picks[0]["candidate_type"], "pullback_watch")
@@ -1205,14 +1206,14 @@ class StrategyReportStorageTest(unittest.TestCase):
                     "diagnostics": {"summary": report.summary, "explain": None},
                 },
             )
-            self.assertTrue((data_root / "reports" / "strategies" / "latest" / "trend-strength.json").exists())
-            self.assertTrue((data_root / "reports" / "strategies" / "by_date" / "2024-01-04" / "trend-strength.json").exists())
-            self.assertTrue((data_root / "reports" / "strategies" / "by_run_id" / "run-1" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "report_payloads" / "strategies" / "latest" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "report_payloads" / "strategies" / "by_date" / "2024-01-04" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "report_payloads" / "strategies" / "by_run_id" / "run-1" / "trend-strength.json").exists())
             loaded = load_saved_report(data_root, "trend-strength", as_of="2024-01-04")
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded["strategy_name"], "trend-strength")
             self.assertEqual(loaded["candidate_count"], 1)
-            self.assertEqual(document["latest"], (data_root / "reports" / "strategies" / "latest" / "trend-strength.json").as_posix())
+            self.assertEqual(document["latest"], (data_root / "report_payloads" / "strategies" / "latest" / "trend-strength.json").as_posix())
 
     def test_strategy_run_save_writes_all_report_copies(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1282,9 +1283,9 @@ class StrategyReportStorageTest(unittest.TestCase):
                     with redirect_stdout(stdout):
                         cmd_strategy_run(args)
 
-            self.assertTrue((data_root / "reports" / "strategies" / "latest" / "trend-strength.json").exists())
-            self.assertTrue((data_root / "reports" / "strategies" / "by_date" / "2024-01-04" / "trend-strength.json").exists())
-            self.assertTrue((data_root / "reports" / "strategies" / "by_run_id" / "run-1" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "report_payloads" / "strategies" / "latest" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "report_payloads" / "strategies" / "by_date" / "2024-01-04" / "trend-strength.json").exists())
+            self.assertTrue((data_root / "report_payloads" / "strategies" / "by_run_id" / "run-1" / "trend-strength.json").exists())
 
     def test_compare_and_consensus_use_saved_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

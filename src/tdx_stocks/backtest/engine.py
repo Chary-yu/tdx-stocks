@@ -917,7 +917,12 @@ def _adj_daily_expressions(con) -> dict[str, str]:
 
 
 def _table_column_names(con, table: str) -> set[str]:
-    rows = con.execute(f"DESCRIBE {table}").fetchall()
+    if not hasattr(con, "execute"):
+        return set()
+    try:
+        rows = con.execute(f"DESCRIBE {table}").fetchall()
+    except Exception:
+        return set()
     return {str(row[0]) for row in rows}
 
 
@@ -994,10 +999,12 @@ def _winsorized_compound_return(period_returns: list[float], *, trim_ratio: floa
 
 
 def _benchmark_summary(con, trading_dates: list[date], periods_input: list[dict[str, Any]]) -> dict[str, Any]:
-    if not trading_dates:
+    if not trading_dates or not hasattr(con, "execute"):
         return {"name": "沪深300", "status": "not_available"}
     candidates = [("sh", "000300", "沪深300"), ("sz", "399300", "沪深300"), ("sh", "000985", "万得全A"), ("sh", "000001", "上证指数")]
     columns = _table_column_names(con, "adj_daily")
+    if not columns:
+        return {"name": "沪深300", "status": "not_available"}
     close_col = "adj_close" if "adj_close" in columns else "adj_open"
     start = trading_dates[0]
     end = trading_dates[-1]

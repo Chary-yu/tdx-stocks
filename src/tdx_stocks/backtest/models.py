@@ -351,7 +351,10 @@ def _build_backtest_params(data: dict[str, Any]) -> BacktestParams | None:
     if not engine_data:
         return None
     portfolio_data = engine_data.get("portfolio")
-    portfolio = _build_portfolio_config(portfolio_data) if isinstance(portfolio_data, dict) else portfolio_data
+    if isinstance(portfolio_data, dict):
+        portfolio = _build_portfolio_config(portfolio_data)
+    else:
+        portfolio = _build_portfolio_from_exit_rules(data, fallback_hold_days=int(engine_data.get("hold_days", 5)))
     from_date = _coerce_date(engine_data.get("from_date"))
     to_date = _coerce_date(engine_data.get("to_date"))
     if from_date is None or to_date is None:
@@ -370,6 +373,33 @@ def _build_backtest_params(data: dict[str, Any]) -> BacktestParams | None:
         min_amount_ma20=_coerce_optional_float(engine_data.get("min_amount_ma20")),
         portfolio=portfolio,
         rolling=bool(engine_data.get("rolling", defaults.rolling)),
+    )
+
+
+def _build_portfolio_from_exit_rules(data: dict[str, Any], *, fallback_hold_days: int) -> PortfolioParams | None:
+    exit_rules = data.get("exit_rules") if isinstance(data.get("exit_rules"), dict) else {}
+    stop_loss = data.get("stop_loss") if isinstance(data.get("stop_loss"), dict) else {}
+    if not exit_rules and not stop_loss:
+        return None
+    technical = exit_rules.get("technical") if isinstance(exit_rules.get("technical"), dict) else {}
+    max_hold = exit_rules.get("max_hold") if isinstance(exit_rules.get("max_hold"), dict) else {}
+    signal_exit = exit_rules.get("signal_exit") if isinstance(exit_rules.get("signal_exit"), dict) else {}
+    stop_loss_atr = _coerce_optional_float(technical.get("stop_loss_atr"))
+    if stop_loss_atr is None and isinstance(stop_loss.get("volatility_adaptive"), dict):
+        stop_loss_atr = _coerce_optional_float(stop_loss["volatility_adaptive"].get("base_multiplier"))
+    if stop_loss_atr is None and isinstance(stop_loss.get("chandelier"), dict):
+        stop_loss_atr = _coerce_optional_float(stop_loss["chandelier"].get("multiplier"))
+    return PortfolioParams(
+        max_positions=int((data.get("backtest") or {}).get("top") or 5),
+        stop_loss_pct=None,
+        hard_stop_loss_pct=0.12,
+        stop_loss_atr=stop_loss_atr,
+        take_profit_atr=_coerce_optional_float(technical.get("take_profit_atr")),
+        stop_loss_ma20=bool(technical.get("stop_loss_ma20", False)),
+        momentum_turn_negative=bool(technical.get("momentum_turn_negative", False)),
+        min_hold_days=int(max_hold.get("min_days") or 1),
+        max_hold_days=_coerce_optional_int(max_hold.get("max_days")) or fallback_hold_days,
+        exit_when_score_below=_coerce_optional_float(signal_exit.get("exit_when_score_below")),
     )
 
 

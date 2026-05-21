@@ -73,6 +73,7 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         min_trade_weight=float(_pick(rebalance.get("min_trade_weight"), 0.0)),
         max_turnover=rebalance.get("max_turnover"),
         cost_model=rebalance.get("cost_model") if isinstance(rebalance.get("cost_model"), dict) else None,
+        capital=float(portfolio.get("capital") or 10_000_000),
         target_risk_filter={
             "risk_filter_applied": True,
             "exclude_risk_tags": list(normalize_exclude_risk_tags(portfolio.get("exclude_risk_tags") or DEFAULT_EXCLUDE_RISK_TAGS)),

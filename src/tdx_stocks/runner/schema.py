@@ -33,6 +33,9 @@ _TOP_LEVEL_ALLOWED = {
     "grid",
     "output",
     "data",
+    "risk",
+    "notifications",
+    "schedule",
     "exit_rules",
     "signal",
     "diversity_check",
@@ -42,7 +45,7 @@ _TOP_LEVEL_ALLOWED = {
 _SECTION_ALLOWED = {
     "task": {"type", "name"},
     "data": {"as_of"},
-    "strategies": {"enabled", "limit", "min_score", "candidate_type", "market"},
+    "strategies": {"enabled", "limit", "min_score", "candidate_type", "market", "extended"},
     "consensus": {"enabled", "min_hit", "limit", "advanced"},
     "signal": {"decay"},
     "diversity_check": {"enabled", "max_correlation_before_warning"},
@@ -50,9 +53,9 @@ _SECTION_ALLOWED = {
     "rebalance": {"enabled", "current_holdings", "min_trade_weight", "max_turnover", "require_risk_filtered_target", "reject_unfiltered_target", "target_source", "cost_model"},
     "exit_rules": {"enabled", "technical", "max_hold", "signal_exit"},
     "strategy": {"name", "limit", "min_score", "min_amount_ma20", "market", "candidate_type"},
-    "backtest": {"from_date", "to_date", "top", "hold_days", "rolling", "fee_rate", "slippage", "fee_bps", "slippage_bps", "market", "candidate_type", "min_score", "min_amount_ma20"},
+    "backtest": {"from_date", "to_date", "top", "hold_days", "rolling", "warmup_days", "fee_rate", "slippage", "fee_bps", "slippage_bps", "market", "candidate_type", "min_score", "min_amount_ma20"},
     "grid": None,
-    "output": {"save", "dir", "formats"},
+    "output": {"save", "dir", "formats", "generate_logs"},
     "daily": {"enabled_strategies", "strategy_limit", "strategy_min_score", "consensus_min_hit", "consensus_limit", "portfolio_top", "portfolio_weighting", "portfolio_max_weight", "exclude_risk_tags"},
     "macro_filter": None,
     "event_calendar": None,
@@ -63,6 +66,9 @@ _SECTION_ALLOWED = {
     "alerts": None,
     "logging": None,
     "risk_scenario": None,
+    "risk": None,
+    "notifications": None,
+    "schedule": None,
 }
 
 _REQUIRED_BY_TYPE = {
@@ -75,7 +81,7 @@ _REQUIRED_BY_TYPE = {
 }
 
 _ALLOWED_SECTIONS_BY_TYPE = {
-    "daily": {"task", "data", "strategies", "consensus", "signal", "diversity_check", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily", "exit_rules", *AUXILIARY_SECTIONS},
+    "daily": {"task", "data", "strategies", "consensus", "signal", "diversity_check", "portfolio", "rebalance", "risk", "notifications", "schedule", "output", "paths", "build", "factors", "daily", "exit_rules", *AUXILIARY_SECTIONS},
     "signal": {"task", "data", "strategies", "consensus", "signal", "diversity_check", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
     "backtest": {"task", "strategy", "backtest", "exit_rules", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
     "grid_search": {"task", "strategy", "backtest", "grid", "exit_rules", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},

@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from tdx_stocks.config import AppConfig, PathsConfig
+from tdx_stocks.config.bundle import ConfigBundle
 from tdx_stocks.runner.backtest import run_backtest_task
 from tdx_stocks.runner.config import LoadedRunConfig
 from tdx_stocks.runner.daily import run_daily_task
@@ -32,6 +33,11 @@ pytestmark = pytest.mark.integration
 
 def _loaded_run_config(task_type: str, config: dict[str, object]) -> LoadedRunConfig:
     return LoadedRunConfig(
+        bundle=ConfigBundle(
+            task_path=Path(f"/tmp/{task_type}.toml"),
+            task_config=config,
+            merged_config=config,
+        ),
         raw_config=config,
         config=config,
         run_config=None,
@@ -170,10 +176,19 @@ class RunnerTaskAdapterTest(unittest.TestCase):
         )
 
         fake_daily = SimpleNamespace(
-            report=SimpleNamespace(summary={"status": "ok"}, status="success", warnings=[], errors=[]),
+            report=SimpleNamespace(summary={"status": "ok"}, status="success", warnings=[], errors=[], to_dict=lambda: {"summary": {"status": "ok"}, "status": "success"}),
             outputs={"daily_json": "/tmp/daily.json"},
         )
-        fake_backtest = SimpleNamespace(to_dict=lambda: {"rows": [{"strategy_name": "trend-strength"}]})
+        fake_backtest = SimpleNamespace(
+            total_return=0.0,
+            annual_return=0.0,
+            max_drawdown=0.0,
+            win_rate=0.0,
+            turnover=0.0,
+            period_count=1,
+            empty_period_count=0,
+            to_dict=lambda: {"rows": [{"strategy_name": "trend-strength"}]},
+        )
         fake_portfolio = SimpleNamespace(
             holdings=[],
             as_of="2024-01-31",
@@ -181,14 +196,14 @@ class RunnerTaskAdapterTest(unittest.TestCase):
         )
         fake_plan = SimpleNamespace(to_dict=lambda: {"weight_changes": []}, as_of="2024-01-31")
         fake_signal_compare = SimpleNamespace(to_dict=lambda: {"rows": []})
-        fake_signal_consensus = SimpleNamespace(to_dict=lambda: {"rows": []})
+        fake_signal_consensus = SimpleNamespace(rows=[], to_dict=lambda: {"rows": []})
 
         with (
             patch("tdx_stocks.runner.daily.run_daily_workflow", return_value=fake_daily),
             patch("tdx_stocks.runner.backtest.run_backtest", return_value=fake_backtest),
-            patch("tdx_stocks.runner.grid_search.tune_strategy_parameters", return_value={"rows": []}) as mocked_tune,
+            patch("tdx_stocks.runner.grid_search.run_backtest", return_value=fake_backtest) as mocked_grid_backtest,
             patch("tdx_stocks.runner.portfolio.build_portfolio", return_value=fake_portfolio),
-            patch("tdx_stocks.runner.rebalance.build_portfolio", return_value=fake_portfolio),
+            patch("tdx_stocks.runner.rebalance.load_portfolio_target", return_value={"as_of": "2024-01-31", "holdings": [], "diagnostics": {"risk_filter_applied": True}}),
             patch("tdx_stocks.runner.rebalance.load_current_holdings_csv", return_value=[]),
             patch("tdx_stocks.runner.rebalance.build_rebalance_plan", return_value=fake_plan),
             patch("tdx_stocks.runner.signal.compare_strategies", return_value=fake_signal_compare),
@@ -203,11 +218,11 @@ class RunnerTaskAdapterTest(unittest.TestCase):
 
         self.assertEqual(daily_result.summary["daily"]["status"], "ok")
         self.assertEqual(backtest_result.summary["rows"][0]["strategy_name"], "trend-strength")
-        self.assertEqual(grid_result.summary["rows"], [])
+        self.assertEqual(len(grid_result.summary["rows"]), 4)
         self.assertEqual(portfolio_result.summary["holdings"], [])
         self.assertEqual(rebalance_result.summary["weight_changes"], [])
         self.assertEqual(signal_result.summary["compare"]["rows"], [])
-        mocked_tune.assert_called_once()
+        self.assertEqual(mocked_grid_backtest.call_count, 4)
 
     def test_render_run_result_markdown_formats_signal_summary(self) -> None:
         result = SimpleNamespace(
@@ -341,10 +356,9 @@ class RunnerTaskAdapterTest(unittest.TestCase):
 
         markdown = render_run_result_markdown(result)
 
-        self.assertIn("## 运行摘要", markdown)
-        self.assertIn("step_count", markdown)
-        self.assertIn("warning_count", markdown)
-        self.assertIn("error_count", markdown)
+        self.assertIn("## 系统级风控结论", markdown)
+        self.assertIn("## 数据质量错误等级", markdown)
+        self.assertIn("是否通过", markdown)
 
     def test_render_run_result_markdown_prefers_stock_names_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
