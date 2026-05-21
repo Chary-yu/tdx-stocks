@@ -16,7 +16,7 @@ def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progre
     portfolio = data.get("portfolio") or {}
     rebalance = data.get("rebalance") or {}
     as_of_value = (data.get("data") or {}).get("as_of") or "latest"
-    as_of = None if as_of_value == "latest" else date.fromisoformat(str(as_of_value))
+    as_of = None if str(as_of_value).lower() in {"latest", "auto"} else date.fromisoformat(str(as_of_value))
     report = run_daily_workflow(
         run_config.app_config,
         as_of=as_of,

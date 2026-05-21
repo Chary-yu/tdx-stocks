@@ -3,7 +3,7 @@ type = "grid_search"
 name = "trend-strength-grid"
 
 [backtest]
-from_date = "2024-10-01"
+from_date = "2024-12-01"
 to_date = "2024-12-31"
 top = 5
 hold_days = 10
@@ -12,10 +12,10 @@ fee_rate = 0.0003
 slippage = 0.0005
 
 [grid]
-"strategy.min_score" = [60, 70, 80]
-"backtest.top" = [5, 10]
-"backtest.hold_days" = [5, 10, 20]
-"strategy.min_amount_ma20" = [150000000, 200000000]
+"strategy.min_score" = [60, 70]
+"backtest.top" = [5]
+"backtest.hold_days" = [5, 10]
+"strategy.min_amount_ma20" = [150000000]
 
 [strategy]
 name = "trend-strength"

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
 from ..backtest.models import BacktestConfig
 from ..config import AppConfig, BuildConfig, DailyConfig, FactorConfig, PathsConfig, resolve_tdx_paths
+from ..config.bundle import ConfigBundle
+from ..config.loader import load_config_bundle
 from ..config_validators import validate_compression
 from .schema import validate_run_config
 
 
 @dataclass(frozen=True)
 class LoadedRunConfig:
+    bundle: ConfigBundle
     raw_config: dict[str, Any]
     config: dict[str, Any]
     run_config: BacktestConfig | None
@@ -28,18 +30,19 @@ class LoadedRunConfig:
 
 
 def load_run_config(path: Path) -> LoadedRunConfig:
-    raw_config = tomllib.loads(path.read_text(encoding="utf-8"))
-    task_type, task_name, _warnings = validate_run_config(raw_config)
-    base_dir = path.parent.resolve()
-    normalized = _resolve_config(raw_config, base_dir=base_dir)
+    bundle = load_config_bundle(path)
+    task_type, task_name, _warnings = validate_run_config(bundle.merged_config)
+    base_dir = bundle.task_path.parent.resolve()
+    normalized = _resolve_config(bundle.merged_config, base_dir=base_dir)
     app_config = _build_app_config(normalized)
     backtest_config = BacktestConfig.from_dict(normalized) if task_type in {"backtest", "grid_search"} else None
     return LoadedRunConfig(
-        raw_config=raw_config,
+        bundle=bundle,
+        raw_config=bundle.task_config,
         config=normalized,
         run_config=backtest_config,
         app_config=app_config,
-        path=path,
+        path=bundle.task_path,
         base_dir=base_dir,
         task_type=task_type,
         task_name=task_name,

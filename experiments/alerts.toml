@@ -1,0 +1,78 @@
+# ============================================================
+# 告警通知配置文件（新增）
+# 用途：当触发特定条件时发送通知
+# 简单说：重要事情发生时，系统主动通知你
+# ============================================================
+
+[task]
+type = "alerts"
+name = "notification-system"
+
+# -------------------- 主开关 --------------------
+[alerts]
+# 是否启用告警
+# 备选方案：true（启用）| false（禁用）
+enabled = true
+
+# 告警渠道
+# -------------------------------------------------------------
+# 备选方案：
+#   - ["console"]：仅控制台显示
+#   - ["email"]：发送邮件
+#   - ["wechat"]：微信通知（需配置）
+#   - ["dingtalk"]：钉钉通知（需配置）
+#   - ["slack"]：Slack通知（需配置）
+#   - ["console", "email"]：同时多个（推荐）
+# -------------------------------------------------------------
+channels = ["console", "email"]
+
+# -------------------- 邮件配置（当 channels 包含 email 时生效）--------------------
+[alerts.email]
+# SMTP服务器地址
+# 备选方案：smtp.qq.com | smtp.163.com | smtp.gmail.com
+smtp_host = "smtp.example.com"
+
+# SMTP端口
+# 备选方案：465（SSL）| 587（TLS，推荐）| 25
+smtp_port = 587
+
+# 发件人邮箱
+from_addr = "alerts@example.com"
+
+# 收件人邮箱列表
+to_addrs = ["user@example.com"]
+
+# 是否启用TLS加密
+use_tls = true
+
+# 邮箱用户名（通常是邮箱地址）
+# username = "your-email@example.com"
+
+# 邮箱密码或授权码
+# password = "your-password"
+
+# -------------------- 告警条件 --------------------
+[alerts.conditions]
+# 单日亏损超过 X%（触发告警）
+# 备选方案：0.02（2%）| 0.03（3%，推荐）| 0.05（5%）| 0.10（10%）
+daily_loss_threshold = 0.03
+
+# 单只股票触发止损时是否通知
+# 备选方案：true（通知）| false（不通知）
+stop_loss_triggered = true
+
+# 策略评分突然变化（超过X分时通知）
+# 备选方案：20 | 30（推荐）| 40 | 50
+score_change_threshold = 30
+
+# 持仓股票出现重大事件时是否通知
+# 备选方案：true（通知）| false（不通知）
+major_event_occurred = true
+
+# 组合换手率超过阈值时通知
+# 备选方案：0.30（30%）| 0.50（50%，推荐）| 0.70（70%）
+turnover_threshold = 0.50
+
+# 持仓股票数量变化超过阈值时通知
+# 备选方案：3 | 5（推荐）| 10
+position_count_change_threshold = 5

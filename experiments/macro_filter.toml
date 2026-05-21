@@ -1,0 +1,71 @@
+# ============================================================
+# 宏观市场过滤器配置文件
+# 用途：根据宏观经济环境和市场整体状态，决定是否允许交易
+# 简单说：大环境不好时，系统自动降低仓位
+# ============================================================
+
+[task]
+type = "macro_filter"
+name = "market-regime-filter"
+
+# -------------------- 主开关 --------------------
+[macro_filter]
+# 是否启用宏观过滤
+# 备选方案：true（启用，推荐）| false（禁用，始终允许交易）
+enabled = true
+
+# -------------------- 宏观指标定义 --------------------
+[macro_filter.indicators]
+# 信用周期
+# 含义：衡量社会融资是扩张还是收缩
+# 备选方案："required"（必需）| "optional"（可选）| "disabled"（禁用）
+credit_cycle = "optional"
+
+# 利率趋势
+# 含义：利率是上升还是下降（上升对股市不利）
+# 备选方案："required" | "optional" | "disabled"
+rate_trend = "optional"
+
+# 市场宽度
+# 含义：上涨股票占全体股票的比例
+# 备选方案："required"（推荐）| "optional" | "disabled"
+market_breadth = "required"
+
+# -------------------- 状态判定规则 --------------------
+[macro_filter.rules]
+# 牛市（看多）的必要条件
+# -------------------------------------------------------------
+# 【备选1】牛市条件较宽松
+#   bull_trade_required = ["market_breadth > 0.6"]
+#   含义：60%以上股票上涨即为牛市
+#
+# 【备选2】牛市条件较严格
+#   bull_trade_required = ["market_breadth > 0.7", "credit_cycle == 'expansion'"]
+#   含义：需同时满足市场宽度>70%且信用扩张
+#
+# 【备选3】技术面牛市条件
+#   bull_trade_required = ["index_ma20 > index_ma60", "market_breadth > 0.55"]
+#   含义：指数均线多头排列 + 市场宽度>55%
+# -------------------------------------------------------------
+bull_trade_required = ["market_breadth > 0.6"]
+
+# 熊市（看空）时是否允许交易
+# 备选方案：
+#   - false：熊市禁止任何新买入（最保守）
+#   - true：熊市允许交易，但遵守 position_limit_bear 限制（较灵活）
+bear_trade_allowed = false
+
+# 中性市场（方向不明）时的最低现金比例
+# 备选方案：0.10（10%）| 0.20（20%，推荐）| 0.30（30%）| 0.50（50%）
+neutral_cash_floor = 0.20
+
+# -------------------- 宏观过滤对组合的影响 --------------------
+[macro_filter.impact]
+# 熊市时整体仓位上限
+# 备选方案：0.30（30%，非常保守）| 0.50（50%，推荐）| 0.70（70%）| 1.00（100%）
+position_limit_bear = 0.50
+
+# 熊市时是否要求行业中性
+# 含义：各行业比例不超过指数基准
+# 备选方案：true（要求）| false（不要求）
+sector_neutral_required = true

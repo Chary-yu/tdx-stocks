@@ -1,17 +1,147 @@
+# ============================================================
+# 选股信号配置文件
+# 用途：运行一个或多个选股策略，生成每日的股票评分和推荐列表
+# 简单说：每天用哪些方法筛选股票，然后综合打分
+# ============================================================
+
 [task]
 type = "signal"
 name = "today-signal"
 
+# -------------------- 启用的策略列表 --------------------
 [strategies]
+# 当前启用的策略名称列表
+# -------------------------------------------------------------
+# 【单策略模式】- 最简单，适合初学者
+#   enabled = ["trend-strength"]
+#   特点：专注一种逻辑
+#   联动：consensus.enabled = false（不需要共识）
+#
+# 【双策略互补模式】- 推荐
+#   enabled = ["trend-strength", "relative-strength"]
+#   特点：趋势+反转互补，适应不同市场
+#   联动：consensus.enabled = true, min_hit = 1或2
+#
+# 【多策略稳健模式】- 适合专业用户
+#   enabled = ["trend-strength", "relative-strength", "value-factor"]
+#   特点：多维度验证，假信号少
+#   联动：consensus.enabled = true, min_hit = 2, require_different_types = true
+#
+# 【基本面深度模式】- 适合长期持有
+#   enabled = ["value-factor", "growth-factor", "quality-factor"]
+#   特点：纯基本面选股
+#   联动：exit_rules 中 max_hold_days 建议40+，min_score 建议70+
+#
+# 【事件驱动模式】- 适合短线捕捉催化剂
+#   enabled = ["earnings-surprise", "insider-buying", "revision-up"]
+#   特点：捕捉短期事件机会
+#   联动：需配合 event_calendar.toml，max_hold_days 建议10-20
+# -------------------------------------------------------------
 enabled = ["trend-strength", "relative-strength"]
+
+# 未来可扩展的策略类型（目前预留）
+[strategies.extended]
+# 基本面策略：基于财务指标（如ROE、利润增速、估值）
+# 备选：[] | ["value-factor"] | ["growth-factor"] | ["value-factor", "growth-factor"]
+fundamental = []
+
+# 事件驱动策略：基于特殊事件（如财报超预期、增持）
+# 备选：[] | ["earnings-surprise"] | ["insider-buying"] | ["revision-up"]
+event_driven = []
+
+# 宏观策略：基于经济周期、行业轮动
+# 备选：[] | ["sector-rotation"] | ["factor-timing"]
+macro = []
+
+# 最大输出股票数量（每个策略最多取前N只）
 limit = 50
+
+# 最低评分阈值（0-100分）
+# 备选方案：40（宽松）| 50（中性）| 60（标准）| 70（严格）| 80（非常严格）
 min_score = 60
 
+# 信号冲突处理（新增）
+# 含义：当不同策略给出相反意见时的处理方式
+# 备选方案：
+#   - "vote"：投票（多数策略的意见胜出）
+#   - "weighted"：加权（按策略历史表现加权，推荐）
+#   - "abstain"：弃权（有冲突时不推荐）
+conflict_resolution = "weighted"
+
+# -------------------- 多策略共识机制 --------------------
+# 当多个策略同时看好同一只股票时，可信度更高
 [consensus]
+# 是否启用共识
 enabled = true
+
+[consensus.advanced]
+# 共识计算方法
+# 备选方案：
+#   - "simple_majority"：简单多数（命中的策略数 ≥ min_hit 即可）
+#   - "weighted_by_performance"：按策略历史表现加权（推荐）
+#   - "rank_sum"：排名求和（排名越靠前权重越高）
+method = "weighted_by_performance"
+
+# 最少命中次数
+# 含义：至少需要多少个策略同时看好，才算有效共识
+# 备选方案：
+#   - 启用2个策略时：1（宽松）或 2（严格）
+#   - 启用3个策略时：2（标准）或 3（非常严格）
+#   - 启用4+个策略时：3
 min_hit = 2
+
+# 是否要求命中策略来自不同类型
+# 含义：要求技术策略+基本面策略的共识，而不是两个技术策略的共识
+# 备选方案：true（防止同质化，推荐）| false（不要求）
+require_different_types = true
+
+# 最大输出股票数量
 limit = 50
 
+# -------------------- 信号时效性衰减（新增）--------------------
+# 含义：信号会随时间衰减，越早的信号权重越低
+[signal.decay]
+# 是否启用信号衰减
+enabled = true
+
+# 衰减函数
+# 备选方案：
+#   - "linear"：线性衰减（每天减少固定比例）
+#   - "exponential"：指数衰减（推荐，更符合实际情况）
+#   - "step"：阶梯衰减（分段变化）
+function = "exponential"
+
+# 半衰期（天）
+# 含义：信号强度减少50%所需的天数
+# 备选方案：3（短期信号）| 5（标准）| 7（中期）| 10（长期）
+half_life_days = 5
+
+# 最小有效权重
+# 含义：信号衰减到低于此值时，直接丢弃
+# 备选方案：0.05 | 0.10（推荐）| 0.15
+min_weight = 0.10
+
+# 信号最大有效期（天）
+# 含义：超过这个天数的信号，不再使用
+# 备选方案：10 | 20（推荐）| 30
+max_age_days = 20
+
+# -------------------- 策略多样性检查 --------------------
+# 防止多个策略实质相同（同质化），导致共识机制失效
+[diversity_check]
+# 是否启用多样性检查
+enabled = true
+
+# 策略间相关性阈值
+# 含义：如果两个策略的输出相关性超过此值，说明它们本质相似
+# 备选方案：
+#   - 0.50：敏感，容易触发警告（适合严谨机构）
+#   - 0.70：标准（推荐）
+#   - 0.85：宽松
+#   - 1.00：禁用警告
+max_correlation_before_warning = 0.70
+
+# -------------------- 输出配置 --------------------
 [output]
 save = true
 dir = "reports/signals"

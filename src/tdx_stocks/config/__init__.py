@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from .config_validators import validate_compression
+from ..config_validators import validate_compression
 
 DEFAULT_TDX_VIPDOC = Path("./vipdoc")
 DEFAULT_TDX_EXPORT = Path("./export")

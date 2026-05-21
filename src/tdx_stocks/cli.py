@@ -8,6 +8,7 @@ import traceback
 from pathlib import Path
 
 from .commands.doctor import register_doctor_command
+from .commands.config import register_config_command
 from .commands.help import register_help_command
 from .commands.init import register_init_command
 from .commands.query import register_query_group
@@ -139,6 +140,7 @@ def build_parser(*, load_default_plugins: bool = False) -> argparse.ArgumentPars
 
     register_init_command(subparsers)
     register_doctor_command(subparsers)
+    register_config_command(subparsers)
     register_sync_group(subparsers)
     register_run_command(subparsers)
     register_report_command(subparsers)

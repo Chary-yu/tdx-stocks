@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from ..config.loader import resolve_task_config_path
 from ..console import print_json
 from ..progress import RunProgress
 from ..io_utils import write_json_atomic, write_text_atomic
@@ -81,10 +82,4 @@ def register_run_command(subparsers: argparse._SubParsersAction[argparse.Argumen
 
 
 def _resolve_run_config(value: str | Path) -> Path:
-    path = Path(value)
-    if path.suffix.lower() == ".toml" or path.exists():
-        return path
-    preset = RUN_CONFIG_PRESETS.get(str(value))
-    if preset is not None:
-        return preset
-    return path
+    return resolve_task_config_path(value)

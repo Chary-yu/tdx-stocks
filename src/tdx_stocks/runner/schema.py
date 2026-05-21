@@ -5,6 +5,17 @@ from collections.abc import Mapping
 from .errors import InvalidRunConfigError
 
 SUPPORTED_TASK_TYPES = {"daily", "signal", "backtest", "grid_search", "portfolio", "rebalance"}
+AUXILIARY_SECTIONS = {
+    "macro_filter",
+    "event_calendar",
+    "risk_management",
+    "stop_loss",
+    "order_execution",
+    "pre_filter",
+    "alerts",
+    "logging",
+    "risk_scenario",
+}
 
 _TOP_LEVEL_ALLOWED = {
     "task",
@@ -21,6 +32,7 @@ _TOP_LEVEL_ALLOWED = {
     "grid",
     "output",
     "data",
+    *AUXILIARY_SECTIONS,
 }
 
 _SECTION_ALLOWED = {
@@ -35,6 +47,15 @@ _SECTION_ALLOWED = {
     "grid": None,
     "output": {"save", "dir", "formats"},
     "daily": {"enabled_strategies", "strategy_limit", "strategy_min_score", "consensus_min_hit", "consensus_limit", "portfolio_top", "portfolio_weighting", "portfolio_max_weight", "exclude_risk_tags"},
+    "macro_filter": None,
+    "event_calendar": None,
+    "risk_management": None,
+    "stop_loss": None,
+    "order_execution": None,
+    "pre_filter": None,
+    "alerts": None,
+    "logging": None,
+    "risk_scenario": None,
 }
 
 _REQUIRED_BY_TYPE = {
@@ -47,22 +68,20 @@ _REQUIRED_BY_TYPE = {
 }
 
 _ALLOWED_SECTIONS_BY_TYPE = {
-    "daily": {"task", "data", "strategies", "consensus", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily"},
-    "signal": {"task", "data", "strategies", "consensus", "output", "paths", "build", "factors", "daily"},
-    "backtest": {"task", "strategy", "backtest", "output", "paths", "build", "factors", "daily"},
-    "grid_search": {"task", "strategy", "backtest", "grid", "output", "paths", "build", "factors", "daily"},
-    "portfolio": {"task", "portfolio", "output", "paths", "build", "factors", "daily"},
-    "rebalance": {"task", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily"},
+    "daily": {"task", "data", "strategies", "consensus", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "signal": {"task", "data", "strategies", "consensus", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "backtest": {"task", "strategy", "backtest", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "grid_search": {"task", "strategy", "backtest", "grid", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "portfolio": {"task", "portfolio", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "rebalance": {"task", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
 }
 
 
 def validate_run_config(data: Mapping[str, object]) -> tuple[str, str, list[str]]:
+    warnings: list[str] = []
     unknown_top = sorted(key for key in data.keys() if key not in _TOP_LEVEL_ALLOWED)
     if unknown_top:
-        raise InvalidRunConfigError(
-            f"Invalid config: unknown top-level section(s): {', '.join(unknown_top)}.\n"
-            f"Use only: {', '.join(sorted(_TOP_LEVEL_ALLOWED))}"
-        )
+        warnings.append(f"ignored unknown top-level section(s): {', '.join(unknown_top)}")
     task = data.get("task")
     if not isinstance(task, Mapping):
         raise InvalidRunConfigError("Invalid config: [task].type is required.\nUse:\n  [task]\n  type = \"daily\"")
@@ -83,9 +102,7 @@ def validate_run_config(data: Mapping[str, object]) -> tuple[str, str, list[str]
     allowed_sections = _ALLOWED_SECTIONS_BY_TYPE[task_type]
     unknown_type_sections = sorted(key for key in data.keys() if key not in allowed_sections and key not in _TOP_LEVEL_ALLOWED)
     if unknown_type_sections:
-        raise InvalidRunConfigError(
-            f"Invalid config: unsupported section(s) for task.type={task_type!r}: {', '.join(unknown_type_sections)}."
-        )
+        warnings.append(f"ignored unsupported section(s) for task.type={task_type!r}: {', '.join(unknown_type_sections)}")
     for section, allowed_keys in _SECTION_ALLOWED.items():
         value = data.get(section)
         if not isinstance(value, Mapping):
@@ -100,9 +117,7 @@ def validate_run_config(data: Mapping[str, object]) -> tuple[str, str, list[str]
                 raise InvalidRunConfigError(
                     f"Invalid config: [{section}].{bad} is not supported.\n\nUse:\n  {replacement} = \"2022-01-01\""
                 )
-            raise InvalidRunConfigError(
-                f"Invalid config: [{section}].{', '.join(unknown)} is not supported."
-            )
+            warnings.append(f"ignored unsupported key(s) in [{section}]: {', '.join(unknown)}")
     if task_type == "rebalance":
         rebalance = data.get("rebalance")
         if isinstance(rebalance, Mapping) and not rebalance.get("current_holdings"):
@@ -116,4 +131,4 @@ def validate_run_config(data: Mapping[str, object]) -> tuple[str, str, list[str]
             raise InvalidRunConfigError(
                 "Invalid config: [backtest].from is not supported.\n\nUse:\n  from_date = \"2022-01-01\""
             )
-    return task_type, task_name, []
+    return task_type, task_name, warnings

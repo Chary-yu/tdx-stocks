@@ -1,7 +1,14 @@
+# ============================================================
+# 调仓执行配置文件
+# 用途：基于当前持仓和目标组合，生成具体的买卖指令
+# 简单说：告诉系统「现在手里有什么，想要变成什么，怎么变」
+# ============================================================
+
 [task]
 type = "rebalance"
 name = "rebalance-from-consensus"
 
+# -------------------- 组合参数 --------------------
 [portfolio]
 source = "consensus"
 top = 20
@@ -14,14 +21,86 @@ max_liquidation_days = 0.5
 market_regime_enabled = true
 max_sector_weight = 0.25
 
+# -------------------- 调仓执行参数 --------------------
 [rebalance]
+# 当前持仓文件路径
+# 备选方案：
+#   - "../holdings.csv"：默认持仓文件
+#   - "../holdings_latest.csv"：最新持仓
+#   - "data/current_positions.csv"：自定义路径
 current_holdings = "../holdings.csv.example"
+
+# 最小交易权重
+# 含义：低于此权重的调仓忽略（避免频繁小交易）
+# 备选方案：0.005（0.5%）| 0.01（1%，推荐）| 0.02（2%）| 0.05（5%）
 min_trade_weight = 0.01
+
+# 最大换手率
+# 含义：单日调仓的总买卖金额比例
+#       换手率 = (买入金额 + 卖出金额) / (2 × 总资产)
+# 备选方案：
+#   - 0.20（20%，低换手，适合大资金）
+#   - 0.50（50%，标准，推荐）
+#   - 0.80（80%，高换手，适合小资金）
+#   - 1.00（100%，完全换仓）
 max_turnover = 0.50
+
+# 目标组合来源
+# 备选方案：
+#   - "portfolio"：使用本文件的 portfolio 配置
+#   - "file:target_portfolio.json"：从文件加载
 target_source = "portfolio"
+
+# 是否要求目标组合已通过风险过滤
 require_risk_filtered_target = true
+
+# 是否拒绝未经过滤的目标组合
 reject_unfiltered_target = true
 
+# -------------------- 交易成本精细化建模（新增）--------------------
+# 让回测更贴近真实交易
+[rebalance.cost_model]
+# 成本模型类型
+# 备选方案：
+#   - "linear"：线性（固定费率，最简单）
+#   - "piecewise"：分段（根据交易量占成交额的比例，推荐）
+#   - "square_root"：平方根（专业模型）
+type = "piecewise"
+
+# 分段费率（当选择 piecewise 时生效）
+[rebalance.cost_model.piecewise]
+# 交易量 < 1% 日均成交额 → 低成本
+[rebalance.cost_model.piecewise.low]
+fee_bps = 3
+slippage_bps = 5
+
+# 1% ≤ 交易量 < 5% 日均成交额 → 中等成本
+[rebalance.cost_model.piecewise.medium]
+fee_bps = 4
+slippage_bps = 10
+
+# 5% ≤ 交易量 < 10% 日均成交额 → 高成本
+[rebalance.cost_model.piecewise.high]
+fee_bps = 6
+slippage_bps = 20
+
+# ≥ 10% 日均成交额 → 非常高成本，拒绝交易
+[rebalance.cost_model.piecewise.critical]
+fee_bps = 10
+slippage_bps = 50
+reject = true
+
+# 冲击成本模型（当选择 square_root 时生效）
+impact_model = "square_root"
+liquidity_coefficient = 0.1
+
+# -------------------- 分批调仓参数（可选）--------------------
+# [rebalance.batch_trading]
+# enabled = false
+# num_batches = 3
+# interval_minutes = 30
+
+# -------------------- 输出配置 --------------------
 [output]
 save = true
 dir = "reports/rebalance"
