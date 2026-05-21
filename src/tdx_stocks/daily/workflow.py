@@ -57,6 +57,8 @@ def run_daily_workflow(
     skip_rebalance: bool = False,
     skip_report: bool = False,
     build_data: bool = False,
+    macro_filter: dict[str, Any] | None = None,
+    event_calendar: dict[str, Any] | None = None,
     progress: ProgressCallback | None = None,
 ) -> DailyWorkflowResult:
     emit_progress(progress, "准备每日综合报告参数")
@@ -183,6 +185,8 @@ def run_daily_workflow(
                 max_adv_participation=0.10,
                 max_liquidation_days=0.5,
                 market_regime_enabled=True,
+                market_regime_config=macro_filter,
+                event_calendar_config=event_calendar,
             )
             portfolio_saved = save_portfolio_report(config.paths.data_root, portfolio_report)
             if isinstance(portfolio_saved, dict):

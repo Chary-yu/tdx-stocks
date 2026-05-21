@@ -5,6 +5,8 @@ from datetime import date
 from ..strategies.compare import compare_strategies
 from ..strategies.consensus import build_consensus
 from ..risk.pre_filter import apply_pre_filter
+from ..events.bus import publish
+from ..events.types import Event
 from .config import LoadedRunConfig
 from .models import RunResult
 from ..reports.paths import run_report_outputs
@@ -26,7 +28,22 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progr
     compare = compare_strategies(run_config.app_config, names, as_of=as_of)
     emit_progress(progress, "生成共振股票")
     min_hit = int(consensus_advanced.get("min_hit") or consensus.get("min_hit") or 2)
-    consensus_report = build_consensus(run_config.app_config, names, as_of=as_of, min_hit=min_hit)
+    method = str(consensus_advanced.get("method") or "simple_majority")
+    require_different_types = bool(consensus_advanced.get("require_different_types", False))
+    decay_cfg = data.get("signal", {}).get("decay") if isinstance(data.get("signal"), dict) else {}
+    if not isinstance(decay_cfg, dict):
+        decay_cfg = {}
+    consensus_report = build_consensus(
+        run_config.app_config,
+        names,
+        as_of=as_of,
+        min_hit=min_hit,
+        method=method,
+        require_different_types=require_different_types,
+        decay_enabled=bool(decay_cfg.get("enabled", False)),
+        decay_half_life_days=float(decay_cfg.get("half_life_days") or 5.0),
+        decay_min_weight=float(decay_cfg.get("min_weight") or 0.10),
+    )
     pre_filter_logs: list[dict[str, object]] = []
     filtered_rows = []
     for row in consensus_report.rows:
@@ -40,12 +57,17 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progr
         }
         result = apply_pre_filter(merged, pre_filter_cfg)
         if result.passed:
+            risk_flags = set(str(v) for v in (row_dict.get("risk_flags") or []))
+            if risk_flags & {"near_20d_high", "rsi_high", "ret_5_strong", "high_volatility", "mild_volatility"}:
+                publish(Event.create("SIGNAL_DOWNGRADED_TO_WATCHLIST", {"market": row_dict.get("market"), "symbol": row_dict.get("symbol"), "risk_flags": sorted(risk_flags)}))
             filtered_rows.append(row)
         else:
             pre_filter_logs.append({"market": row.market, "symbol": row.symbol, "reasons": result.reasons, "action": "filtered_out"})
     consensus_dict = consensus_report.to_dict()
     consensus_dict["rows"] = [row.to_dict() for row in filtered_rows]
     consensus_dict["pre_filter_log"] = pre_filter_logs
+    consensus_dict["method"] = method
+    consensus_dict["require_different_types"] = require_different_types
     emit_progress(progress, "准备信号报告输出")
     return RunResult(
         task_type="signal",

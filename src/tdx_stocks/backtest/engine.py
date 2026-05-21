@@ -154,8 +154,10 @@ def run_portfolio_backtest(
                 elif bar is None or bar.is_suspended or bar.is_limit_down:
                     continue
                 exit_reason = "hold_days" if (today - pos.buy_date).days >= params.hold_days else None
+                if exit_reason is None and portfolio_params.max_hold_days is not None and (today - pos.buy_date).days >= portfolio_params.max_hold_days:
+                    exit_reason = "max_holding_days"
                 if exit_reason is None and pos.direction != "SHORT":
-                    exit_reason = ExitEngine.check(pos, bar.open_price, portfolio_params)
+                    exit_reason = ExitEngine.check(pos, bar, portfolio_params)
                 if exit_reason is None:
                     continue
                 if pos.direction == "SHORT":
@@ -249,6 +251,7 @@ def run_portfolio_backtest(
                     candidate_type=str(candidate.get("candidate_type")) if candidate.get("candidate_type") else None,
                     signal_date=signal_date,
                     margin_locked=margin_locked,
+                    highest_price=float(bar.high_price),
                 )
                 active_positions[symbol] = position
                 activity_count += 1

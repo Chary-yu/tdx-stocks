@@ -21,6 +21,10 @@ def apply_pre_filter(candidate: dict[str, Any], config: dict[str, Any] | None = 
         reasons.append("ST 股票")
     if bool(candidate.get("delist_risk")):
         reasons.append("退市风险")
+    listed_days = _f(candidate.get("listed_days"))
+    min_listed_days = _f(cfg.get("min_listed_days"))
+    if listed_days is not None and min_listed_days is not None and listed_days < min_listed_days:
+        reasons.append("上市天数不足")
     price = _f(candidate.get("close"))
     min_price = _f(cfg.get("min_price"))
     max_price = _f(cfg.get("max_price"))
@@ -46,6 +50,11 @@ def apply_pre_filter(candidate: dict[str, Any], config: dict[str, Any] | None = 
         reasons.append("一年最大回撤过高")
     if bool(candidate.get("data_quality_insufficient")):
         reasons.append("数据质量不足")
+    required_fields = cfg.get("required_fields")
+    if isinstance(required_fields, (list, tuple, set)):
+        missing = [str(name) for name in required_fields if candidate.get(str(name)) in (None, "")]
+        if missing:
+            reasons.append("数据质量不足")
     return PreFilterResult(passed=not reasons, reasons=reasons)
 
 

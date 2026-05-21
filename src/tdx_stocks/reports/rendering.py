@@ -375,6 +375,7 @@ def _render_backtest(payload: dict[str, Any], stock_names: dict[tuple[str, str],
     lines.extend(_backtest_params_section(_as_dict(summary.get("params"))))
     lines.extend(_backtest_periods(periods, stock_names))
     lines.extend(_backtest_skipped_periods(skipped_periods, stock_names))
+    lines.extend(_backtest_exit_reason_stats(_as_list(summary.get("trades"))))
     lines.extend(_backtest_trades(_as_list(summary.get("trades")), stock_names))
     lines.extend(_footer(payload))
     return _join(lines)
@@ -916,6 +917,25 @@ def _backtest_trades(trades: list[Any], stock_names: dict[tuple[str, str], str])
     return _table_section(title, ("信号日", "买入日", "卖出日", "方向", "股票", "买入价", "卖出价", "净收益", "平仓触发原因", "跳过原因"), rows)
 
 
+def _backtest_exit_reason_stats(trades: list[Any]) -> list[str]:
+    counts: dict[str, int] = {}
+    total = 0
+    for row in trades:
+        if not isinstance(row, dict):
+            continue
+        reason = str(row.get("exit_reason") or "").strip()
+        if not reason:
+            continue
+        total += 1
+        counts[reason] = counts.get(reason, 0) + 1
+    if total == 0:
+        return []
+    rows = []
+    for reason, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
+        rows.append((_value(reason), count, f"{(count / total) * 100:.1f}%"))
+    return _table_section("平仓触发原因分布", ("原因", "次数", "占比"), rows)
+
+
 
 def _signal_state(row: dict[str, Any]) -> str:
     flags = set(str(item) for item in _as_list(row.get("risk_flags")))
@@ -1017,6 +1037,14 @@ def _grid_warnings(rows_in: list[Any]) -> list[str]:
             high_empty_rows.append(row)
     if high_empty_rows:
         warnings.append(("跳过周期提示", "部分参数组合跳过/空周期占比较高，可能导致收益、回撤和胜率稳定性不足"))
+
+    scores = [float(row.get("research_score")) for row in rows if row.get("research_score") is not None]
+    if len(scores) >= 5:
+        sorted_scores = sorted(scores)
+        median = sorted_scores[len(sorted_scores) // 2]
+        best = sorted_scores[-1]
+        if median < best and (best - median) > 0.20:
+            warnings.append(("孤立尖峰警告", "最优参数点显著高于中位数，可能是孤立尖峰，建议优先选择稳定区间"))
 
     return _kv_section("参数搜索风险提示", warnings) if warnings else []
 

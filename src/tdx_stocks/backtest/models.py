@@ -163,6 +163,13 @@ class PortfolioParams:
     initial_cash: float = 1_000_000.0
     max_positions: int = 5
     stop_loss_pct: float | None = 0.08
+    take_profit_pct: float | None = None
+    atr_proxy_pct: float = 0.02
+    stop_loss_atr: float | None = None
+    take_profit_atr: float | None = None
+    stop_loss_ma20: bool = False
+    momentum_turn_negative: bool = False
+    max_hold_days: int | None = None
     margin_rate: float = 0.5
 
 
@@ -179,6 +186,7 @@ class Position:
     candidate_type: str | None = None
     signal_date: date | None = None
     margin_locked: float = 0.0
+    highest_price: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -368,6 +376,13 @@ def _build_portfolio_config(data: dict[str, Any] | None) -> PortfolioParams:
         initial_cash=float(payload.get("initial_cash", defaults.initial_cash)),
         max_positions=int(payload.get("max_positions", defaults.max_positions)),
         stop_loss_pct=_coerce_optional_float(stop_loss_pct),
+        take_profit_pct=_coerce_optional_float(payload.get("take_profit_pct", defaults.take_profit_pct)),
+        atr_proxy_pct=float(payload.get("atr_proxy_pct", defaults.atr_proxy_pct)),
+        stop_loss_atr=_coerce_optional_float(payload.get("stop_loss_atr", defaults.stop_loss_atr)),
+        take_profit_atr=_coerce_optional_float(payload.get("take_profit_atr", defaults.take_profit_atr)),
+        stop_loss_ma20=bool(payload.get("stop_loss_ma20", defaults.stop_loss_ma20)),
+        momentum_turn_negative=bool(payload.get("momentum_turn_negative", defaults.momentum_turn_negative)),
+        max_hold_days=_coerce_optional_int(payload.get("max_hold_days", defaults.max_hold_days)),
         margin_rate=float(payload.get("margin_rate", defaults.margin_rate)),
     )
 

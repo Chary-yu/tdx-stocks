@@ -6,6 +6,8 @@ from typing import Any
 from ..portfolio import Holding, build_portfolio, build_rebalance_plan, load_current_holdings_csv
 from ..portfolio.risk_controls import DEFAULT_EXCLUDE_RISK_TAGS, normalize_exclude_risk_tags
 from ..execution.plan import build_execution_plan
+from ..events.bus import publish
+from ..events.types import Event
 from ..pipeline import parse_iso_date
 from .config import LoadedRunConfig
 from .models import RunResult
@@ -19,8 +21,11 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     data = run_config.config
     portfolio = data.get("portfolio") or {}
     rebalance = data.get("rebalance") or {}
+    macro_filter = data.get("macro_filter") if isinstance(data.get("macro_filter"), dict) else {}
+    event_calendar = data.get("event_calendar") if isinstance(data.get("event_calendar"), dict) else {}
     target_source = str(rebalance.get("target_source") or "portfolio")
     if target_source not in {"portfolio", "portfolio_report"}:
+        publish(Event.create("RISK_INTERCEPTED", {"task": "rebalance", "reason": "invalid_target_source"}))
         return RunResult(
             task_type="rebalance",
             name=run_config.task_name,
@@ -52,12 +57,15 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         max_liquidation_days=float(portfolio.get("max_liquidation_days") or 0.5),
         market_regime_enabled=bool(portfolio.get("market_regime_enabled", True)),
         sector_max_weight=float(portfolio.get("max_sector_weight") or 0.25),
+        market_regime_config=macro_filter,
+        event_calendar_config=event_calendar,
         as_of=as_of,
     )
     require_risk_filtered = bool(rebalance.get("require_risk_filtered_target", True))
     target_dict = target.to_dict()
     target_diagnostics = target_dict.get("diagnostics") if isinstance(target_dict.get("diagnostics"), dict) else {}
     if require_risk_filtered and not target_diagnostics.get("risk_filter_applied"):
+        publish(Event.create("RISK_INTERCEPTED", {"task": "rebalance", "reason": "risk_filter_required"}))
         return RunResult(
             task_type="rebalance",
             name=run_config.task_name,
@@ -90,10 +98,19 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     )
     plan_dict = plan.to_dict()
     execution_cfg = data.get("order_execution") if isinstance(data.get("order_execution"), dict) else {}
+    rebalance_cfg = data.get("rebalance") if isinstance(data.get("rebalance"), dict) else {}
+    if isinstance(rebalance_cfg.get("cost_model"), dict):
+        execution_cfg = {**execution_cfg, "cost_model": rebalance_cfg.get("cost_model")}
     execution_plan = build_execution_plan(plan_dict.get("weight_changes") or [], execution_cfg)
     plan_dict["execution_plan"] = execution_plan.to_dict()
     plan_dict["estimated_impact_bps"] = execution_plan.estimated_impact_bps
     plan_dict["execution_advice"] = "建议分批执行" if execution_plan.to_dict().get("batch_execution_recommended") else "可一次执行"
+    diagnostics = plan_dict.get("diagnostics") if isinstance(plan_dict.get("diagnostics"), dict) else {}
+    regime = diagnostics.get("market_regime") if isinstance(diagnostics.get("market_regime"), dict) else {}
+    if regime.get("action") == "pause_open":
+        publish(Event.create("MACRO_PAUSE_OPEN", {"task": "rebalance", "as_of": plan_dict.get("as_of")}))
+    if str(diagnostics.get("turnover_check", "")).startswith("turnover"):
+        publish(Event.create("TURNOVER_EXCEEDED", {"task": "rebalance", "check": diagnostics.get("turnover_check")}))
     emit_progress(progress, "准备调仓报告输出")
     return RunResult(
         task_type="rebalance",

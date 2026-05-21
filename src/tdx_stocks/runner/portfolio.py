@@ -14,6 +14,8 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     emit_progress(progress, "读取组合任务配置")
     data = run_config.config
     portfolio = data.get("portfolio") or {}
+    macro_filter = data.get("macro_filter") if isinstance(data.get("macro_filter"), dict) else {}
+    event_calendar = data.get("event_calendar") if isinstance(data.get("event_calendar"), dict) else {}
     task_data = data.get("data") or {}
     as_of_value = task_data.get("as_of") or "latest"
     as_of = None if as_of_value == "latest" else parse_iso_date(as_of_value)
@@ -33,6 +35,8 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         max_liquidation_days=float(portfolio.get("max_liquidation_days") or 3.0),
         market_regime_enabled=bool(portfolio.get("market_regime_enabled") or False),
         sector_max_weight=float(portfolio.get("max_sector_weight") or 0.25),
+        market_regime_config=macro_filter,
+        event_calendar_config=event_calendar,
         as_of=as_of,
     )
     emit_progress(progress, "准备组合报告输出")

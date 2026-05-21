@@ -49,6 +49,8 @@ def build_portfolio(
     max_liquidation_days: float = DEFAULT_MAX_LIQUIDATION_DAYS,
     market_regime_enabled: bool = False,
     sector_max_weight: float = 0.25,
+    market_regime_config: dict[str, Any] | None = None,
+    event_calendar_config: dict[str, Any] | None = None,
 ) -> PortfolioReport:
     candidates, data_run_id, resolved_as_of = _load_candidates(config, source, strategy, as_of)
     normalized_exclude_tags = normalize_exclude_risk_tags(exclude_risk_tags or DEFAULT_EXCLUDE_RISK_TAGS)
@@ -77,7 +79,7 @@ def build_portfolio(
     filtered_candidates, extra_logs = apply_risk_interceptors(
         base_filtered,
         exclude_risk_tags=normalized_exclude_tags,
-        event_calendar_cfg=getattr(config, "event_calendar", None) if hasattr(config, "event_calendar") else None,
+        event_calendar_cfg=event_calendar_config,
     )
     risk_interceptions.extend(extra_logs)
 
@@ -92,7 +94,7 @@ def build_portfolio(
     )[:top]
 
     if market_regime_enabled:
-        regime = evaluate_market_regime({"status": "not_available", "missing_action": "pause_open"}).to_dict()
+        regime = evaluate_market_regime(market_regime_config or {"status": "not_available", "missing_action": "pause_open"}).to_dict()
     else:
         regime = market_regime_placeholder(enabled=False)
     hard_intercepted = market_regime_enabled and (regime.get("action") == "pause_open" or regime.get("status") in {"not_available", "bear"})

@@ -15,6 +15,8 @@ def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progre
     consensus = data.get("consensus") or {}
     portfolio = data.get("portfolio") or {}
     rebalance = data.get("rebalance") or {}
+    macro_filter = data.get("macro_filter") if isinstance(data.get("macro_filter"), dict) else {}
+    event_calendar = data.get("event_calendar") if isinstance(data.get("event_calendar"), dict) else {}
     as_of_value = (data.get("data") or {}).get("as_of") or "latest"
     as_of = None if str(as_of_value).lower() in {"latest", "auto"} else date.fromisoformat(str(as_of_value))
     report = run_daily_workflow(
@@ -33,6 +35,8 @@ def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progre
         skip_rebalance=not bool(rebalance.get("enabled", False)),
         skip_report=dry_run,
         build_data=False,
+        macro_filter=macro_filter,
+        event_calendar=event_calendar,
         progress=progress,
     )
     summary = report.report.summary

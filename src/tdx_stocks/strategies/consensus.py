@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
+import math
 from statistics import mean
 from typing import Any
 
@@ -61,6 +62,12 @@ def build_consensus(
     as_of: date | None = None,
     min_hit: int = 2,
     use_saved_reports: bool = True,
+    method: str = "simple_majority",
+    require_different_types: bool = False,
+    strategy_weights: dict[str, float] | None = None,
+    decay_enabled: bool = False,
+    decay_half_life_days: float = 5.0,
+    decay_min_weight: float = 0.10,
 ) -> ConsensusResult:
     docs = {
         strategy_name: _resolve_report_doc(
@@ -71,8 +78,12 @@ def build_consensus(
         )
         for strategy_name in strategy_names
     }
+    strategy_weights = strategy_weights or {}
     bucket: dict[tuple[str, str], dict[str, Any]] = {}
     for strategy_name, doc in docs.items():
+        definition = get_strategy(strategy_name)
+        type_tag = str(definition.strategy_type or definition.group or "other")
+        perf_weight = float(strategy_weights.get(strategy_name) or 1.0)
         for candidate in doc.get("candidates") or []:
             market = str(candidate.get("market") or "").lower()
             symbol = str(candidate.get("symbol") or "")
@@ -84,18 +95,23 @@ def build_consensus(
                 {
                     "market": market,
                     "symbol": symbol,
-                "strategies": set(),
-                "scores": [],
-                "risk_scores": [],
-                "candidate_types": set(),
-                "tags": set(),
-                "risk_flags": set(),
-                "reasons": set(),
-            },
+                    "strategies": set(),
+                    "strategy_types": set(),
+                    "scores": [],
+                    "weighted_scores": [],
+                    "risk_scores": [],
+                    "candidate_types": set(),
+                    "tags": set(),
+                    "risk_flags": set(),
+                    "reasons": set(),
+                },
             )
             item["strategies"].add(strategy_name)
+            item["strategy_types"].add(type_tag)
             if candidate.get("score") is not None:
-                item["scores"].append(float(candidate["score"]))
+                score = float(candidate["score"])
+                item["scores"].append(score)
+                item["weighted_scores"].append(score * perf_weight)
             risk_score = candidate.get("risk_score")
             if risk_score is not None:
                 item["risk_scores"].append(float(risk_score))
@@ -110,14 +126,25 @@ def build_consensus(
         hit_count = len(item["strategies"])
         if hit_count < min_hit:
             continue
+        if require_different_types and len(item["strategy_types"]) < min_hit:
+            continue
         scores = item["scores"]
+        if decay_enabled and scores:
+            decay = max(decay_min_weight, 0.5 ** (1.0 / max(0.5, decay_half_life_days)))
+            scores = [value * decay for value in scores]
+        avg_score = round(mean(scores), 2) if scores else 0.0
+        if method == "weighted_by_performance" and item["weighted_scores"]:
+            weighted_base = item["weighted_scores"]
+            avg_score = round(sum(weighted_base) / max(1, hit_count), 2)
+        if method == "rank_sum":
+            avg_score = round(avg_score + math.log(hit_count + 1.0) * 5.0, 2)
         rows.append(
             ConsensusRow(
                 market=item["market"],
                 symbol=item["symbol"],
                 hit_count=hit_count,
                 strategies=sorted(item["strategies"]),
-                avg_score=round(mean(scores), 2) if scores else 0.0,
+                avg_score=avg_score,
                 max_score=round(max(scores), 2) if scores else 0.0,
                 risk_score=round(mean(item["risk_scores"]), 4) if item["risk_scores"] else None,
                 candidate_types=sorted(item["candidate_types"]),
