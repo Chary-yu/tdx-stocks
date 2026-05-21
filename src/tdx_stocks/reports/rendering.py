@@ -251,6 +251,7 @@ def _render_signal(payload: dict[str, Any], stock_names: dict[tuple[str, str], s
     strategies = _as_list(compare.get("strategies") or compare.get("rows"))
     overlaps = _as_list(compare.get("overlaps"))
     rows = _as_list(consensus.get("rows"))
+    pre_filter_log = _as_list(consensus.get("pre_filter_log"))
     lines = _title(payload, "信号报告")
     lines.extend(_current_strategy_section(payload, "signal"))
     lines.extend(_kv_section("报告概览", [
@@ -266,6 +267,7 @@ def _render_signal(payload: dict[str, Any], stock_names: dict[tuple[str, str], s
     lines.extend(_strategy_compare(strategies, stock_names))
     lines.extend(_overlap_section(overlaps, stock_names))
     lines.extend(_consensus_section(rows, stock_names))
+    lines.extend(_pre_filter_section(pre_filter_log, stock_names))
     lines.extend(_consensus_details(rows, stock_names))
     lines.extend(_unique_stocks(compare.get("unique_stocks"), stock_names))
     lines.extend(_label_glossary(payload))
@@ -331,6 +333,7 @@ def _render_rebalance(payload: dict[str, Any], stock_names: dict[tuple[str, str]
     lines.extend(_rebalance_precheck_section(diagnostics))
     lines.extend(_risk_interception_section(diagnostics, stock_names))
     lines.extend(_rebalance_actions(changes, stock_names))
+    lines.extend(_execution_plan_section(_as_dict(summary.get("execution_plan"))))
     lines.extend(_holdings_section("目标持仓", target, stock_names))
     lines.extend(_label_glossary(payload))
     lines.extend(_footer(payload))
@@ -621,6 +624,28 @@ def _consensus_details(rows_in: list[Any], stock_names: dict[tuple[str, str], st
             lines.append("  - 无")
         lines.append("")
     return lines
+
+
+def _pre_filter_section(logs: list[Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
+    rows = []
+    for idx, row in enumerate(logs[:MAX_TABLE_ROWS], start=1):
+        if not isinstance(row, dict):
+            continue
+        rows.append((idx, stock_display(row, stock_names), _format_tokens(row.get("reasons")), _value(row.get("action") or "filtered_out")))
+    return _table_section("初筛过滤日志", ("排名", "股票", "过滤原因", "处理"), rows)
+
+
+def _execution_plan_section(plan: dict[str, Any]) -> list[str]:
+    if not plan:
+        return []
+    return _kv_section("执行计划", [
+        ("拆单方式", plan.get("method")),
+        ("执行时长(分钟)", plan.get("duration_minutes")),
+        ("限价规则(bps)", plan.get("limit_offset_bps")),
+        ("超时转市价", "是" if plan.get("timeout_to_market") else "否"),
+        ("预计冲击成本 bps", plan.get("estimated_impact_bps")),
+        ("是否建议分批执行", "是" if plan.get("batch_execution_recommended") else "否"),
+    ])
 
 
 def _unique_stocks(data: object, stock_names: dict[tuple[str, str], str]) -> list[str]:

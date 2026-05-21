@@ -20,6 +20,7 @@ class StrategyDefinition:
     display_name: str = ""
     group: str = "other"
     style: str = "other"
+    strategy_type: str = "other"
     required_fields: tuple[str, ...] = ()
     optional_fields: tuple[str, ...] = ()
     default_params: StrategyParams = field(default_factory=StrategyParams)
@@ -38,6 +39,7 @@ class StrategyDefinition:
             "description": self.description,
             "group": self.group,
             "style": self.style,
+            "strategy_type": self.strategy_type,
             "required_fields": list(self.required_fields),
             "optional_fields": list(self.optional_fields),
             "default_params": self.default_params.to_dict(),

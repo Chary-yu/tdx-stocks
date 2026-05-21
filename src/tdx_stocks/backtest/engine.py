@@ -24,7 +24,7 @@ from .prices import (
     load_adj_daily_price,
     load_trading_dates,
 )
-from .risk import check_exit_signal
+from .exits import ExitEngine
 from .sizing import calc_target_shares
 
 OpenQueryContextFn = Callable[[AppConfig], Any]
@@ -155,7 +155,7 @@ def run_portfolio_backtest(
                     continue
                 exit_reason = "hold_days" if (today - pos.buy_date).days >= params.hold_days else None
                 if exit_reason is None and pos.direction != "SHORT":
-                    exit_reason = check_exit_signal(pos, bar.open_price, portfolio_params)
+                    exit_reason = ExitEngine.check(pos, bar.open_price, portfolio_params)
                 if exit_reason is None:
                     continue
                 if pos.direction == "SHORT":

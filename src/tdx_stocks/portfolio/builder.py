@@ -26,7 +26,9 @@ from .risk_controls import (
     technical_concentration,
     technical_exit_policy,
 )
-from .weights import build_portfolio_weights
+from .optimizer import optimize_weights
+from .risk_interceptor import apply_risk_interceptors
+from ..risk.market_regime import evaluate_market_regime
 
 
 def build_portfolio(
@@ -51,7 +53,7 @@ def build_portfolio(
     candidates, data_run_id, resolved_as_of = _load_candidates(config, source, strategy, as_of)
     normalized_exclude_tags = normalize_exclude_risk_tags(exclude_risk_tags or DEFAULT_EXCLUDE_RISK_TAGS)
     risk_interceptions: list[dict[str, Any]] = []
-    filtered_candidates: list[dict[str, Any]] = []
+    base_filtered: list[dict[str, Any]] = []
     excluded_count = 0
     for candidate in candidates:
         if market and str(candidate.get("market") or "").lower() != market.lower():
@@ -70,7 +72,14 @@ def build_portfolio(
             excluded_count += 1
             risk_interceptions.append(risk_interception(candidate, reason=f"风险分 {risk_score:.2f} 高于上限 {max_risk_score}", trigger_tags=[]))
             continue
-        filtered_candidates.append(candidate)
+        base_filtered.append(candidate)
+
+    filtered_candidates, extra_logs = apply_risk_interceptors(
+        base_filtered,
+        exclude_risk_tags=normalized_exclude_tags,
+        event_calendar_cfg=getattr(config, "event_calendar", None) if hasattr(config, "event_calendar") else None,
+    )
+    risk_interceptions.extend(extra_logs)
 
     filtered_candidates = sorted(
         filtered_candidates,
@@ -82,7 +91,10 @@ def build_portfolio(
         ),
     )[:top]
 
-    regime = market_regime_placeholder(enabled=market_regime_enabled)
+    if market_regime_enabled:
+        regime = evaluate_market_regime({"status": "not_available", "missing_action": "pause_open"}).to_dict()
+    else:
+        regime = market_regime_placeholder(enabled=False)
     hard_intercepted = market_regime_enabled and (regime.get("action") == "pause_open" or regime.get("status") in {"not_available", "bear"})
     if hard_intercepted:
         filtered_candidates = []
@@ -93,12 +105,11 @@ def build_portfolio(
     if not filtered_candidates:
         holdings: list[Holding] = []
     else:
-        weights = build_portfolio_weights(
+        weights = optimize_weights(
             filtered_candidates,
-            weighting,
+            mode=weighting,
             max_weight=max_weight,
             min_weight=min_weight,
-            normalize=True,
             capital=capital,
             max_adv_participation=max_adv_participation,
             max_liquidation_days=max_liquidation_days,

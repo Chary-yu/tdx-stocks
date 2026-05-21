@@ -4,6 +4,7 @@ from datetime import date
 
 from ..strategies.compare import compare_strategies
 from ..strategies.consensus import build_consensus
+from ..risk.pre_filter import apply_pre_filter
 from .config import LoadedRunConfig
 from .models import RunResult
 from ..reports.paths import run_report_outputs
@@ -16,13 +17,35 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progr
     data = run_config.config
     strategies = data.get("strategies") or {}
     consensus = data.get("consensus") or {}
+    consensus_advanced = consensus.get("advanced") if isinstance(consensus.get("advanced"), dict) else {}
+    pre_filter_cfg = data.get("pre_filter") if isinstance(data.get("pre_filter"), dict) else {}
     as_of_value = (data.get("data") or {}).get("as_of") or "latest"
     as_of = None if as_of_value == "latest" else date.fromisoformat(str(as_of_value))
     names = list(strategies.get("enabled") or [])
     emit_progress(progress, "比较策略信号")
     compare = compare_strategies(run_config.app_config, names, as_of=as_of)
     emit_progress(progress, "生成共振股票")
-    consensus_report = build_consensus(run_config.app_config, names, as_of=as_of, min_hit=int(consensus.get("min_hit") or 2))
+    min_hit = int(consensus_advanced.get("min_hit") or consensus.get("min_hit") or 2)
+    consensus_report = build_consensus(run_config.app_config, names, as_of=as_of, min_hit=min_hit)
+    pre_filter_logs: list[dict[str, object]] = []
+    filtered_rows = []
+    for row in consensus_report.rows:
+        row_dict = row.to_dict()
+        merged = {
+            "market": row_dict.get("market"),
+            "symbol": row_dict.get("symbol"),
+            "risk_flags": row_dict.get("risk_flags"),
+            "tags": row_dict.get("tags"),
+            "score": row_dict.get("avg_score"),
+        }
+        result = apply_pre_filter(merged, pre_filter_cfg)
+        if result.passed:
+            filtered_rows.append(row)
+        else:
+            pre_filter_logs.append({"market": row.market, "symbol": row.symbol, "reasons": result.reasons, "action": "filtered_out"})
+    consensus_dict = consensus_report.to_dict()
+    consensus_dict["rows"] = [row.to_dict() for row in filtered_rows]
+    consensus_dict["pre_filter_log"] = pre_filter_logs
     emit_progress(progress, "准备信号报告输出")
     return RunResult(
         task_type="signal",
@@ -30,7 +53,7 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progr
         status="success",
         summary={
             "compare": compare.to_dict(),
-            "consensus": consensus_report.to_dict(),
+            "consensus": consensus_dict,
         },
         outputs=run_report_outputs(run_config.app_config.paths.data_root, "signal", as_of=resolve_report_as_of(run_config.app_config, as_of_value)),
     )
