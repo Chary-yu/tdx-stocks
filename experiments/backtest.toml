@@ -4,15 +4,16 @@ name = "trend-strength-backtest"
 
 [strategy]
 name = "trend-strength"
-limit = 50
+limit = 10
 min_score = 60
-min_amount_ma20 = 50000000
+min_amount_ma20 = 150000000
 
 [backtest]
-from_date = "2022-01-01"
+from_date = "2024-10-01"
 to_date = "2024-12-31"
-top = 20
-hold_days = 5
+top = 5
+hold_days = 10  # 最大持有天数；技术退出规则将逐步替代固定天数退出
+rolling = false
 fee_bps = 3
 slippage_bps = 5
 

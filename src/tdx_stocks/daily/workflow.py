@@ -29,6 +29,7 @@ from .models import DailyRunReport, DailyStepResult
 from ..reports.renderers import render_daily_markdown
 from ..reports.stock_names import build_stock_name_map, collect_stock_keys
 from ..progress import ProgressCallback, emit_progress
+from ..portfolio.risk_controls import DEFAULT_EXCLUDE_RISK_TAGS, normalize_exclude_risk_tags
 from .store import save_daily_report, write_daily_json_file
 
 
@@ -177,7 +178,11 @@ def run_daily_workflow(
                 weighting=portfolio_weighting,
                 max_weight=portfolio_max_weight,
                 as_of=latest_trade_date,
-                exclude_risk_tags=tuple(daily_config.exclude_risk_tags),
+                exclude_risk_tags=normalize_exclude_risk_tags(daily_config.exclude_risk_tags or DEFAULT_EXCLUDE_RISK_TAGS),
+                capital=10_000_000,
+                max_adv_participation=0.10,
+                max_liquidation_days=0.5,
+                market_regime_enabled=True,
             )
             portfolio_saved = save_portfolio_report(config.paths.data_root, portfolio_report)
             if isinstance(portfolio_saved, dict):
@@ -215,6 +220,12 @@ def run_daily_workflow(
                         current,
                         [_holding_from_dict(row) for row in portfolio_report.holdings],
                         as_of=portfolio_report.as_of,
+                        target_risk_filter={
+                            "risk_filter_applied": True,
+                            "exclude_risk_tags": list(normalize_exclude_risk_tags(daily_config.exclude_risk_tags or DEFAULT_EXCLUDE_RISK_TAGS)),
+                            "risk_interceptions": portfolio_report.diagnostics.get("risk_interceptions") if isinstance(portfolio_report.diagnostics, dict) else [],
+                            "market_regime": portfolio_report.diagnostics.get("market_regime") if isinstance(portfolio_report.diagnostics, dict) else {},
+                        },
                     )
                     rebalance_json, rebalance_csv = save_rebalance_plan(config.paths.data_root, plan)
                     outputs.update({"rebalance_json": rebalance_json.as_posix(), "rebalance_csv": rebalance_csv.as_posix()})
@@ -441,6 +452,12 @@ def _build_report(
     step_warnings, step_errors = collect_warnings_errors([step.to_dict() for step in steps])
     warnings = list(warnings) + step_warnings
     errors = list(errors) + step_errors
+    if not data_quality:
+        errors.append("核心数据质量明细缺失：无法确认复权因子、行情线和因子数据完整性，触发 ERROR。")
+    diagnostics = portfolio_summary.get("diagnostics") if isinstance(portfolio_summary, dict) and isinstance(portfolio_summary.get("diagnostics"), dict) else {}
+    regime = diagnostics.get("market_regime") if isinstance(diagnostics.get("market_regime"), dict) else {}
+    if diagnostics.get("hard_interception") or regime.get("action") == "pause_open" or regime.get("status") in {"not_available", "bear"}:
+        errors.append("行情熔断：市场环境滤网要求暂停开仓或数据缺失，下游目标持仓已强制清空。")
     return DailyRunReport(
         schema_version="daily-report-v1",
         app_version=APP_VERSION,

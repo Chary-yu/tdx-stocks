@@ -10,6 +10,7 @@ from typing import Any
 from .. import __version__ as APP_VERSION
 from ..config import AppConfig
 from ..query import open_query_context
+from ..progress import ProgressCallback, emit_progress
 from ..strategies.base import StrategyParams
 from ..strategies.registry import get_strategy
 from .engine import run_backtest
@@ -42,6 +43,7 @@ class BacktestCompareRow(ResearchRow):
 @dataclass(frozen=True)
 class ParameterScanRow(ResearchRow):
     min_score: float
+    min_amount_ma20: float | None
     top: int
     hold_days: int
     total_return: float
@@ -139,9 +141,14 @@ def tune_strategy_parameters(
     min_scores: list[float],
     tops: list[int],
     hold_days: list[int],
+    min_amount_ma20_values: list[float | None] | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     rows: list[ParameterScanRow] = []
-    for min_score, top, hold_days_value in product(min_scores, tops, hold_days):
+    amount_values = min_amount_ma20_values or [params.min_amount_ma20]
+    combinations = list(product(min_scores, amount_values, tops, hold_days))
+    for index, (min_score, min_amount_value, top, hold_days_value) in enumerate(combinations, start=1):
+        emit_progress(progress, f"参数搜索进度：第 {index} / {len(combinations)} 组，当前参数：min_score={min_score}, min_amount_ma20={min_amount_value}, top={top}, hold_days={hold_days_value}")
         scan_params = BacktestParams(
             from_date=params.from_date,
             to_date=params.to_date,
@@ -152,9 +159,10 @@ def tune_strategy_parameters(
             market=params.market,
             candidate_type=params.candidate_type,
             min_score=min_score,
-            min_amount_ma20=params.min_amount_ma20,
+            min_amount_ma20=min_amount_value if min_amount_value is not None else params.min_amount_ma20,
+            rolling=params.rolling,
         )
-        report = run_backtest(config, strategy_name, scan_params)
+        report = run_backtest(config, strategy_name, scan_params, progress=progress, progress_prefix=f"参数组 {index}/{len(combinations)} 回测进度")
         research_score = round(
             report.annual_return
             - abs(report.max_drawdown)
@@ -164,6 +172,7 @@ def tune_strategy_parameters(
         rows.append(
             ParameterScanRow(
                 min_score=min_score,
+                min_amount_ma20=min_amount_value if min_amount_value is not None else params.min_amount_ma20,
                 top=top,
                 hold_days=hold_days_value,
                 total_return=report.total_return,
@@ -458,7 +467,7 @@ def _analyze_forward_returns(
             StrategyParams(
                 limit=params.top,
                 min_score=params.min_score or 60.0,
-                min_amount_ma20=params.min_amount_ma20 or 50_000_000.0,
+                min_amount_ma20=params.min_amount_ma20 or 150_000_000.0,
                 market=params.market,
                 candidate_type=params.candidate_type,
                 as_of=signal_date,
@@ -518,7 +527,7 @@ def _analyze_risk_tags(
             StrategyParams(
                 limit=params.top,
                 min_score=params.min_score or 60.0,
-                min_amount_ma20=params.min_amount_ma20 or 50_000_000.0,
+                min_amount_ma20=params.min_amount_ma20 or 150_000_000.0,
                 market=params.market,
                 candidate_type=params.candidate_type,
                 as_of=signal_date,
@@ -576,7 +585,7 @@ def _collect_consensus_candidates(
             StrategyParams(
                 limit=params.top,
                 min_score=params.min_score or 60.0,
-                min_amount_ma20=params.min_amount_ma20 or 50_000_000.0,
+                min_amount_ma20=params.min_amount_ma20 or 150_000_000.0,
                 market=params.market,
                 candidate_type=params.candidate_type,
                 as_of=signal_date,

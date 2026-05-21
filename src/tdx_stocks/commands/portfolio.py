@@ -87,7 +87,7 @@ def _add_build_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--from", dest="source", choices=("consensus", "strategy", "report"), default="consensus")
     parser.add_argument("--strategy")
     parser.add_argument("--top", type=int, default=20)
-    parser.add_argument("--weighting", choices=("equal", "score", "risk-adjusted"), default="equal")
+    parser.add_argument("--weighting", choices=("equal", "score", "risk-adjusted", "liquidity-risk"), default="equal")
     parser.add_argument("--max-weight", type=float, default=0.10)
     parser.add_argument("--min-weight", type=float, default=0.0)
     parser.add_argument("--max-risk-score", type=float)

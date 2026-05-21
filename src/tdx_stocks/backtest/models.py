@@ -127,6 +127,7 @@ class BacktestConfig:
             min_score=min_score,
             min_amount_ma20=min_amount_ma20,
             portfolio=self.engine.portfolio,
+            rolling=self.engine.rolling,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -193,6 +194,7 @@ class BacktestParams:
     min_score: float | None = None
     min_amount_ma20: float | None = None
     portfolio: PortfolioParams | None = None
+    rolling: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -207,6 +209,7 @@ class BacktestParams:
             "min_score": self.min_score,
             "min_amount_ma20": self.min_amount_ma20,
             "portfolio": asdict(self.portfolio) if self.portfolio is not None else None,
+            "rolling": self.rolling,
         }
 
 
@@ -227,6 +230,7 @@ class BacktestTrade:
     direction: str = "LONG"
     shares: int | None = None
     skipped_reason: str | None = None
+    exit_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -269,6 +273,12 @@ class BacktestReport:
     equity_curve: list[dict[str, Any]]
     periods: list[dict[str, Any]]
     trades: list[dict[str, Any]]
+    winsorized_total_return: float | None = None
+    benchmark_name: str | None = None
+    benchmark_status: str | None = None
+    benchmark_return: float | None = None
+    alpha: float | None = None
+    information_ratio: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -322,7 +332,7 @@ def _build_strategy_config(data: dict[str, Any]) -> StrategyParams:
 
 def _build_backtest_params(data: dict[str, Any]) -> BacktestParams | None:
     engine_data = dict(data.get("engine") or data.get("backtest") or {})
-    for key in ("from_date", "to_date", "top", "hold_days", "fee_rate", "slippage", "market", "candidate_type", "min_score", "min_amount_ma20", "portfolio"):
+    for key in ("from_date", "to_date", "top", "hold_days", "fee_rate", "slippage", "market", "candidate_type", "min_score", "min_amount_ma20", "portfolio", "rolling"):
         if key not in engine_data and key in data:
             engine_data[key] = data[key]
     if not engine_data:
@@ -346,6 +356,7 @@ def _build_backtest_params(data: dict[str, Any]) -> BacktestParams | None:
         min_score=_coerce_optional_float(engine_data.get("min_score")),
         min_amount_ma20=_coerce_optional_float(engine_data.get("min_amount_ma20")),
         portfolio=portfolio,
+        rolling=bool(engine_data.get("rolling", defaults.rolling)),
     )
 
 

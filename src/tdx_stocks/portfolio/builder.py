@@ -12,6 +12,20 @@ from ..strategies.registry import get_strategy, list_strategies
 from ..strategies.storage import load_saved_report
 from .models import Holding, PortfolioReport
 from .risk import check_portfolio_risk
+from .risk_controls import (
+    DEFAULT_CAPITAL,
+    DEFAULT_EXCLUDE_RISK_TAGS,
+    DEFAULT_MAX_ADV_PARTICIPATION,
+    DEFAULT_MAX_LIQUIDATION_DAYS,
+    candidate_tags,
+    liquidity_metrics,
+    market_regime_placeholder,
+    normalize_exclude_risk_tags,
+    risk_interception,
+    sector_exposure,
+    technical_concentration,
+    technical_exit_policy,
+)
 from .weights import build_portfolio_weights
 
 
@@ -28,22 +42,33 @@ def build_portfolio(
     exclude_risk_tags: tuple[str, ...] = (),
     market: str | None = None,
     as_of: date | None = None,
+    capital: float | None = None,
+    max_adv_participation: float = DEFAULT_MAX_ADV_PARTICIPATION,
+    max_liquidation_days: float = DEFAULT_MAX_LIQUIDATION_DAYS,
+    market_regime_enabled: bool = False,
+    sector_max_weight: float = 0.25,
 ) -> PortfolioReport:
     candidates, data_run_id, resolved_as_of = _load_candidates(config, source, strategy, as_of)
+    normalized_exclude_tags = normalize_exclude_risk_tags(exclude_risk_tags or DEFAULT_EXCLUDE_RISK_TAGS)
+    risk_interceptions: list[dict[str, Any]] = []
     filtered_candidates: list[dict[str, Any]] = []
     excluded_count = 0
     for candidate in candidates:
         if market and str(candidate.get("market") or "").lower() != market.lower():
             excluded_count += 1
+            risk_interceptions.append(risk_interception(candidate, reason=f"市场不匹配：{market}", trigger_tags=[]))
             continue
         risk_flags = [str(flag) for flag in candidate.get("risk_flags") or []]
         tags = [str(tag) for tag in candidate.get("tags") or []]
-        if exclude_risk_tags and set(exclude_risk_tags) & (set(risk_flags) | set(tags)):
+        matched_tags = sorted(set(normalized_exclude_tags) & candidate_tags(candidate))
+        if matched_tags:
             excluded_count += 1
+            risk_interceptions.append(risk_interception(candidate, reason="命中组合风控剔除标签", trigger_tags=matched_tags))
             continue
         risk_score = _float_or_none(candidate.get("risk_score"))
         if max_risk_score is not None and risk_score is not None and risk_score > max_risk_score:
             excluded_count += 1
+            risk_interceptions.append(risk_interception(candidate, reason=f"风险分 {risk_score:.2f} 高于上限 {max_risk_score}", trigger_tags=[]))
             continue
         filtered_candidates.append(candidate)
 
@@ -57,6 +82,14 @@ def build_portfolio(
         ),
     )[:top]
 
+    regime = market_regime_placeholder(enabled=market_regime_enabled)
+    hard_intercepted = market_regime_enabled and (regime.get("action") == "pause_open" or regime.get("status") in {"not_available", "bear"})
+    if hard_intercepted:
+        filtered_candidates = []
+        risk_interceptions.extend(risk_interception(candidate, reason="市场环境滤网触发行情熔断，暂停开仓", trigger_tags=["market_regime_block"]) for candidate in candidates[:50])
+
+    filtered_candidates = _apply_near_high_cap(filtered_candidates, max_near_high_weight=0.40)
+
     if not filtered_candidates:
         holdings: list[Holding] = []
     else:
@@ -66,9 +99,12 @@ def build_portfolio(
             max_weight=max_weight,
             min_weight=min_weight,
             normalize=True,
+            capital=capital,
+            max_adv_participation=max_adv_participation,
+            max_liquidation_days=max_liquidation_days,
         )
         holdings = [
-            _candidate_to_holding(candidate, weight, source, strategy)
+            _candidate_to_holding(candidate, weight, source, strategy, capital=capital, max_adv_participation=max_adv_participation, max_liquidation_days=max_liquidation_days)
             for candidate, weight in zip(filtered_candidates, weights, strict=True)
         ]
 
@@ -84,11 +120,25 @@ def build_portfolio(
         "min_weight": min_weight,
         "max_risk_score": max_risk_score,
         "market": market,
+        "risk_filter_applied": True,
+        "exclude_risk_tags": list(normalized_exclude_tags),
+        "risk_interception_count": len(risk_interceptions),
     }
+    holding_dicts = [holding.to_dict() for holding in holdings]
+    sector = sector_exposure(holding_dicts, max_sector_weight=sector_max_weight)
     diagnostics = {
         "source_candidate_count": len(candidates),
         "filtered_candidate_count": len(filtered_candidates),
         "risk_check": risk.to_dict(),
+        "risk_filter_applied": True,
+        "exclude_risk_tags": list(normalized_exclude_tags),
+        "risk_interceptions": risk_interceptions,
+        "market_regime": regime,
+        "hard_interception": hard_intercepted,
+        "hard_interception_reason": "行情熔断：市场环境数据缺失或要求暂停开仓" if hard_intercepted else None,
+        "sector_exposure": sector,
+        "technical_concentration": technical_concentration(holding_dicts),
+        "technical_exit_policy": technical_exit_policy(),
     }
     return PortfolioReport.build(
         generated_at=datetime.now(),
@@ -103,8 +153,11 @@ def build_portfolio(
             "max_weight": max_weight,
             "min_weight": min_weight,
             "max_risk_score": max_risk_score,
-            "exclude_risk_tags": list(exclude_risk_tags),
+            "exclude_risk_tags": list(normalized_exclude_tags),
             "market": market,
+            "capital": capital,
+            "max_adv_participation": max_adv_participation,
+            "max_liquidation_days": max_liquidation_days,
             "as_of": as_of.isoformat() if as_of else None,
         },
         holdings=holdings,
@@ -164,8 +217,38 @@ def _load_candidates(
     raise ValueError(f"unknown portfolio source: {source}")
 
 
-def _candidate_to_holding(candidate: dict[str, Any], weight: float, source: str, strategy: str | None) -> Holding:
+
+def _apply_near_high_cap(candidates: list[dict[str, Any]], *, max_near_high_weight: float) -> list[dict[str, Any]]:
+    if not candidates:
+        return []
+    kept = list(candidates)
+    def is_near(item: dict[str, Any]) -> bool:
+        return "near_20d_high" in set(str(x) for x in (item.get("risk_flags") or [])) | set(str(x) for x in (item.get("tags") or []))
+    while kept:
+        near = [item for item in kept if is_near(item)]
+        if not near or len(near) / len(kept) <= max_near_high_weight:
+            break
+        # Drop the weakest near-high candidate first to control同向技术风险集中度.
+        weakest = sorted(near, key=lambda item: _float_or_zero(item.get("score")))[0]
+        kept.remove(weakest)
+    return kept
+
+
+def _candidate_to_holding(
+    candidate: dict[str, Any],
+    weight: float,
+    source: str,
+    strategy: str | None,
+    *,
+    capital: float | None = None,
+    max_adv_participation: float = DEFAULT_MAX_ADV_PARTICIPATION,
+    max_liquidation_days: float = DEFAULT_MAX_LIQUIDATION_DAYS,
+) -> Holding:
     factor_values = dict(candidate.get("factor_values") or {})
+    factor_values.update(liquidity_metrics(candidate, weight=weight, capital=capital or DEFAULT_CAPITAL, max_adv_participation=max_adv_participation, max_liquidation_days=max_liquidation_days))
+    for key in ("sector", "industry", "amount_ma20", "adv"):
+        if key in candidate and key not in factor_values:
+            factor_values[key] = candidate.get(key)
     source_strategies = candidate.get("source_strategies")
     if not isinstance(source_strategies, list):
         source_strategies = []

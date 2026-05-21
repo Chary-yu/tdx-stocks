@@ -4,6 +4,8 @@ from collections.abc import Iterable
 from math import isclose
 from typing import Any
 
+from .risk_controls import amount_ma20
+
 
 def build_portfolio_weights(
     items: Iterable[dict[str, Any]],
@@ -12,6 +14,9 @@ def build_portfolio_weights(
     max_weight: float = 0.10,
     min_weight: float = 0.0,
     normalize: bool = True,
+    capital: float | None = None,
+    max_adv_participation: float = 0.10,
+    max_liquidation_days: float = 3.0,
 ) -> list[float]:
     rows = [dict(item) for item in items]
     if not rows:
@@ -19,6 +24,7 @@ def build_portfolio_weights(
 
     weights = _initial_weights(rows, weighting)
     weights = _apply_min_weight(weights, min_weight)
+    weights = _apply_liquidity_caps(weights, rows, capital=capital, max_adv_participation=max_adv_participation, max_liquidation_days=max_liquidation_days)
     if not any(weight > 0 for weight in weights):
         weights = [1.0 / len(rows)] * len(rows)
     weights = _cap_and_redistribute(weights, max_weight=max_weight)
@@ -32,7 +38,7 @@ def _initial_weights(rows: list[dict[str, Any]], weighting: str) -> list[float]:
         return [1.0 / len(rows)] * len(rows)
 
     scores = [float(row.get("score") or 0.0) for row in rows]
-    if weighting == "risk-adjusted":
+    if weighting in {"risk-adjusted", "liquidity-risk", "liquidity_risk"}:
         adjusted_scores: list[float] = []
         for row, score in zip(rows, scores, strict=True):
             risk_score = row.get("risk_score")
@@ -40,6 +46,12 @@ def _initial_weights(rows: list[dict[str, Any]], weighting: str) -> list[float]:
                 adjusted_scores.append(score)
                 continue
             adjusted_scores.append(max(0.0, score * (1.0 - float(risk_score))))
+        if weighting in {"liquidity-risk", "liquidity_risk"}:
+            liquidity_adjusted = []
+            for row, score in zip(rows, adjusted_scores, strict=True):
+                adv = amount_ma20(row) or 0.0
+                liquidity_adjusted.append(max(0.0, score * max(adv, 1.0)))
+            adjusted_scores = liquidity_adjusted
         if sum(adjusted_scores) <= 0:
             return [1.0 / len(rows)] * len(rows)
         return _normalize(adjusted_scores)
@@ -49,6 +61,27 @@ def _initial_weights(rows: list[dict[str, Any]], weighting: str) -> list[float]:
         return [1.0 / len(rows)] * len(rows)
     return [score / total for score in scores]
 
+
+
+def _apply_liquidity_caps(
+    weights: list[float],
+    rows: list[dict[str, Any]],
+    *,
+    capital: float | None,
+    max_adv_participation: float,
+    max_liquidation_days: float,
+) -> list[float]:
+    if not capital or capital <= 0:
+        return list(weights)
+    capped = list(weights)
+    for index, row in enumerate(rows):
+        adv = amount_ma20(row)
+        if adv is None or adv <= 0:
+            continue
+        cap = (adv * max_adv_participation * max_liquidation_days) / capital
+        if cap > 0 and capped[index] > cap:
+            capped[index] = cap
+    return capped
 
 def _apply_min_weight(weights: list[float], min_weight: float) -> list[float]:
     if min_weight <= 0:

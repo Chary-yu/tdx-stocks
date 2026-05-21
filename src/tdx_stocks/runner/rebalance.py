@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ..portfolio import Holding, build_portfolio, build_rebalance_plan, load_current_holdings_csv
+from ..portfolio.risk_controls import DEFAULT_EXCLUDE_RISK_TAGS, normalize_exclude_risk_tags
 from ..pipeline import parse_iso_date
 from .config import LoadedRunConfig
 from .models import RunResult
@@ -29,14 +30,35 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         run_config.app_config,
         source=str(portfolio.get("source") or "consensus"),
         top=int(_pick(portfolio.get("top"), 20)),
-        weighting=str(portfolio.get("weighting") or "equal"),
+        weighting=str(portfolio.get("weighting") or "liquidity-risk"),
         max_weight=float(_pick(portfolio.get("max_weight"), 0.10)),
         min_weight=float(_pick(portfolio.get("min_weight"), 0.0)),
         max_risk_score=portfolio.get("max_risk_score"),
-        exclude_risk_tags=tuple(portfolio.get("exclude_risk_tags") or ()),
+        exclude_risk_tags=normalize_exclude_risk_tags(portfolio.get("exclude_risk_tags") or DEFAULT_EXCLUDE_RISK_TAGS),
         market=portfolio.get("market"),
+        capital=float(portfolio.get("capital") or 10_000_000),
+        max_adv_participation=float(portfolio.get("max_adv_participation") or 0.10),
+        max_liquidation_days=float(portfolio.get("max_liquidation_days") or 0.5),
+        market_regime_enabled=bool(portfolio.get("market_regime_enabled", True)),
+        sector_max_weight=float(portfolio.get("max_sector_weight") or 0.25),
         as_of=as_of,
     )
+    require_risk_filtered = bool(rebalance.get("require_risk_filtered_target", True))
+    target_dict = target.to_dict()
+    target_diagnostics = target_dict.get("diagnostics") if isinstance(target_dict.get("diagnostics"), dict) else {}
+    if require_risk_filtered and not target_diagnostics.get("risk_filter_applied"):
+        return RunResult(
+            task_type="rebalance",
+            name=run_config.task_name,
+            status="failed",
+            summary={
+                "summary": "failed",
+                "error": "调仓输入未经过组合风控过滤，已拒绝生成调仓计划。",
+                "risk_filter_required": True,
+            },
+            outputs={},
+            errors=["调仓输入未经过组合风控过滤，已拒绝生成调仓计划。"],
+        )
     emit_progress(progress, "读取当前持仓")
     holdings_path = rebalance.get("current_holdings")
     current = load_current_holdings_csv(Path(holdings_path)) if holdings_path else []
@@ -48,6 +70,12 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         as_of=target.as_of,
         min_trade_weight=float(_pick(rebalance.get("min_trade_weight"), 0.0)),
         max_turnover=rebalance.get("max_turnover"),
+        target_risk_filter={
+            "risk_filter_applied": True,
+            "exclude_risk_tags": list(normalize_exclude_risk_tags(portfolio.get("exclude_risk_tags") or DEFAULT_EXCLUDE_RISK_TAGS)),
+            "risk_interceptions": target_diagnostics.get("risk_interceptions") or [],
+            "market_regime": target_diagnostics.get("market_regime") or {},
+        },
     )
     emit_progress(progress, "准备调仓报告输出")
     return RunResult(

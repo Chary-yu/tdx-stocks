@@ -12,6 +12,8 @@ LABELS = {
     "yes": "是",
     "no": "否",
     "equal": "等权",
+    "liquidity-risk": "流动性/风险加权",
+    "liquidity_risk": "流动性/风险加权",
     "consensus": "策略共振",
     "strong_trend": "强趋势",
     "breakout_watch": "突破观察",
@@ -231,6 +233,9 @@ def render_daily_markdown(report: Any, *, stock_names: dict[tuple[str, str], str
     lines.extend(_with_fallback("策略摘要", _render_kv_section("策略摘要", payload.get("strategy_summary"))))
     lines.extend(_with_fallback("共振股票", _render_consensus_section(payload.get("consensus_summary"), stock_names)))
     lines.extend(_with_fallback("组合摘要", _render_portfolio_summary(portfolio_summary)))
+    lines.extend(_render_market_regime_section(portfolio_summary))
+    lines.extend(_render_risk_interception_section(portfolio_summary, stock_names))
+    lines.extend(_render_sector_exposure_section(portfolio_summary))
     lines.extend(_render_portfolio_holdings_section(holdings, stock_names, heading="目标持仓"))
     lines.extend(_with_fallback("风险摘要", _render_risk_summary_section(risk_summary)))
     lines.extend(_with_fallback("调仓计划", _render_rebalance_section(payload.get("rebalance_summary"))))
@@ -279,6 +284,9 @@ def render_portfolio_markdown(report: dict[str, Any], *, stock_names: dict[tuple
         ("数据批次", payload.get("data_run_id")),
     ]))
     lines.extend(_render_kv_section("组合摘要", payload.get("summary")))
+    lines.extend(_render_market_regime_section(payload))
+    lines.extend(_render_risk_interception_section(payload, stock_names))
+    lines.extend(_render_sector_exposure_section(payload))
     lines.extend(_render_risk_summary_section(payload.get("risk_summary")))
     lines.extend(_render_portfolio_holdings_section(payload.get("holdings"), stock_names, heading="目标持仓"))
     lines.extend(_holding_details(payload.get("holdings"), stock_names))
@@ -512,8 +520,11 @@ def _render_portfolio_holdings_section(holdings: object, stock_names: dict[tuple
             fmt_float(row.get("score")),
             _format_tokens(row.get("candidate_type")),
             _format_tokens(row.get("risk_flags")),
+            _money(_factor(row, "amount_ma20")),
+            fmt_pct(_factor(row, "target_amount_to_adv")),
+            fmt_float(_factor(row, "expected_liquidation_days")),
         ))
-    return [f"## {heading}", "", md_table(("排名", "股票", "权重", "分数", "候选类型", "风险提示"), rows), ""] if rows else []
+    return [f"## {heading}", "", md_table(("排名", "股票", "权重", "分数", "候选类型", "风险提示", "20日均成交额", "目标金额/ADV", "预计变现天数"), rows), ""] if rows else []
 
 
 def _holding_details(holdings: object, stock_names: dict[tuple[str, str], str]) -> list[str]:
@@ -532,10 +543,87 @@ def _holding_details(holdings: object, stock_names: dict[tuple[str, str], str]) 
             f"- 风险提示：{_format_tokens(row.get('risk_flags'))}",
             f"- 标签：{_format_tokens(row.get('tags'), max_items=8)}",
             f"- 入选理由：{_stringify(row.get('reason'))}",
+            f"- 20日均成交额：{_money(_factor(row, 'amount_ma20'))}",
+            f"- 目标金额/ADV：{fmt_pct(_factor(row, 'target_amount_to_adv'))}",
+            f"- 预计变现天数：{fmt_float(_factor(row, 'expected_liquidation_days'))}",
             "",
         ])
     return lines
 
+
+
+def _render_risk_interception_section(payload: object, stock_names: dict[tuple[str, str], str]) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+    rows_in = diagnostics.get("risk_interceptions") if isinstance(diagnostics, dict) else []
+    if not isinstance(rows_in, list) or not rows_in:
+        if diagnostics.get("risk_filter_applied"):
+            return ["## 风控拦截日志", "", "今日无股票触发组合风控拦截。", ""]
+        return []
+    rows = []
+    for row in rows_in[:50]:
+        if isinstance(row, dict):
+            rows.append((
+                stock_display(row, stock_names, include_code=True),
+                fmt_float(row.get("score")),
+                _format_tokens(row.get("source_strategies") or row.get("source_strategy")),
+                _format_tokens(row.get("trigger_tags")),
+                _stringify(row.get("reason")),
+                "已一票否决",
+            ))
+    return ["## 风控拦截日志", "", md_table(("股票", "分数", "来源策略", "触发标签", "拦截原因", "处理"), rows), ""] if rows else []
+
+
+def _render_market_regime_section(payload: object) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+    regime = diagnostics.get("market_regime") if isinstance(diagnostics.get("market_regime"), dict) else {}
+    if not regime:
+        return []
+    return _render_kv_table("市场环境滤网", [
+        ("是否启用", regime.get("enabled")),
+        ("参考指数", regime.get("index")),
+        ("均线窗口", regime.get("ma_window")),
+        ("市场状态", regime.get("status")),
+        ("系统动作", regime.get("action")),
+        ("说明", regime.get("message")),
+    ])
+
+
+def _render_sector_exposure_section(payload: object) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+    exposure = diagnostics.get("sector_exposure") if isinstance(diagnostics.get("sector_exposure"), dict) else {}
+    if not exposure:
+        return []
+    rows_in = exposure.get("rows")
+    if not isinstance(rows_in, list) or not rows_in:
+        return ["## 行业暴露", "", "未找到行业分类数据，无法计算行业暴露。", ""]
+    rows = []
+    for row in rows_in:
+        if isinstance(row, dict):
+            rows.append((row.get("sector"), fmt_int(row.get("count")), fmt_pct(row.get("weight")), "行业集中度过高" if row.get("warning") else "正常"))
+    return ["## 行业暴露", "", md_table(("行业", "股票数量", "权重占比", "风险提示"), rows), ""]
+
+
+def _factor(row: dict[str, Any], key: str) -> Any:
+    factors = row.get("factor_values") if isinstance(row.get("factor_values"), dict) else {}
+    return row.get(key) if row.get(key) is not None else factors.get(key)
+
+
+def _money(value: object) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "无"
+    if abs(number) >= 100_000_000:
+        return f"{number / 100_000_000:.2f}亿"
+    if abs(number) >= 10_000:
+        return f"{number / 10_000:.2f}万"
+    return fmt_float(number)
 
 def _render_strategy_identity_section(payload: dict[str, Any]) -> list[str]:
     rows = [
@@ -652,7 +740,7 @@ def _action_hint(flags: object) -> str:
     if "rsi_high" in values or "ret_5_strong" in values:
         return "短线偏热，谨慎追涨"
     if "near_20d_high" in values:
-        return "避免追高，等待回踩"
+        return "降级为Watchlist：仅在回踩至量化支撑位附近且不破位时激活"
     if "mild_volatility" in values or "high_volatility" in values:
         return "控制仓位"
     if not values:

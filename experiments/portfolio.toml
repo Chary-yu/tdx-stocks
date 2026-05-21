@@ -5,8 +5,13 @@ name = "latest-consensus-portfolio"
 [portfolio]
 source = "consensus"
 top = 20
-weighting = "equal"
+weighting = "liquidity-risk"
 max_weight = 0.10
+capital = 10000000
+max_adv_participation = 0.10
+max_liquidation_days = 0.5
+market_regime_enabled = true
+max_sector_weight = 0.25
 exclude_risk_tags = ["high_volatility", "low_liquidity"]
 
 [output]

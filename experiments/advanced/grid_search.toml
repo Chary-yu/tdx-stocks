@@ -4,7 +4,7 @@ name = "trend-strength-grid"
 
 [strategy]
 name = "trend-strength"
-min_amount_ma20 = 50000000
+min_amount_ma20 = 150000000
 
 [backtest]
 from_date = "2022-01-01"

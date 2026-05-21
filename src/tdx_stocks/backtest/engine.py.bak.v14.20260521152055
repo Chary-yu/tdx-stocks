@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
-from statistics import mean, pstdev
+from statistics import mean
 from time import perf_counter
 from typing import Any
 
@@ -374,8 +374,7 @@ def _run_backtest_vectorized(
         )
 
     matches = _match_signal_prices(con, signals, params.hold_days)
-    benchmark = _benchmark_summary(con, trading_dates, periods_input)
-    return _build_report_from_matches(strategy_name, params, trading_dates, periods_input, matches, benchmark=benchmark)
+    return _build_report_from_matches(strategy_name, params, trading_dates, periods_input, matches)
 
 
 def _run_backtest_loop(
@@ -451,8 +450,7 @@ def _run_backtest_loop(
             }
         )
 
-    benchmark = _benchmark_summary(con, trading_dates, periods_input)
-    return _build_report_from_matches(strategy_name, params, trading_dates, periods_input, matches, benchmark=benchmark)
+    return _build_report_from_matches(strategy_name, params, trading_dates, periods_input, matches)
 
 
 def _signal_period_indices(trading_dates: list[date], params: BacktestParams) -> list[int]:
@@ -498,8 +496,6 @@ def _build_report_from_matches(
     trading_dates: list[date],
     periods_input: list[dict[str, Any]],
     matches: dict[tuple[str, int], dict[str, Any]],
-    *,
-    benchmark: dict[str, Any] | None = None,
 ) -> BacktestReport:
     periods: list[BacktestPeriod] = []
     trades: list[BacktestTrade] = []
@@ -566,7 +562,7 @@ def _build_report_from_matches(
             )
         )
 
-    return _build_report(strategy_name, params, trading_dates, periods, trades, equity_curve, empty_period_count, equity, benchmark=benchmark)
+    return _build_report(strategy_name, params, trading_dates, periods, trades, equity_curve, empty_period_count, equity)
 
 
 def _build_trade_from_match(
@@ -579,7 +575,6 @@ def _build_trade_from_match(
     buy_price = _float(match.get("buy_price")) if match is not None else None
     sell_price = _float(match.get("sell_price")) if match is not None else None
     direction = _normalize_direction(signal.get("direction"))
-    exit_reason = str(match.get("exit_reason") or "max_holding_days") if match is not None else None
 
     skipped_reason = None
     if match is None or buy_price is None or buy_date is None:
@@ -612,7 +607,6 @@ def _build_trade_from_match(
                 net_return=None,
                 direction=direction,
                 skipped_reason=skipped_reason,
-                exit_reason=exit_reason,
             ),
             None,
         )
@@ -634,7 +628,6 @@ def _build_trade_from_match(
             gross_return=round(gross_return, 6),
             net_return=round(net_return, 6),
             direction=direction,
-            exit_reason=exit_reason,
         ),
         net_return,
     )
@@ -659,9 +652,7 @@ def _match_signal_prices(con, signals: list[dict[str, Any]], hold_days: int) -> 
                 {adj["close"]} AS adj_close,
                 {adj["volume"]} AS volume,
                 row_number() OVER (PARTITION BY market, symbol ORDER BY trade_date) AS rn,
-                lag({adj["close"]}) OVER (PARTITION BY market, symbol ORDER BY trade_date) AS prev_close,
-                avg({adj["close"]}) OVER (PARTITION BY market, symbol ORDER BY trade_date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS ma20,
-                avg(({adj["high"]} - {adj["low"]})) OVER (PARTITION BY market, symbol ORDER BY trade_date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS atr14
+                lag({adj["close"]}) OVER (PARTITION BY market, symbol ORDER BY trade_date) AS prev_close
             FROM adj_daily
         ),
         adj_enriched AS (
@@ -675,22 +666,28 @@ def _match_signal_prices(con, signals: list[dict[str, Any]], hold_days: int) -> 
         buy_match AS (
             SELECT
                 s.signal_date,
-                s.signal_rank,
-                s.market,
-                s.symbol,
-                s.display_symbol,
-                s.score,
-                s.candidate_type,
-                s.direction,
-                b.trade_date AS buy_date,
-                b.adj_open AS buy_price,
-                b.rn AS buy_rn,
-                b.is_limit_up AS buy_is_limit_up,
-                b.is_limit_down AS buy_is_limit_down,
-                b.is_suspended AS buy_is_suspended
+            s.signal_rank,
+            s.market,
+            s.symbol,
+            s.display_symbol,
+            s.score,
+            s.candidate_type,
+            s.direction,
+            b.trade_date AS buy_date,
+            b.adj_open AS buy_price,
+            b.rn AS buy_rn,
+            b.buy_is_limit_up,
+            b.buy_is_limit_down,
+            b.buy_is_suspended
             FROM tmp_backtest_signals AS s
             LEFT JOIN LATERAL (
-                SELECT trade_date, adj_open, rn, is_limit_up, is_limit_down, is_suspended
+                SELECT
+                    trade_date,
+                    adj_open,
+                    rn,
+                    is_limit_up AS buy_is_limit_up,
+                    is_limit_down AS buy_is_limit_down,
+                    is_suspended AS buy_is_suspended
                 FROM adj_enriched AS b
                 WHERE b.market = s.market
                     AND b.symbol = s.symbol
@@ -699,53 +696,25 @@ def _match_signal_prices(con, signals: list[dict[str, Any]], hold_days: int) -> 
                 LIMIT 1
             ) AS b ON TRUE
         ),
-        sell_candidates AS (
+        sell_match AS (
             SELECT
                 b.*,
                 sell.trade_date AS sell_date,
                 sell.adj_open AS sell_price,
-                sell.adj_close AS sell_close,
-                sell.ma20 AS sell_ma20,
-                sell.atr14 AS sell_atr14,
-                sell.rn AS sell_rn,
-                max(sell.adj_high) OVER (
+                row_number() OVER (
                     PARTITION BY b.signal_date, b.signal_rank
-                    ORDER BY sell.rn
-                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                ) AS highest_high_since_buy
+                    ORDER BY sell.trade_date
+                ) AS sell_match_rank
             FROM buy_match AS b
             LEFT JOIN adj_enriched AS sell
                 ON sell.market = b.market
                 AND sell.symbol = b.symbol
-                AND sell.rn > b.buy_rn
-                AND sell.rn <= b.buy_rn + ?
+                AND sell.rn >= b.buy_rn + ?
                 AND (
                     (b.direction = 'SHORT' AND sell.is_limit_up = FALSE AND sell.is_suspended = FALSE)
                     OR
                     (b.direction <> 'SHORT' AND sell.is_limit_down = FALSE AND sell.is_suspended = FALSE)
                 )
-        ),
-        sell_triggers AS (
-            SELECT
-                *,
-                CASE
-                    WHEN sell_date IS NULL THEN NULL
-                    WHEN direction <> 'SHORT' AND sell_ma20 IS NOT NULL AND sell_close < sell_ma20 THEN 'ma_breakdown'
-                    WHEN direction <> 'SHORT' AND sell_atr14 IS NOT NULL AND sell_close <= highest_high_since_buy - 3.0 * sell_atr14 THEN 'atr_chandelier_stop'
-                    WHEN sell_rn >= buy_rn + ? THEN 'max_holding_days'
-                    ELSE NULL
-                END AS exit_reason
-            FROM sell_candidates
-        ),
-        sell_match AS (
-            SELECT
-                *,
-                row_number() OVER (
-                    PARTITION BY signal_date, signal_rank
-                    ORDER BY sell_date
-                ) AS sell_match_rank
-            FROM sell_triggers
-            WHERE exit_reason IS NOT NULL
         )
         SELECT
             signal_date,
@@ -762,13 +731,12 @@ def _match_signal_prices(con, signals: list[dict[str, Any]], hold_days: int) -> 
             buy_is_limit_down,
             buy_is_suspended,
             sell_date,
-            sell_price,
-            exit_reason
+            sell_price
         FROM sell_match
         WHERE sell_match_rank = 1
         ORDER BY signal_date, signal_rank
         """,
-        (hold_days, hold_days),
+        (hold_days,),
     )
     result = con.execute("SELECT * FROM tmp_backtest_price_matches")
     columns = [description[0] for description in result.description]
@@ -835,7 +803,6 @@ def _match_signal_prices_with_loader(
             "buy_is_suspended": False,
             "sell_date": trading_dates[sell_index],
             "sell_price": None,
-            "exit_reason": None,
         }
     sell_quote = None
     actual_sell_date = None
@@ -861,7 +828,6 @@ def _match_signal_prices_with_loader(
         "buy_is_suspended": buy_quote.is_suspended,
         "sell_date": actual_sell_date,
         "sell_price": sell_quote.price if sell_quote is not None else None,
-        "exit_reason": "max_holding_days" if sell_quote is not None else None,
     }
 
 
@@ -908,14 +874,11 @@ def _build_report(
     equity: float,
     *,
     base_equity: float = 1.0,
-    benchmark: dict[str, Any] | None = None,
 ) -> BacktestReport:
     effective_periods = [period for period in periods if not period.empty]
     period_returns = [period.period_return for period in effective_periods]
     total_return = round(equity / base_equity - 1.0, 6) if base_equity > 0 else 0.0
     trade_returns = [trade.net_return for trade in trades if trade.net_return is not None]
-    winsorized_total_return = _winsorized_compound_return(period_returns)
-    benchmark = benchmark or {"status": "not_available", "name": "沪深300"}
     win_rate = round(
         sum(1 for value in trade_returns if value > 0) / len(trade_returns),
         6,
@@ -944,75 +907,7 @@ def _build_report(
         equity_curve=equity_curve,
         periods=[period.to_dict() for period in periods],
         trades=[trade.to_dict() for trade in trades],
-        winsorized_total_return=winsorized_total_return,
-        benchmark_name=benchmark.get("name"),
-        benchmark_status=benchmark.get("status"),
-        benchmark_return=benchmark.get("return"),
-        alpha=(round(total_return - float(benchmark["return"]), 6) if benchmark.get("return") is not None else None),
-        information_ratio=benchmark.get("information_ratio"),
     )
-
-
-
-def _winsorized_compound_return(period_returns: list[float], *, trim_ratio: float = 0.01) -> float | None:
-    values = [float(value) for value in period_returns if value is not None]
-    if len(values) < 3:
-        return None
-    trim = int(len(values) * trim_ratio)
-    if trim <= 0 and len(values) >= 20:
-        trim = 1
-    if trim > 0 and len(values) > trim * 2:
-        values = sorted(values)[trim:-trim]
-    equity = 1.0
-    for value in values:
-        equity *= 1.0 + value
-    return round(equity - 1.0, 6)
-
-
-def _benchmark_summary(con, trading_dates: list[date], periods_input: list[dict[str, Any]]) -> dict[str, Any]:
-    if not trading_dates:
-        return {"name": "沪深300", "status": "not_available"}
-    candidates = [("sh", "000300", "沪深300"), ("sz", "399300", "沪深300"), ("sh", "000985", "万得全A"), ("sh", "000001", "上证指数")]
-    columns = _table_column_names(con, "adj_daily")
-    close_col = "adj_close" if "adj_close" in columns else "adj_open"
-    start = trading_dates[0]
-    end = trading_dates[-1]
-    for market, symbol, name in candidates:
-        try:
-            rows = con.execute(
-                f"""
-                SELECT trade_date, {close_col} AS close_price
-                FROM adj_daily
-                WHERE market = ? AND symbol = ? AND trade_date BETWEEN ? AND ?
-                ORDER BY trade_date
-                """,
-                (market, symbol, start, end),
-            ).fetchall()
-        except Exception:
-            rows = []
-        if len(rows) < 2:
-            continue
-        first = float(rows[0][1])
-        last = float(rows[-1][1])
-        if first <= 0:
-            continue
-        bench_return = round(last / first - 1.0, 6)
-        price_by_date = {str(row[0]): float(row[1]) for row in rows if row[1] is not None}
-        excess: list[float] = []
-        for period in periods_input:
-            if period.get("buy_date") is None or period.get("sell_date") is None:
-                continue
-            buy = price_by_date.get(str(period.get("buy_date")))
-            sell = price_by_date.get(str(period.get("sell_date")))
-            if buy and sell and buy > 0:
-                # period return is unavailable here; IR is computed later only when there are enough benchmark observations.
-                excess.append(sell / buy - 1.0)
-        ir = None
-        if len(excess) > 1:
-            # Without period returns in this scope, expose benchmark availability and leave conservative IR unavailable.
-            ir = None
-        return {"name": name, "status": "available", "return": bench_return, "information_ratio": ir}
-    return {"name": "沪深300", "status": "not_available"}
 
 
 def _signal_key(signal: dict[str, Any]) -> tuple[str, int]:

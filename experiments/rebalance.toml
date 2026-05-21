@@ -5,13 +5,22 @@ name = "rebalance-from-consensus"
 [portfolio]
 source = "consensus"
 top = 20
-weighting = "equal"
+weighting = "liquidity-risk"
 max_weight = 0.10
+exclude_risk_tags = ["high_volatility", "low_liquidity"]
+capital = 10000000
+max_adv_participation = 0.10
+max_liquidation_days = 0.5
+market_regime_enabled = true
+max_sector_weight = 0.25
 
 [rebalance]
 current_holdings = "../holdings.csv.example"
 min_trade_weight = 0.01
 max_turnover = 0.50
+target_source = "portfolio"
+require_risk_filtered_target = true
+reject_unfiltered_target = true
 
 [output]
 save = true

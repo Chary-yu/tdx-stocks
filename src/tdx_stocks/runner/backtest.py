@@ -8,6 +8,10 @@ from ..reports.paths import run_report_outputs
 from ..progress import ProgressCallback, emit_progress
 
 
+DEFAULT_FEE_RATE = 0.0003
+DEFAULT_SLIPPAGE = 0.0005
+
+
 def run_backtest_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progress: ProgressCallback | None = None) -> RunResult:
     emit_progress(progress, "读取回测任务配置")
     data = run_config.config
@@ -22,16 +26,17 @@ def run_backtest_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pro
         to_date=parse_iso_date(backtest.get("to_date")),
         top=int(_pick(backtest.get("top"), _pick(strategy.get("limit"), 20))),
         hold_days=int(_pick(backtest.get("hold_days"), 5)),
-        fee_rate=float(_pick(backtest.get("fee_rate"), (backtest.get("fee_bps") or 0.0) / 10_000)),
-        slippage=float(_pick(backtest.get("slippage"), (backtest.get("slippage_bps") or 0.0) / 10_000)),
+        fee_rate=float(_pick(backtest.get("fee_rate"), (backtest.get("fee_bps") / 10_000 if backtest.get("fee_bps") is not None else DEFAULT_FEE_RATE))),
+        slippage=float(_pick(backtest.get("slippage"), (backtest.get("slippage_bps") / 10_000 if backtest.get("slippage_bps") is not None else DEFAULT_SLIPPAGE))),
         market=backtest.get("market"),
         candidate_type=backtest.get("candidate_type"),
         min_score=_pick(backtest.get("min_score"), strategy.get("min_score")),
         min_amount_ma20=_pick(backtest.get("min_amount_ma20"), strategy.get("min_amount_ma20")),
+        rolling=bool(backtest.get("rolling", False)),
     )
     emit_progress(progress, "执行策略回测")
     strategy_name = str(strategy.get("name") or data.get("strategy_name") or "trend-strength")
-    report = run_backtest(run_config.app_config, strategy_name, params)
+    report = run_backtest(run_config.app_config, strategy_name, params, progress=progress)
     emit_progress(progress, "准备回测报告输出")
     return RunResult(
         task_type="backtest",

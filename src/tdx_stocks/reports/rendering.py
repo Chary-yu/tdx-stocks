@@ -43,6 +43,12 @@ FIELD_LABELS: dict[str, str] = {
     "warnings": "警告",
     "summary": "摘要",
     "turnover": "换手率",
+    "fee_rate": "手续费率",
+    "slippage": "滑点",
+    "rolling": "滚动回测",
+    "hold_days": "最大持有天数",
+    "from_date": "开始日期",
+    "to_date": "结束日期",
     "buy_count": "买入数量",
     "sell_count": "卖出数量",
     "increase_count": "增持数量",
@@ -57,13 +63,20 @@ FIELD_LABELS: dict[str, str] = {
     "turnover": "换手率",
     "trade_count": "交易数量",
     "period_count": "周期数量",
-    "empty_period_count": "空仓周期数量",
+    "empty_period_count": "跳过/空周期数量",
+    "winsorized_total_return": "去极端值总收益",
+    "benchmark_name": "基准",
+    "benchmark_return": "基准收益",
+    "alpha": "Alpha（超额收益）",
+    "information_ratio": "信息比率",
+    "exit_reason": "平仓触发原因",
+    "min_amount_ma20": "20日均成交额门槛",
     "start_date": "开始日期",
     "end_date": "结束日期",
     "result_count": "参数组合数量",
     "best_min_score": "最优最低分",
     "best_top": "最优持仓数",
-    "best_hold_days": "最优持有天数",
+    "best_hold_days": "最优最大持有天数",
     "best_research_score": "最优研究分",
     "best_annual_return": "最优年化收益",
     "best_max_drawdown": "最优最大回撤",
@@ -122,6 +135,8 @@ VALUE_LABELS: dict[str, str] = {
     "true": "是",
     "false": "否",
     "equal": "等权",
+    "liquidity-risk": "流动性/风险加权",
+    "liquidity_risk": "流动性/风险加权",
     "consensus": "策略共振",
     "signal": "信号",
     "portfolio": "组合",
@@ -141,6 +156,15 @@ VALUE_LABELS: dict[str, str] = {
     "increase": "增持",
     "reduce": "减持",
     "hold": "继续持有",
+    "LONG": "做多",
+    "SHORT": "做空",
+    "limit_up/suspended": "涨停或停牌",
+    "limit_down/suspended": "跌停或停牌",
+    "missing_price": "缺少价格",
+    "insufficient_future_dates": "未来交易日不足",
+    "ma_breakdown": "均线破位",
+    "atr_chandelier_stop": "触及 ATR 吊灯止损线",
+    "max_holding_days": "达到最大持有天数强制平仓",
     "rebalance plan skipped by --skip-rebalance": "调仓计划已跳过：运行时使用了 --skip-rebalance",
     "portfolio skipped because strategies were skipped": "策略已跳过，因此组合构建也已跳过",
     "latest": "最新",
@@ -164,6 +188,7 @@ TAG_GLOSSARY: dict[str, tuple[str, str]] = {
     "volume_expansion": ("量能放大", "关注量能是否持续"),
     "low_liquidity": ("流动性不足", "谨慎参与"),
     "high_volatility": ("高波动", "降低仓位或过滤"),
+    "liquidity-risk": ("流动性/风险加权", "按成交额与风险约束单票权重"),
 }
 
 TYPE_LABELS = {key: value[0] for key, value in TAG_GLOSSARY.items()} | VALUE_LABELS
@@ -263,8 +288,11 @@ def _render_portfolio(payload: dict[str, Any], stock_names: dict[tuple[str, str]
         ("数据批次", summary.get("data_run_id")),
         ("持仓数量", len(holdings)),
     ]))
-    lines.extend(_dict_section("运行参数", summary.get("params")))
+    lines.extend(_backtest_params_section(_as_dict(summary.get("params"))))
     lines.extend(_dict_section("组合摘要", summary.get("summary")))
+    lines.extend(_market_regime_section(_as_dict(summary.get("diagnostics"))))
+    lines.extend(_risk_interception_section(_as_dict(summary.get("diagnostics")), stock_names))
+    lines.extend(_sector_exposure_section(_as_dict(summary.get("diagnostics"))))
     lines.extend(_risk_highlights(_as_dict(summary.get("risk_summary"))))
     lines.extend(_exposure_summary(_as_dict(summary.get("risk_summary"))))
     lines.extend(_holdings_section("目标持仓", holdings, stock_names))
@@ -299,6 +327,9 @@ def _render_rebalance(payload: dict[str, Any], stock_names: dict[tuple[str, str]
         ("减持数量", len(_as_list(summary.get("reduce")))),
         ("继续持有数量", len(_as_list(summary.get("hold")))),
     ]))
+    diagnostics = _as_dict(summary.get("diagnostics"))
+    lines.extend(_rebalance_precheck_section(diagnostics))
+    lines.extend(_risk_interception_section(diagnostics, stock_names))
     lines.extend(_rebalance_actions(changes, stock_names))
     lines.extend(_holdings_section("目标持仓", target, stock_names))
     lines.extend(_label_glossary(payload))
@@ -310,6 +341,9 @@ def _render_backtest(payload: dict[str, Any], stock_names: dict[tuple[str, str],
     summary = _as_dict(payload.get("summary"))
     lines = _title(payload, "回测报告")
     lines.extend(_current_strategy_section(payload, "backtest"))
+    periods = _as_list(summary.get("periods"))
+    skipped_periods = [row for row in periods if isinstance(row, dict) and row.get("empty")]
+    effective_periods = [row for row in periods if isinstance(row, dict) and not row.get("empty")]
     lines.extend(_kv_section("报告概览", [
         ("报告名称", payload.get("name")),
         ("运行状态", payload.get("status")),
@@ -317,19 +351,27 @@ def _render_backtest(payload: dict[str, Any], stock_names: dict[tuple[str, str],
         ("开始日期", summary.get("start_date")),
         ("结束日期", summary.get("end_date")),
         ("交易数量", summary.get("trade_count")),
-        ("周期数量", summary.get("period_count")),
-        ("空仓周期数量", summary.get("empty_period_count")),
+        ("总周期数量", summary.get("period_count")),
+        ("有效周期数量", len(effective_periods)),
+        ("跳过/空周期数量", summary.get("empty_period_count") if summary.get("empty_period_count") is not None else len(skipped_periods)),
     ]))
     lines.extend(_kv_section("收益表现", [
         ("总收益", _pct(summary.get("total_return"))),
         ("年化收益", _pct(summary.get("annual_return"))),
         ("最大回撤", _pct(summary.get("max_drawdown"))),
+        ("去极端值总收益", _pct(summary.get("winsorized_total_return"))),
+        ("基准", _value(summary.get("benchmark_name"))),
+        ("基准状态", _value(summary.get("benchmark_status"))),
+        ("基准收益", _pct(summary.get("benchmark_return"))),
+        ("Alpha（超额收益）", _pct(summary.get("alpha"))),
+        ("信息比率", _num(summary.get("information_ratio"), digits=4)),
         ("胜率", _pct(summary.get("win_rate"))),
         ("平均周期收益", _pct(summary.get("avg_period_return"))),
         ("换手率", _pct(summary.get("turnover"))),
     ]))
-    lines.extend(_dict_section("运行参数", summary.get("params")))
-    lines.extend(_backtest_periods(_as_list(summary.get("periods")), stock_names))
+    lines.extend(_backtest_params_section(_as_dict(summary.get("params"))))
+    lines.extend(_backtest_periods(periods, stock_names))
+    lines.extend(_backtest_skipped_periods(skipped_periods, stock_names))
     lines.extend(_backtest_trades(_as_list(summary.get("trades")), stock_names))
     lines.extend(_footer(payload))
     return _join(lines)
@@ -347,16 +389,27 @@ def _render_grid(payload: dict[str, Any]) -> str:
         ("策略名称", summary.get("strategy_name")),
         ("参数组合数量", len(rows)),
     ]))
+    lines.extend(_grid_warnings(rows))
+    lines.extend(_backtest_params_section(_as_dict(summary.get("params"))))
+    lines.extend(_grid_search_space(rows))
     if best:
-        lines.extend(_kv_section("最优参数", [
+        lines.extend(_kv_section("本次搜索范围内相对最优参数", [
             ("最低分", best.get("min_score")),
+            ("20日均成交额门槛", _money(best.get("min_amount_ma20"))),
             ("持仓数量", best.get("top")),
-            ("持有天数", best.get("hold_days")),
-            ("研究分", best.get("research_score")),
+            ("最大持有天数", best.get("hold_days")),
+            ("研究分", _num(best.get("research_score"), digits=4)),
+            ("总收益", _pct(best.get("total_return"))),
             ("年化收益", _pct(best.get("annual_return"))),
             ("最大回撤", _pct(best.get("max_drawdown"))),
             ("胜率", _pct(best.get("win_rate"))),
+            ("换手率", _pct(best.get("turnover"))),
+            ("周期数", _int(best.get("period_count"))),
+            ("有效周期数", _int(_effective_period_count(best))),
+            ("跳过/空周期数", _int(best.get("empty_period_count"))),
         ]))
+    lines.extend(_grid_score_explanation())
+    lines.extend(_grid_min_score_diagnostics(rows))
     lines.extend(_grid_rows(rows))
     lines.extend(_footer(payload))
     return _join(lines)
@@ -434,7 +487,9 @@ def _current_strategy_section(payload: dict[str, Any], task_type: str) -> list[s
             ("策略", strategy_name),
             ("回测区间", _range_text(summary.get("start_date"), summary.get("end_date"))),
             ("持仓数量", params.get("top")),
-            ("持有天数", params.get("hold_days")),
+            ("最大持有天数", params.get("hold_days")),
+            ("退出机制", "技术止损/跟踪止盈优先，hold_days 作为最大持有天数上限"),
+            ("回测模式", "每日滚动" if params.get("rolling") else "每持有天数调仓一次"),
             ("技术面细节", _strategy_technical_text([strategy_name])),
             ("验证重点", "通过总收益、年化收益、最大回撤、胜率、换手率和空仓周期判断策略稳定性"),
         ]
@@ -533,9 +588,12 @@ def _consensus_section(rows_in: list[Any], stock_names: dict[tuple[str, str], st
             _num(row.get("avg_score")),
             _format_tokens(row.get("candidate_types")),
             _format_tokens(row.get("risk_flags")),
+            _signal_state(row),
+            _support_price(row),
+            _pullback_range(row),
             _action_hint(row.get("risk_flags")),
         ))
-    return _table_section("共振股票", ("排名", "股票", "命中数", "平均分", "类型", "风险提示", "操作提示"), rows)
+    return _table_section("共振股票", ("排名", "股票", "命中数", "平均分", "类型", "风险提示", "信号状态", "量化支撑位", "预期回踩买入区间", "操作提示"), rows)
 
 
 def _consensus_details(rows_in: list[Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
@@ -551,6 +609,9 @@ def _consensus_details(rows_in: list[Any], stock_names: dict[tuple[str, str], st
             f"- 命中策略：{_format_tokens(row.get('strategies'))}",
             f"- 候选类型：{_format_tokens(row.get('candidate_types'))}",
             f"- 风险提示：{_format_tokens(row.get('risk_flags'))}",
+            f"- 信号状态：{_signal_state(row)}",
+            f"- 量化支撑位：{_support_price(row)}",
+            f"- 预期回踩买入区间：{_pullback_range(row)}",
             "- 入选理由：",
         ])
         reasons = _as_list(row.get("reasons") or row.get("reason"))
@@ -586,8 +647,11 @@ def _holdings_section(title: str, holdings: list[Any], stock_names: dict[tuple[s
             _num(row.get("score")),
             _format_tokens(row.get("candidate_type")),
             _format_tokens(row.get("risk_flags")),
+            _money(_factor(row, "amount_ma20")),
+            _pct(_factor(row, "target_amount_to_adv")),
+            _num(_factor(row, "expected_liquidation_days"), digits=2),
         ))
-    return _table_section(title, ("排名", "股票", "权重", "分数", "候选类型", "风险提示"), rows)
+    return _table_section(title, ("排名", "股票", "权重", "分数", "候选类型", "风险提示", "20日均成交额", "目标金额/ADV", "预计变现天数"), rows)
 
 
 def _holding_details(holdings: list[Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
@@ -607,6 +671,9 @@ def _holding_details(holdings: list[Any], stock_names: dict[tuple[str, str], str
             f"- 风险提示：{_format_tokens(row.get('risk_flags'))}",
             f"- 标签：{_format_tokens(row.get('tags'), max_items=8)}",
             f"- 入选理由：{_value(row.get('reason'))}",
+            f"- 20日均成交额：{_money(_factor(row, 'amount_ma20'))}",
+            f"- 目标金额/ADV：{_pct(_factor(row, 'target_amount_to_adv'))}",
+            f"- 预计变现天数：{_num(_factor(row, 'expected_liquidation_days'), digits=2)}",
             "",
         ])
     return lines
@@ -660,18 +727,143 @@ def _rebalance_actions(changes: list[Any], stock_names: dict[tuple[str, str], st
     return _table_section("调仓动作", ("操作", "股票", "当前权重", "目标权重", "权重差", "说明"), rows)
 
 
+
+def _risk_interception_section(diagnostics: dict[str, Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
+    rows_in = _as_list(diagnostics.get("risk_interceptions"))
+    if not rows_in:
+        applied = diagnostics.get("risk_filter_applied")
+        if applied:
+            return ["## 风控拦截日志", "", "今日无股票触发组合风控拦截。", ""]
+        return []
+    rows = []
+    for row in rows_in[:MAX_TABLE_ROWS]:
+        if not isinstance(row, dict):
+            continue
+        rows.append((
+            stock_display(row, stock_names, include_code=True),
+            _num(row.get("score")),
+            _format_tokens(row.get("source_strategies") or row.get("source_strategy")),
+            _format_tokens(row.get("trigger_tags")),
+            _value(row.get("reason")),
+            "已一票否决",
+        ))
+    title = "风控拦截日志" if len(rows_in) <= MAX_TABLE_ROWS else f"风控拦截日志（仅显示前 {MAX_TABLE_ROWS} 条，共 {len(rows_in)} 条）"
+    return _table_section(title, ("股票", "分数", "来源策略", "触发标签", "拦截原因", "处理"), rows)
+
+
+def _market_regime_section(diagnostics: dict[str, Any]) -> list[str]:
+    regime = _as_dict(diagnostics.get("market_regime"))
+    if not regime:
+        return []
+    return _kv_section("市场环境滤网", [
+        ("是否启用", regime.get("enabled")),
+        ("参考指数", regime.get("index")),
+        ("均线窗口", regime.get("ma_window")),
+        ("市场状态", regime.get("status")),
+        ("系统动作", regime.get("action")),
+        ("说明", regime.get("message")),
+    ])
+
+
+def _sector_exposure_section(diagnostics: dict[str, Any]) -> list[str]:
+    exposure = _as_dict(diagnostics.get("sector_exposure"))
+    if not exposure:
+        return []
+    rows_in = _as_list(exposure.get("rows"))
+    if not rows_in:
+        return ["## 行业暴露", "", "未找到行业分类数据，无法计算行业暴露。", ""]
+    rows = []
+    for row in rows_in:
+        if isinstance(row, dict):
+            rows.append((row.get("sector"), _int(row.get("count")), _pct(row.get("weight")), "行业集中度过高" if row.get("warning") else "正常"))
+    return _table_section("行业暴露", ("行业", "股票数量", "权重占比", "风险提示"), rows)
+
+
+def _factor(row: dict[str, Any], key: str) -> Any:
+    factors = row.get("factor_values") if isinstance(row.get("factor_values"), dict) else {}
+    return row.get(key) if row.get(key) is not None else factors.get(key)
+
+
+def _money(value: object) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return "无"
+    if abs(number) >= 100_000_000:
+        return f"{number / 100_000_000:.2f}亿"
+    if abs(number) >= 10_000:
+        return f"{number / 10_000:.2f}万"
+    return _num(number)
+
+def _backtest_params_section(params: dict[str, Any]) -> list[str]:
+    if not params:
+        return []
+    rows = []
+    ordered_keys = [
+        "from_date",
+        "to_date",
+        "top",
+        "hold_days",
+        "rolling",
+        "fee_rate",
+        "slippage",
+        "min_score",
+        "min_amount_ma20",
+        "market",
+        "candidate_type",
+    ]
+    for key in ordered_keys:
+        if key not in params:
+            continue
+        value = params.get(key)
+        if key in {"fee_rate", "slippage"}:
+            formatted = _pct(value, digits=4)
+        elif key == "rolling":
+            formatted = "是" if value else "否"
+        else:
+            formatted = _value(value)
+        rows.append((_label(key), formatted))
+    return _kv_section("运行参数", rows)
+
+
 def _backtest_periods(periods: list[Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
+    effective = [row for row in periods if isinstance(row, dict) and not row.get("empty")]
+    rows = []
+    for row in effective[:MAX_TABLE_ROWS]:
+        rows.append((
+            row.get("signal_date"),
+            row.get("buy_date"),
+            row.get("sell_date"),
+            _pct(row.get("period_return") or row.get("return")),
+            _num(row.get("equity"), digits=4),
+            _int(row.get("trade_count")),
+            _format_skip_reasons(row.get("skipped_reasons"), stock_names),
+        ))
+    title = "周期收益"
+    if len(effective) > MAX_TABLE_ROWS:
+        title = f"周期收益（仅显示前 {MAX_TABLE_ROWS} 条，共 {len(effective)} 条）"
+    elif effective:
+        title = f"周期收益（有效周期，共 {len(effective)} 条）"
+    return _table_section(title, ("信号日", "买入日", "卖出日", "收益", "净值", "交易数", "跳过原因"), rows)
+
+
+def _backtest_skipped_periods(periods: list[Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
     rows = []
     for row in periods[:MAX_TABLE_ROWS]:
         if not isinstance(row, dict):
             continue
         rows.append((
-            row.get("entry_date") or row.get("start_date"),
-            row.get("exit_date") or row.get("end_date"),
-            _pct(row.get("period_return") or row.get("return")),
-            _format_stock_list(_as_list(row.get("symbols") or row.get("holdings")), stock_names),
+            row.get("signal_date"),
+            row.get("buy_date"),
+            row.get("sell_date"),
+            _num(row.get("equity"), digits=4),
+            _format_skip_reasons(row.get("skipped_reasons"), stock_names),
         ))
-    return _table_section("周期收益", ("开始", "结束", "收益", "持仓"), rows)
+    if not rows:
+        return []
+    title = "跳过周期"
+    if len(periods) > MAX_TABLE_ROWS:
+        title = f"跳过周期（仅显示前 {MAX_TABLE_ROWS} 条，共 {len(periods)} 条）"
+    return _table_section(title, ("信号日", "买入日", "卖出日", "净值", "跳过原因"), rows)
 
 
 def _backtest_trades(trades: list[Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
@@ -680,13 +872,221 @@ def _backtest_trades(trades: list[Any], stock_names: dict[tuple[str, str], str])
         if not isinstance(row, dict):
             continue
         rows.append((
-            row.get("date") or row.get("buy_date") or row.get("signal_date"),
-            _value(row.get("action") or row.get("side")),
+            row.get("signal_date"),
+            row.get("buy_date"),
+            row.get("sell_date"),
+            _value(row.get("direction") or row.get("action") or row.get("side")),
             stock_display(row, stock_names),
-            _num(row.get("price") or row.get("buy_price")),
-            _pct(row.get("net_return") or row.get("gross_return")),
+            _num(row.get("buy_price") or row.get("price")),
+            _num(row.get("sell_price")),
+            _pct(row.get("net_return") if row.get("net_return") is not None else row.get("gross_return")),
+            _value(row.get("exit_reason")),
+            _format_skip_reason(row.get("skipped_reason"), stock_names),
         ))
-    return _table_section("交易摘要", ("日期", "操作", "股票", "价格", "收益"), rows)
+    title = "交易摘要"
+    if len(trades) > MAX_TABLE_ROWS:
+        title = f"交易摘要（仅显示前 {MAX_TABLE_ROWS} 条，共 {len(trades)} 条）"
+    elif trades:
+        title = f"交易摘要（共 {len(trades)} 条）"
+    return _table_section(title, ("信号日", "买入日", "卖出日", "方向", "股票", "买入价", "卖出价", "净收益", "平仓触发原因", "跳过原因"), rows)
+
+
+
+def _signal_state(row: dict[str, Any]) -> str:
+    flags = set(str(item) for item in _as_list(row.get("risk_flags")))
+    watch_flags = {"near_20d_high", "rsi_high", "ret_5_strong", "mild_volatility", "high_volatility"}
+    return "待观察（Watchlist）" if flags & watch_flags else "可执行"
+
+
+def _support_price(row: dict[str, Any]) -> str:
+    factors = _as_dict(row.get("factor_values"))
+    for key in ("ma20", "support_price", "platform_high", "prev_high", "adj_close"):
+        value = row.get(key) if row.get(key) is not None else factors.get(key)
+        if value is not None:
+            return _num(value, digits=2)
+    return "缺少均线/平台数据"
+
+
+def _pullback_range(row: dict[str, Any]) -> str:
+    factors = _as_dict(row.get("factor_values"))
+    base = None
+    for key in ("ma20", "support_price", "platform_high", "prev_high", "adj_close"):
+        value = row.get(key) if row.get(key) is not None else factors.get(key)
+        if value is not None:
+            try:
+                base = float(value)
+                break
+            except (TypeError, ValueError):
+                pass
+    if base is None:
+        return "缺少数据，禁止立即买入"
+    return f"{base * 0.98:.2f} - {base * 1.02:.2f}"
+
+
+def _rebalance_precheck_section(diagnostics: dict[str, Any]) -> list[str]:
+    regime = _as_dict(diagnostics.get("market_regime") or diagnostics.get("target_market_regime"))
+    target_filter = _as_dict(diagnostics.get("target_risk_filter"))
+    rows = [
+        ("风控过滤继承", "是" if diagnostics.get("risk_filter_applied") or target_filter.get("risk_filter_applied") else "否"),
+        ("市场状态", regime.get("status")),
+        ("系统动作", regime.get("action")),
+        ("是否允许买入", "否" if regime.get("action") == "pause_open" or regime.get("status") in {"not_available", "bear"} else "是"),
+        ("说明", regime.get("message") or diagnostics.get("pre_trade_message")),
+    ]
+    return _kv_section("前置大盘风控校验状态", rows)
+
+
+def _format_skip_reasons(values: object, stock_names: dict[tuple[str, str], str] | None = None) -> str:
+    if values is None or values == []:
+        return "无"
+    if isinstance(values, (list, tuple, set)):
+        items = [_format_skip_reason(item, stock_names) for item in values if item not in (None, "")]
+        return "，".join(items) if items else "无"
+    return _format_skip_reason(values, stock_names)
+
+
+def _format_skip_reason(value: object, stock_names: dict[tuple[str, str], str] | None = None) -> str:
+    if value in (None, ""):
+        return "无"
+    text = str(value)
+    for key in ("limit_up/suspended", "limit_down/suspended", "missing_price", "insufficient_future_dates"):
+        if text == key:
+            return VALUE_LABELS.get(key, key)
+        if text.startswith(key + ":"):
+            detail = text[len(key) + 1:]
+            return f"{VALUE_LABELS.get(key, key)}：{_format_skip_detail(detail, stock_names)}"
+    return _value(text)
+
+
+def _format_skip_detail(detail: str, stock_names: dict[tuple[str, str], str] | None = None) -> str:
+    parts = detail.split(":", 1)
+    if len(parts) == 2:
+        market, symbol = parts[0], parts[1]
+        if stock_names:
+            return stock_display({"market": market, "symbol": symbol}, stock_names, include_code=True)
+        return stock_code({"market": market, "symbol": symbol})
+    return detail
+
+
+def _grid_warnings(rows_in: list[Any]) -> list[str]:
+    rows = [row for row in rows_in if isinstance(row, dict)]
+    if not rows:
+        return []
+    warnings: list[tuple[object, object]] = []
+    annual_returns = [row.get("annual_return") for row in rows if row.get("annual_return") is not None]
+    research_scores = [row.get("research_score") for row in rows if row.get("research_score") is not None]
+    if annual_returns and all(float(value) < 0 for value in annual_returns):
+        warnings.append(("收益提示", "本次所有参数组合年化收益均为负，当前最优参数仅代表相对亏损较小，不代表策略有效"))
+    if research_scores and all(float(value) < 0 for value in research_scores):
+        warnings.append(("研究分提示", "本次所有参数组合研究分均为负，建议扩大参数范围或先检查策略条件与市场环境"))
+
+    effective_counts = [_effective_period_count(row) for row in rows]
+    if effective_counts and min(effective_counts) <= 5:
+        warnings.append(("样本提示", "部分参数组合有效周期数较少，结果更适合流程验证，不宜直接作为最终参数选择依据"))
+
+    high_empty_rows = []
+    for row in rows:
+        period_count = _safe_float(row.get("period_count"))
+        empty_count = _safe_float(row.get("empty_period_count"))
+        if period_count and period_count > 0 and empty_count / period_count >= 0.3:
+            high_empty_rows.append(row)
+    if high_empty_rows:
+        warnings.append(("跳过周期提示", "部分参数组合跳过/空周期占比较高，可能导致收益、回撤和胜率稳定性不足"))
+
+    return _kv_section("参数搜索风险提示", warnings) if warnings else []
+
+
+def _grid_search_space(rows_in: list[Any]) -> list[str]:
+    rows = [row for row in rows_in if isinstance(row, dict)]
+    if not rows:
+        return []
+    return _kv_section("参数搜索范围", [
+        ("最低分", _format_grid_values(_unique_values(rows, "min_score"))),
+        ("最低20日均成交额", _format_grid_values(_unique_values(rows, "min_amount_ma20"), money=True)),
+        ("持仓数量", _format_grid_values(_unique_values(rows, "top"))),
+        ("最大持有天数", _format_grid_values(_unique_values(rows, "hold_days"))),
+        ("组合数量", len(rows)),
+    ])
+
+
+def _grid_score_explanation() -> list[str]:
+    return _kv_section("研究分说明", [
+        ("排序口径", "研究分综合考虑收益、回撤、胜率等因素，不一定选择年化收益最高的参数"),
+        ("使用建议", "当样本周期较少或跳过周期较多时，应扩大回测区间后再确认参数有效性"),
+    ])
+
+
+def _grid_min_score_diagnostics(rows_in: list[Any]) -> list[str]:
+    rows = [row for row in rows_in if isinstance(row, dict)]
+    if len(rows) < 2:
+        return []
+    min_scores = _unique_values(rows, "min_score")
+    if len(min_scores) < 2:
+        return _kv_section("参数诊断", [
+            ("最低分差异", f"本次仅测试了一个最低分阈值：{_format_grid_values(min_scores)}，无法判断 min_score 对结果的影响"),
+        ])
+
+    groups: dict[tuple[object, object], dict[object, set[tuple[object, ...]]]] = {}
+    for row in rows:
+        key = (row.get("top"), row.get("hold_days"))
+        signature = (
+            row.get("total_return"),
+            row.get("annual_return"),
+            row.get("max_drawdown"),
+            row.get("win_rate"),
+            row.get("turnover"),
+            row.get("period_count"),
+            row.get("empty_period_count"),
+        )
+        groups.setdefault(key, {}).setdefault(row.get("min_score"), set()).add(signature)
+
+    unchanged: list[tuple[object, object]] = []
+    for key, by_min_score in groups.items():
+        if len(by_min_score) < 2:
+            continue
+        signatures = {next(iter(values)) for values in by_min_score.values() if values}
+        if len(signatures) == 1:
+            unchanged.append(key)
+
+    if not unchanged:
+        return []
+    return _kv_section("参数诊断", [
+        ("最低分差异", "部分参数组在不同最低分下结果完全一致，可能是入选股票分数均高于阈值，也可能需要检查 min_score 是否真正影响候选筛选"),
+        ("无差异组合", "；".join(f"持仓数={top}，持有天数={hold_days}" for top, hold_days in unchanged)),
+    ])
+
+
+def _unique_values(rows: list[dict[str, Any]], key: str) -> list[object]:
+    values: list[object] = []
+    for row in rows:
+        value = row.get(key)
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def _format_grid_values(values: list[object], *, money: bool = False) -> str:
+    if not values:
+        return "无"
+    formatter = _money if money else _value
+    return "[" + "，".join(formatter(value) for value in values) + "]"
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _effective_period_count(row: dict[str, Any]) -> int | None:
+    period_count = _safe_float(row.get("period_count"))
+    empty_count = _safe_float(row.get("empty_period_count")) or 0
+    if period_count is None:
+        return None
+    return max(int(period_count - empty_count), 0)
 
 
 def _grid_rows(rows_in: list[Any]) -> list[str]:
@@ -695,11 +1095,30 @@ def _grid_rows(rows_in: list[Any]) -> list[str]:
         if not isinstance(row, dict):
             continue
         rows.append((
-            row.get("min_score"), row.get("top"), row.get("hold_days"),
-            _pct(row.get("annual_return")), _pct(row.get("max_drawdown")),
-            _pct(row.get("win_rate")), _num(row.get("research_score"), digits=4),
+            row.get("min_score"),
+            _money(row.get("min_amount_ma20")),
+            row.get("top"),
+            row.get("hold_days"),
+            _pct(row.get("total_return")),
+            _pct(row.get("annual_return")),
+            _pct(row.get("max_drawdown")),
+            _pct(row.get("win_rate")),
+            _pct(row.get("turnover")),
+            _int(row.get("period_count")),
+            _int(_effective_period_count(row)),
+            _int(row.get("empty_period_count")),
+            _num(row.get("research_score"), digits=4),
         ))
-    return _table_section("参数结果", ("最低分", "持仓数", "持有天数", "年化收益", "最大回撤", "胜率", "研究分"), rows)
+    title = "参数结果"
+    if len(rows_in) > MAX_TABLE_ROWS:
+        title = f"参数结果（仅显示前 {MAX_TABLE_ROWS} 组，共 {len(rows_in)} 组）"
+    elif rows_in:
+        title = f"参数结果（共 {len(rows_in)} 组）"
+    return _table_section(
+        title,
+        ("最低分", "20日均成交额门槛", "持仓数", "最大持有天数", "总收益", "年化收益", "最大回撤", "胜率", "换手率", "周期数", "有效周期", "跳过周期", "研究分"),
+        rows,
+    )
 
 
 def _dict_section(title: str, value: object) -> list[str]:
@@ -843,7 +1262,7 @@ def _action_hint(flags: object) -> str:
     if "rsi_high" in values or "ret_5_strong" in values:
         return "短线偏热，谨慎追涨"
     if "near_20d_high" in values:
-        return "避免追高，等待回踩"
+        return "降级为Watchlist：仅在回踩至量化支撑位附近且不破位时激活"
     if "mild_volatility" in values or "high_volatility" in values:
         return "控制仓位"
     if not values:
@@ -896,12 +1315,12 @@ def _int(value: object) -> str:
         return _value(value)
 
 
-def _pct(value: object) -> str:
+def _pct(value: object, *, digits: int = 2) -> str:
     if value is None:
         return "无"
     try:
         number = float(value) * 100
-        return f"{number:,.2f}".rstrip("0").rstrip(".") + "%"
+        return f"{number:,.{digits}f}".rstrip("0").rstrip(".") + "%"
     except (TypeError, ValueError):
         return _value(value)
 

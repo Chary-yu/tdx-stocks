@@ -12,10 +12,9 @@ fee_rate = 0.0003
 slippage = 0.0005
 
 [grid]
-"strategy.min_score" = [60, 70, 80]
-"backtest.top" = [5, 10]
-"backtest.hold_days" = [5, 10, 20]
-"strategy.min_amount_ma20" = [150000000, 200000000]
+"strategy.min_score" = [60]
+"backtest.top" = [5]
+"backtest.hold_days" = [5, 10, 15, 20]
 
 [strategy]
 name = "trend-strength"

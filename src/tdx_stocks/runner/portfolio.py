@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..portfolio import build_portfolio
+from ..portfolio.risk_controls import DEFAULT_EXCLUDE_RISK_TAGS, normalize_exclude_risk_tags
 from ..pipeline import parse_iso_date
 from .config import LoadedRunConfig
 from .models import RunResult
@@ -21,12 +22,17 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         run_config.app_config,
         source=str(portfolio.get("source") or "consensus"),
         top=int(portfolio.get("top") or 20),
-        weighting=str(portfolio.get("weighting") or "equal"),
+        weighting=str(portfolio.get("weighting") or "liquidity-risk"),
         max_weight=float(portfolio.get("max_weight") or 0.10),
         min_weight=float(portfolio.get("min_weight") or 0.0),
         max_risk_score=portfolio.get("max_risk_score"),
-        exclude_risk_tags=tuple(portfolio.get("exclude_risk_tags") or ()),
+        exclude_risk_tags=normalize_exclude_risk_tags(portfolio.get("exclude_risk_tags") or DEFAULT_EXCLUDE_RISK_TAGS),
         market=portfolio.get("market"),
+        capital=float(portfolio.get("capital") or 10_000_000),
+        max_adv_participation=float(portfolio.get("max_adv_participation") or 0.10),
+        max_liquidation_days=float(portfolio.get("max_liquidation_days") or 3.0),
+        market_regime_enabled=bool(portfolio.get("market_regime_enabled") or False),
+        sector_max_weight=float(portfolio.get("max_sector_weight") or 0.25),
         as_of=as_of,
     )
     emit_progress(progress, "准备组合报告输出")
