@@ -29,6 +29,10 @@ from .risk_controls import (
 from .optimizer import optimize_weights
 from .risk_interceptor import apply_risk_interceptors
 from ..risk.market_regime import evaluate_market_regime
+from ..risk.market_indicators import collect_market_indicators
+from ..risk.event_source import attach_events, load_event_calendar_rows
+from ..risk.controller import apply_risk_management
+from ..risk.scenario import generate_risk_scenarios
 
 
 def build_portfolio(
@@ -52,8 +56,16 @@ def build_portfolio(
     market_regime_config: dict[str, Any] | None = None,
     event_calendar_config: dict[str, Any] | None = None,
     weighting_hybrid_config: dict[str, float] | None = None,
+    risk_management_config: dict[str, Any] | None = None,
+    risk_scenario_config: dict[str, Any] | None = None,
 ) -> PortfolioReport:
     candidates, data_run_id, resolved_as_of = _load_candidates(config, source, strategy, as_of)
+    if event_calendar_config:
+        candidates = attach_events(candidates, load_event_calendar_rows(config), as_of=resolved_as_of)
+    if market_regime_enabled and market_regime_config is not None:
+        observed = collect_market_indicators(config, resolved_as_of)
+        if observed and not any(key in market_regime_config for key in ("values", "observed", "observed_indicators", "indicator_values")):
+            market_regime_config = {**market_regime_config, "indicator_values": observed}
     normalized_exclude_tags = normalize_exclude_risk_tags(exclude_risk_tags or DEFAULT_EXCLUDE_RISK_TAGS)
     risk_interceptions: list[dict[str, Any]] = []
     base_filtered: list[dict[str, Any]] = []
@@ -84,6 +96,16 @@ def build_portfolio(
     )
     risk_interceptions.extend(extra_logs)
 
+    preliminary_regime = evaluate_market_regime(market_regime_config or {"status": "not_available", "missing_action": "pause_open"}).to_dict() if market_regime_enabled else market_regime_placeholder(enabled=False)
+    risk_control = apply_risk_management(filtered_candidates, risk_management_config, market_regime=preliminary_regime)
+    filtered_candidates = risk_control.candidates
+    risk_interceptions.extend(risk_control.interceptions)
+    if risk_control.overrides:
+        max_weight = float(risk_control.overrides.get("max_weight", max_weight))
+        sector_max_weight = float(risk_control.overrides.get("max_sector_weight", sector_max_weight))
+        max_adv_participation = float(risk_control.overrides.get("max_adv_participation", max_adv_participation))
+        max_liquidation_days = float(risk_control.overrides.get("max_liquidation_days", max_liquidation_days))
+
     filtered_candidates = sorted(
         filtered_candidates,
         key=lambda item: (
@@ -95,7 +117,7 @@ def build_portfolio(
     )[:top]
 
     if market_regime_enabled:
-        regime = evaluate_market_regime(market_regime_config or {"status": "not_available", "missing_action": "pause_open"}).to_dict()
+        regime = preliminary_regime
     else:
         regime = market_regime_placeholder(enabled=False)
     hard_intercepted = market_regime_enabled and (regime.get("action") == "pause_open" or regime.get("status") in {"not_available", "bear"})
@@ -169,6 +191,8 @@ def build_portfolio(
         "technical_concentration": technical_concentration(holding_dicts),
         "technical_exit_policy": technical_exit_policy(),
         "weighting_diagnostics": weight_diag if filtered_candidates else {"requested_weighting": weighting, "effective_weighting": weighting},
+        "risk_management": risk_control.diagnostics if "risk_control" in locals() else {},
+        "risk_scenarios": _risk_scenarios(holding_dicts, risk_scenario_config),
     }
     return PortfolioReport.build(
         generated_at=datetime.now(),
@@ -188,6 +212,7 @@ def build_portfolio(
             "capital": capital,
             "max_adv_participation": max_adv_participation,
             "max_liquidation_days": max_liquidation_days,
+            "risk_management_applied": bool(risk_management_config),
             "as_of": as_of.isoformat() if as_of else None,
         },
         holdings=holdings,
@@ -307,3 +332,18 @@ def _float_or_none(value: Any) -> float | None:
 def _float_or_zero(value: Any) -> float:
     result = _float_or_none(value)
     return result if result is not None else 0.0
+
+
+
+def _risk_scenarios(holdings: list[dict[str, Any]], cfg: dict[str, Any] | None) -> dict[str, Any]:
+    if cfg is not None and not bool(cfg.get("enabled", True)):
+        return {"enabled": False, "rows": []}
+    min_count = int((cfg or {}).get("min_scenarios_per_stock") or 2)
+    rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for holding in holdings:
+        scenarios = generate_risk_scenarios(holding, cfg)
+        if len(scenarios) < min_count:
+            warnings.append(f"{holding.get('symbol')} 风险情景数量不足")
+        rows.extend(scenarios[:max(min_count, len(scenarios))])
+    return {"enabled": True, "rows": rows, "warnings": warnings, "min_scenarios_per_stock": min_count}

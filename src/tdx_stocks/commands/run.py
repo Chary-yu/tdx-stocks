@@ -8,7 +8,7 @@ from ..config.loader import resolve_task_config_path
 from ..console import print_json
 from ..progress import RunProgress
 from ..io_utils import write_json_atomic, write_text_atomic
-from ..logging_config import configure_event_logging
+from ..logging_config import setup_from_config
 from ..reports.opening import open_report_if_needed, print_report_path
 from ..runner.outputs import ensure_run_report_markdown, main_report_path
 from ..runner import (
@@ -38,8 +38,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     try:
         if project_root.exists():
             os.chdir(project_root)
-        configure_event_logging()
         run_config = load_run_config(config_path)
+        setup_from_config(
+            run_config.config.get("logging") if isinstance(run_config.config.get("logging"), dict) else {},
+            run_config.config.get("alerts") if isinstance(run_config.config.get("alerts"), dict) else {},
+            data_root=run_config.app_config.paths.data_root,
+        )
         plan = build_run_plan(run_config)
         if args.explain or args.dry_run:
             if args.json:

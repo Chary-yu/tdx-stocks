@@ -79,17 +79,20 @@ def _run_generic_grid(
             "max_drawdown": report.max_drawdown,
             "win_rate": report.win_rate,
             "turnover": report.turnover,
+            "winsorized_total_return": getattr(report, "winsorized_total_return", None),
             "period_count": report.period_count,
             "empty_period_count": report.empty_period_count,
             "research_score": round(report.annual_return - abs(report.max_drawdown) + report.win_rate * 0.1, 6),
         }
         rows.append(row)
     rows.sort(key=lambda item: float(item.get("research_score") or 0.0), reverse=True)
+    diagnostics = _grid_diagnostics(rows, keys)
     return {
         "schema_version": "parameter-scan-v2",
         "strategy_name": strategy_name,
         "params": base_params.to_dict(),
         "rows": rows,
+        "diagnostics": diagnostics,
     }
 
 
@@ -152,5 +155,36 @@ def _portfolio_from_model(base: PortfolioParams, model: dict[str, object], *, fa
         min_hold_days=int(max_hold.get("min_days", base.min_hold_days)),
         exit_when_score_below=float(signal_exit.get("exit_when_score_below")) if signal_exit.get("exit_when_score_below") is not None else base.exit_when_score_below,
         max_hold_days=int(max_hold.get("max_days", base.max_hold_days or fallback_hold_days)),
+        trailing_pullback_pct=float(((model.get("stop_loss") if isinstance(model.get("stop_loss"), dict) else {}).get("trailing") or {}).get("pullback_pct")) if isinstance((model.get("stop_loss") if isinstance(model.get("stop_loss"), dict) else {}).get("trailing"), dict) and ((model.get("stop_loss") if isinstance(model.get("stop_loss"), dict) else {}).get("trailing") or {}).get("pullback_pct") is not None else base.trailing_pullback_pct,
+        chandelier_period=base.chandelier_period,
+        chandelier_multiplier=base.chandelier_multiplier,
+        volatility_high_threshold=base.volatility_high_threshold,
+        volatility_low_threshold=base.volatility_low_threshold,
+        volatility_high_multiplier=base.volatility_high_multiplier,
+        volatility_low_multiplier=base.volatility_low_multiplier,
+        stop_loss_method=base.stop_loss_method,
+        unsupported_features=list(base.unsupported_features),
         margin_rate=base.margin_rate,
     )
+
+
+
+def _grid_diagnostics(rows: list[dict[str, object]], keys: list[str]) -> dict[str, object]:
+    if not rows:
+        return {"parameter_keys": keys, "message": "无参数结果"}
+    scores = [float(row.get("research_score") or 0.0) for row in rows]
+    best = rows[0]
+    median = sorted(scores)[len(scores) // 2]
+    best_score = float(best.get("research_score") or 0.0)
+    isolated = best_score > median * 1.5 if median > 0 else best_score > 0 and len(rows) > 1
+    stable = [row for row in rows if abs(float(row.get("research_score") or 0.0) - best_score) <= max(abs(best_score) * 0.1, 0.02)]
+    return {
+        "parameter_keys": keys,
+        "row_count": len(rows),
+        "best_score": best_score,
+        "median_score": median,
+        "isolated_peak": isolated,
+        "stable_plateau_count": len(stable),
+        "stable_plateau_params": [{key: row.get(key) for key in keys} for row in stable[:10]],
+        "message": "最优参数疑似孤立尖峰" if isolated else "存在相对稳定参数区间",
+    }

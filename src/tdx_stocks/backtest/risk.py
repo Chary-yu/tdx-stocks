@@ -13,11 +13,7 @@ def _bar_price(bar: AdjDailyPrice | float | int, attr: str, fallback: float | No
 
 
 def check_exit_signal(pos: Position, bar: AdjDailyPrice | float | int, params: PortfolioParams) -> str | None:
-    """返回离场原因标识，不离场返回 None。
-
-    兼容历史单元测试中直接传入价格 float 的用法；正式回测路径仍传入
-    AdjDailyPrice。
-    """
+    """返回离场原因标识，不离场返回 None。"""
     current_price = _bar_price(bar, "open_price")
     high_price = _bar_price(bar, "high_price", current_price)
     close_price = _bar_price(bar, "close_price", current_price)
@@ -33,12 +29,20 @@ def check_exit_signal(pos: Position, bar: AdjDailyPrice | float | int, params: P
     except Exception:
         pass
 
-    if params.stop_loss_atr:
-        atr = max(float(pos.buy_price) * max(params.atr_proxy_pct, 0.001), 0.01)
-        if current_price <= highest_price - params.stop_loss_atr * atr:
+    atr = max(float(pos.buy_price) * max(params.atr_proxy_pct, 0.001), 0.01)
+    stop_mult = _adaptive_stop_multiplier(params)
+    if params.chandelier_multiplier:
+        chandelier_stop = highest_price - params.chandelier_multiplier * atr
+        if current_price <= chandelier_stop:
+            return "chandelier_stop"
+    if stop_mult:
+        if current_price <= highest_price - stop_mult * atr:
             return "atr_stop_loss"
+    if params.trailing_pullback_pct:
+        trailing_stop = highest_price * (1.0 - params.trailing_pullback_pct)
+        if current_price <= trailing_stop:
+            return "trailing_take_profit"
     if params.take_profit_atr:
-        atr = max(float(pos.buy_price) * max(params.atr_proxy_pct, 0.001), 0.01)
         if current_price >= float(pos.buy_price) + params.take_profit_atr * atr:
             return "atr_take_profit"
     if params.stop_loss_pct:
@@ -61,3 +65,17 @@ def check_hard_stop(pos: Position, bar: AdjDailyPrice | float | int, params: Por
         if _bar_price(bar, "open_price") <= float(pos.buy_price) * (1 - params.hard_stop_loss_pct):
             return "hard_stop_loss"
     return None
+
+
+def _adaptive_stop_multiplier(params: PortfolioParams) -> float | None:
+    base = params.stop_loss_atr
+    if base is None:
+        return None
+    vol = params.atr_proxy_pct * (252 ** 0.5)
+    if params.volatility_high_threshold is not None and params.volatility_high_multiplier is not None:
+        if vol >= params.volatility_high_threshold:
+            return params.volatility_high_multiplier
+    if params.volatility_low_threshold is not None and params.volatility_low_multiplier is not None:
+        if vol <= params.volatility_low_threshold:
+            return params.volatility_low_multiplier
+    return base

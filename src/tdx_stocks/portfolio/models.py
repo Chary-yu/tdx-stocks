@@ -93,6 +93,13 @@ class RebalanceAction:
     delta_weight: float
     action: str
     reason: str
+    trade_to_adv: float | None = None
+    cost_tier: str | None = None
+    estimated_cost_bps: float | None = None
+    fee_bps: float | None = None
+    slippage_bps: float | None = None
+    impact_bps: float | None = None
+    reject_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

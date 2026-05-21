@@ -58,15 +58,17 @@ def build_backtest_portfolio_params(data: dict[str, Any], *, fallback_hold_days:
     signal_exit = exit_rules.get("signal_exit") if isinstance(exit_rules.get("signal_exit"), dict) else {}
     stop_loss = data.get("stop_loss") if isinstance(data.get("stop_loss"), dict) else {}
     stop_loss_method = str(stop_loss.get("method") or "").lower()
+    adaptive = stop_loss.get("volatility_adaptive") if isinstance(stop_loss.get("volatility_adaptive"), dict) else {}
+    chandelier = stop_loss.get("chandelier") if isinstance(stop_loss.get("chandelier"), dict) else {}
+    trailing = stop_loss.get("trailing") if isinstance(stop_loss.get("trailing"), dict) else {}
     stop_loss_atr = _optional_float(technical.get("stop_loss_atr"))
     take_profit_atr = _optional_float(technical.get("take_profit_atr"))
     if stop_loss_atr is None and stop_loss_method in {"fixed_atr", "volatility_adaptive"}:
-        adaptive = stop_loss.get("volatility_adaptive") if isinstance(stop_loss.get("volatility_adaptive"), dict) else {}
         stop_loss_atr = _optional_float(adaptive.get("base_multiplier"))
     if stop_loss_atr is None and stop_loss_method == "chandelier":
-        chandelier = stop_loss.get("chandelier") if isinstance(stop_loss.get("chandelier"), dict) else {}
         stop_loss_atr = _optional_float(chandelier.get("multiplier"))
     enabled = bool(exit_rules.get("enabled", bool(exit_rules)))
+    unsupported = ["parabolic_sar"] if stop_loss_method == "parabolic_sar" else []
     return PortfolioParams(
         max_positions=int((data.get("backtest") or {}).get("top") or 5),
         stop_loss_pct=None if enabled else 0.08,
@@ -80,6 +82,15 @@ def build_backtest_portfolio_params(data: dict[str, Any], *, fallback_hold_days:
         min_hold_days=int(max_hold.get("min_days") or 1),
         exit_when_score_below=_optional_float(signal_exit.get("exit_when_score_below")),
         max_hold_days=int(max_hold.get("max_days") or fallback_hold_days),
+        trailing_pullback_pct=_optional_float(trailing.get("pullback_pct")) if bool(trailing.get("enabled", False)) else None,
+        chandelier_period=int(chandelier.get("period")) if chandelier.get("period") is not None else None,
+        chandelier_multiplier=_optional_float(chandelier.get("multiplier")),
+        volatility_high_threshold=_optional_float(adaptive.get("high_volatility_threshold")),
+        volatility_low_threshold=_optional_float(adaptive.get("low_volatility_threshold")),
+        volatility_high_multiplier=_optional_float(adaptive.get("high_volatility_multiplier")),
+        volatility_low_multiplier=_optional_float(adaptive.get("low_volatility_multiplier")),
+        stop_loss_method=stop_loss_method or None,
+        unsupported_features=unsupported,
     )
 
 

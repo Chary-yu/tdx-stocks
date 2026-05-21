@@ -7,6 +7,7 @@ from typing import Any
 
 from .models import Holding, RebalanceAction, RebalancePlan
 from .risk import check_portfolio_risk
+from ..rebalance.cost_model import estimate_trade_cost
 
 
 def load_current_holdings_csv(path: Path) -> list[Holding]:
@@ -56,13 +57,12 @@ def build_rebalance_plan(
             reason = "大盘风控要求暂停开仓，拒绝买入并保持现金"
             delta = 0.0
             target_weight = current_weight
-        elif _is_critical_trade(delta, piecewise, target or current, capital=capital):
-            critical = piecewise.get("critical") if isinstance(piecewise.get("critical"), dict) else {}
-            if bool(critical.get("reject", False)):
-                action = "REJECT_TRADE"
-                reason = "冲击成本等级 critical 且 reject=true，拒绝交易"
-                delta = 0.0
-                target_weight = current_weight
+        cost = estimate_trade_cost(delta, capital=capital, adv=_holding_adv(target or current) if (target or current) else None, model=cost_model)
+        if action not in {"HOLD", "HOLD_CASH"} and cost.reject:
+            action = "REJECT_TRADE"
+            reason = cost.reason
+            delta = 0.0
+            target_weight = current_weight
         actions.append(
             RebalanceAction(
                 market=market,
@@ -72,6 +72,13 @@ def build_rebalance_plan(
                 delta_weight=delta,
                 action=action,
                 reason=reason,
+                trade_to_adv=cost.trade_to_adv,
+                cost_tier=cost.tier,
+                estimated_cost_bps=cost.total_bps,
+                fee_bps=cost.fee_bps,
+                slippage_bps=cost.slippage_bps,
+                impact_bps=cost.impact_bps,
+                reject_reason=cost.reason if action == "REJECT_TRADE" else None,
             )
         )
 
@@ -84,6 +91,7 @@ def build_rebalance_plan(
     target_risk_filter = diagnostics_filter
 
     estimated_impact_bps = _estimated_impact_bps(actions, target_holdings)
+    total_cost_bps = round(sum(float(action.estimated_cost_bps or 0.0) for action in actions if action.action not in {"HOLD", "HOLD_CASH"}), 4)
     execution_mode = "分批执行" if estimated_impact_bps is not None and estimated_impact_bps > 50 else "正常执行"
 
     buckets = {
@@ -116,6 +124,7 @@ def build_rebalance_plan(
             "market_regime": market_regime,
             "pre_trade_message": "大盘风控暂停开仓，BUY/INCREASE 已转为 HOLD_CASH" if pause_open else "前置风控通过",
             "estimated_impact_bps": estimated_impact_bps,
+            "estimated_total_cost_bps": total_cost_bps,
             "execution_mode": execution_mode,
         },
     )

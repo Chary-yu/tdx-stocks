@@ -94,8 +94,9 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     regime = diagnostics.get("market_regime") if isinstance(diagnostics.get("market_regime"), dict) else {}
     if regime.get("action") == "pause_open":
         publish(Event.create("MACRO_PAUSE_OPEN", {"task": "rebalance", "as_of": plan_dict.get("as_of")}))
+        publish(Event.create("REBALANCE_BUY_BLOCKED", {"task": "rebalance", "as_of": plan_dict.get("as_of"), "reason": "pause_open"}))
     if str(diagnostics.get("turnover_check", "")).startswith("turnover"):
-        publish(Event.create("TURNOVER_EXCEEDED", {"task": "rebalance", "check": diagnostics.get("turnover_check")}))
+        publish(Event.create("TURNOVER_EXCEEDED", {"task": "rebalance", "check": diagnostics.get("turnover_check"), "turnover": plan_dict.get("turnover")}))
     emit_progress(progress, "准备调仓报告输出")
     return RunResult(
         task_type="rebalance",

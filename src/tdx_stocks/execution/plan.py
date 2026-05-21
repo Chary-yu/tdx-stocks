@@ -64,15 +64,16 @@ def _apply_piecewise_impact(parts: list[dict[str, Any]], piecewise: Any) -> list
         return parts
     adjusted: list[dict[str, Any]] = []
     for row in parts:
-        ratio = float(row.get("target_amount_to_adv") or 0.0)
-        tier = "low"
-        if ratio >= 0.20:
-            tier = "critical"
-        elif ratio >= 0.10:
-            tier = "high"
-        elif ratio >= 0.05:
-            tier = "medium"
+        ratio = float(row.get("trade_to_adv") or row.get("target_amount_to_adv") or 0.0)
+        tier = str(row.get("cost_tier") or "low")
+        if not row.get("cost_tier"):
+            if ratio >= 0.10:
+                tier = "critical"
+            elif ratio >= 0.05:
+                tier = "high"
+            elif ratio >= 0.01:
+                tier = "medium"
         bump = piecewise.get(tier) if isinstance(piecewise.get(tier), dict) else {}
-        extra_bps = float(bump.get("impact_bps") or 0.0)
-        adjusted.append({**row, "impact_bps_adjustment": extra_bps})
+        extra_bps = float(row.get("impact_bps") or bump.get("impact_bps") or 0.0)
+        adjusted.append({**row, "cost_tier": tier, "impact_bps_adjustment": extra_bps, "reject": bool(row.get("reject") or bump.get("reject", False))})
     return adjusted

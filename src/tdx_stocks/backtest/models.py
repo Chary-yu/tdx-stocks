@@ -173,6 +173,15 @@ class PortfolioParams:
     min_hold_days: int = 1
     exit_when_score_below: float | None = None
     max_hold_days: int | None = None
+    trailing_pullback_pct: float | None = None
+    chandelier_period: int | None = None
+    chandelier_multiplier: float | None = None
+    volatility_high_threshold: float | None = None
+    volatility_low_threshold: float | None = None
+    volatility_high_multiplier: float | None = None
+    volatility_low_multiplier: float | None = None
+    stop_loss_method: str | None = None
+    unsupported_features: list[str] = field(default_factory=list)
     margin_rate: float = 0.5
 
 
@@ -384,11 +393,16 @@ def _build_portfolio_from_exit_rules(data: dict[str, Any], *, fallback_hold_days
     technical = exit_rules.get("technical") if isinstance(exit_rules.get("technical"), dict) else {}
     max_hold = exit_rules.get("max_hold") if isinstance(exit_rules.get("max_hold"), dict) else {}
     signal_exit = exit_rules.get("signal_exit") if isinstance(exit_rules.get("signal_exit"), dict) else {}
+    method = str(stop_loss.get("method") or "").lower() or None
+    adaptive = stop_loss.get("volatility_adaptive") if isinstance(stop_loss.get("volatility_adaptive"), dict) else {}
+    chandelier = stop_loss.get("chandelier") if isinstance(stop_loss.get("chandelier"), dict) else {}
+    trailing = stop_loss.get("trailing") if isinstance(stop_loss.get("trailing"), dict) else {}
     stop_loss_atr = _coerce_optional_float(technical.get("stop_loss_atr"))
-    if stop_loss_atr is None and isinstance(stop_loss.get("volatility_adaptive"), dict):
-        stop_loss_atr = _coerce_optional_float(stop_loss["volatility_adaptive"].get("base_multiplier"))
-    if stop_loss_atr is None and isinstance(stop_loss.get("chandelier"), dict):
-        stop_loss_atr = _coerce_optional_float(stop_loss["chandelier"].get("multiplier"))
+    if stop_loss_atr is None and adaptive:
+        stop_loss_atr = _coerce_optional_float(adaptive.get("base_multiplier"))
+    if stop_loss_atr is None and chandelier:
+        stop_loss_atr = _coerce_optional_float(chandelier.get("multiplier"))
+    unsupported = ["parabolic_sar"] if method == "parabolic_sar" else []
     return PortfolioParams(
         max_positions=int((data.get("backtest") or {}).get("top") or 5),
         stop_loss_pct=None,
@@ -400,6 +414,15 @@ def _build_portfolio_from_exit_rules(data: dict[str, Any], *, fallback_hold_days
         min_hold_days=int(max_hold.get("min_days") or 1),
         max_hold_days=_coerce_optional_int(max_hold.get("max_days")) or fallback_hold_days,
         exit_when_score_below=_coerce_optional_float(signal_exit.get("exit_when_score_below")),
+        trailing_pullback_pct=_coerce_optional_float(trailing.get("pullback_pct")) if bool(trailing.get("enabled", False)) else None,
+        chandelier_period=_coerce_optional_int(chandelier.get("period")),
+        chandelier_multiplier=_coerce_optional_float(chandelier.get("multiplier")),
+        volatility_high_threshold=_coerce_optional_float(adaptive.get("high_volatility_threshold")),
+        volatility_low_threshold=_coerce_optional_float(adaptive.get("low_volatility_threshold")),
+        volatility_high_multiplier=_coerce_optional_float(adaptive.get("high_volatility_multiplier")),
+        volatility_low_multiplier=_coerce_optional_float(adaptive.get("low_volatility_multiplier")),
+        stop_loss_method=method,
+        unsupported_features=unsupported,
     )
 
 
@@ -421,6 +444,15 @@ def _build_portfolio_config(data: dict[str, Any] | None) -> PortfolioParams:
         min_hold_days=int(payload.get("min_hold_days", defaults.min_hold_days)),
         exit_when_score_below=_coerce_optional_float(payload.get("exit_when_score_below", defaults.exit_when_score_below)),
         max_hold_days=_coerce_optional_int(payload.get("max_hold_days", defaults.max_hold_days)),
+        trailing_pullback_pct=_coerce_optional_float(payload.get("trailing_pullback_pct", defaults.trailing_pullback_pct)),
+        chandelier_period=_coerce_optional_int(payload.get("chandelier_period", defaults.chandelier_period)),
+        chandelier_multiplier=_coerce_optional_float(payload.get("chandelier_multiplier", defaults.chandelier_multiplier)),
+        volatility_high_threshold=_coerce_optional_float(payload.get("volatility_high_threshold", defaults.volatility_high_threshold)),
+        volatility_low_threshold=_coerce_optional_float(payload.get("volatility_low_threshold", defaults.volatility_low_threshold)),
+        volatility_high_multiplier=_coerce_optional_float(payload.get("volatility_high_multiplier", defaults.volatility_high_multiplier)),
+        volatility_low_multiplier=_coerce_optional_float(payload.get("volatility_low_multiplier", defaults.volatility_low_multiplier)),
+        stop_loss_method=str(payload.get("stop_loss_method")) if payload.get("stop_loss_method") else defaults.stop_loss_method,
+        unsupported_features=list(payload.get("unsupported_features", defaults.unsupported_features)),
         margin_rate=float(payload.get("margin_rate", defaults.margin_rate)),
     )
 

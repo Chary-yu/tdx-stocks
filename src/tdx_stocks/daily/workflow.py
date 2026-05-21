@@ -30,6 +30,7 @@ from ..reports.renderers import render_daily_markdown
 from ..reports.stock_names import build_stock_name_map, collect_stock_keys
 from ..progress import ProgressCallback, emit_progress
 from ..portfolio.risk_controls import DEFAULT_EXCLUDE_RISK_TAGS, normalize_exclude_risk_tags
+from ..risk.market_indicators import collect_market_indicators_from_connection
 from .store import save_daily_report, write_daily_json_file
 
 
@@ -59,6 +60,9 @@ def run_daily_workflow(
     build_data: bool = False,
     macro_filter: dict[str, Any] | None = None,
     event_calendar: dict[str, Any] | None = None,
+    risk_management: dict[str, Any] | None = None,
+    risk_scenario: dict[str, Any] | None = None,
+    weighting_hybrid: dict[str, float] | None = None,
     progress: ProgressCallback | None = None,
 ) -> DailyWorkflowResult:
     emit_progress(progress, "准备每日综合报告参数")
@@ -103,6 +107,10 @@ def run_daily_workflow(
         manifest = ctx.manifest
         data_run_id = optional_str(manifest.get("run_id"))
         latest_trade_date = resolved_as_of or _load_latest_trade_date(config)
+        if macro_filter is not None:
+            observed = collect_market_indicators_from_connection(ctx.con, latest_trade_date)
+            if observed and not any(key in macro_filter for key in ("values", "observed", "observed_indicators", "indicator_values")):
+                macro_filter = {**macro_filter, "indicator_values": observed}
         data_quality = manifest.get("summary", {}).get("checks", [])
         if not skip_strategies:
             emit_progress(progress, "运行策略并保存策略报告")
@@ -187,6 +195,9 @@ def run_daily_workflow(
                 market_regime_enabled=True,
                 market_regime_config=macro_filter,
                 event_calendar_config=event_calendar,
+                weighting_hybrid_config=weighting_hybrid,
+                risk_management_config=risk_management,
+                risk_scenario_config=risk_scenario,
             )
             portfolio_saved = save_portfolio_report(config.paths.data_root, portfolio_report)
             if isinstance(portfolio_saved, dict):

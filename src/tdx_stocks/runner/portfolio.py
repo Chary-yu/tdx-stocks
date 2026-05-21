@@ -16,6 +16,8 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     portfolio = data.get("portfolio") or {}
     macro_filter = data.get("macro_filter") if isinstance(data.get("macro_filter"), dict) else {}
     event_calendar = data.get("event_calendar") if isinstance(data.get("event_calendar"), dict) else {}
+    risk_management = data.get("risk_management") if isinstance(data.get("risk_management"), dict) else {}
+    risk_scenario = data.get("risk_scenario") if isinstance(data.get("risk_scenario"), dict) else {}
     task_data = data.get("data") or {}
     as_of_value = task_data.get("as_of") or "latest"
     as_of = None if as_of_value == "latest" else parse_iso_date(as_of_value)
@@ -38,6 +40,8 @@ def run_portfolio_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
         market_regime_config=macro_filter,
         event_calendar_config=event_calendar,
         weighting_hybrid_config=portfolio.get("weighting_hybrid") if isinstance(portfolio.get("weighting_hybrid"), dict) else None,
+        risk_management_config=risk_management,
+        risk_scenario_config=risk_scenario,
         as_of=as_of,
     )
     emit_progress(progress, "准备组合报告输出")
