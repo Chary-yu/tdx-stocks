@@ -8,6 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 from ..config import AppConfig, load_config
+from ..path_guard import resolve_reports_root
 from ..strategies.storage import latest_report_dir, strategy_reports_root
 from .components import (
     plot_equity_curve,
@@ -31,6 +32,11 @@ def _resolve_data_root() -> Path:
     if config_path:
         return load_config(Path(config_path)).paths.data_root
     return AppConfig().paths.data_root
+
+
+@st.cache_data(show_spinner=False)
+def _discover_report_files_cached(reports_root_text: str) -> list[str]:
+    return [path.as_posix() for path in discover_report_files(Path(reports_root_text))]
 
 
 def _render_kpis(summary: dict[str, object]) -> None:
@@ -77,8 +83,8 @@ with st.sidebar:
     data_root_input = st.text_input("数据根目录", value=data_root.as_posix(), key="data_root_input")
     reports_root_input = st.text_input("报告目录", value=reports_root_default.as_posix())
     upload = st.file_uploader("导入 JSON 报告", type=["json"])
-    reports_root = Path(reports_root_input).expanduser()
-    report_files = discover_report_files(reports_root)
+    reports_root = resolve_reports_root(report_scan_root, reports_root_input)
+    report_files = [Path(item) for item in _discover_report_files_cached(reports_root.as_posix())]
     if report_files:
         chosen = st.selectbox("选择报告", [path.as_posix() for path in report_files])
     else:
@@ -92,7 +98,7 @@ if upload is not None:
         st.stop()
 else:
     if chosen is None:
-        st.error(f"未找到报告文件。当前扫描目录: {report_scan_root}")
+        st.error(f"未找到报告文件。当前扫描目录: {reports_root}")
         st.stop()
     report = load_backtest_report(Path(chosen))
 

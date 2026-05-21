@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..config_validators import validate_compression
 from ..duckdb_ops import parquet_glob, sql_literal
 
 
 def build_factor_quality(con, adj_daily_dir: Path, factors_dir: Path, output_dir: Path, compression: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    compression = validate_compression(compression)
     adj_source = f"read_parquet('{sql_literal(parquet_glob(adj_daily_dir))}', hive_partitioning=true)"
     factors_source = f"read_parquet('{sql_literal(parquet_glob(factors_dir))}', hive_partitioning=true)"
     con.execute(
@@ -78,7 +80,7 @@ def build_factor_quality(con, adj_daily_dir: Path, factors_dir: Path, output_dir
             FROM joined
         )
         TO '{sql_literal(output_dir.as_posix())}'
-        (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()})
+        (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression})
         """
     )
 

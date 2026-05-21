@@ -4,6 +4,7 @@ import re
 from datetime import date
 from pathlib import Path
 
+from .config_validators import validate_compression
 from .factor_sql import build_factors_statements
 
 _MEMORY_LIMIT_RE = re.compile(r"^\s*\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB|KIB|MIB|GIB|TIB|%)?\s*$", re.IGNORECASE)
@@ -56,6 +57,7 @@ def copy_adj_daily(
     factor_column: str = "qfq_factor",
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    compression = validate_compression(compression)
     factor_source = None
     if has_parquet_files(adjustment_factors_dir):
         factor_source = (
@@ -81,7 +83,7 @@ def copy_adj_daily(
                 FROM {raw_source}
             )
             TO '{sql_literal(output_dir.as_posix())}'
-            (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()})
+            (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression})
             """
         )
         return
@@ -134,13 +136,14 @@ def copy_adj_daily(
                 AND raw_daily.trade_date >= adjustment_factors.start_date
         )
         TO '{sql_literal(output_dir.as_posix())}'
-        (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()})
+        (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression})
         """
     )
 
 
 def copy_parquet_dataset(con, source_dir: Path, output_dir: Path, compression: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    compression = validate_compression(compression)
     con.execute(
         f"""
         COPY (
@@ -148,7 +151,7 @@ def copy_parquet_dataset(con, source_dir: Path, output_dir: Path, compression: s
             FROM read_parquet('{sql_literal(parquet_glob(source_dir))}', hive_partitioning=true)
         )
         TO '{sql_literal((output_dir / "data.parquet").as_posix())}'
-        (FORMAT PARQUET, COMPRESSION {compression.upper()})
+        (FORMAT PARQUET, COMPRESSION {compression})
         """
     )
 

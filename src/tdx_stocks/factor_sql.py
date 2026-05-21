@@ -8,6 +8,8 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
+from .config_validators import validate_compression
+
 WINDOW_SPEC = "PARTITION BY market, symbol ORDER BY trade_date"
 DEFAULT_FACTOR_WINDOWS = (5, 10, 20, 60)
 DEFAULT_REQUIRED_WINDOWS = (5, 10, 20, 60, 120, 250)
@@ -737,6 +739,7 @@ def render_copy_factors_sql(
     append_after_date: date | None = None,
     append: bool = False,
 ) -> str:
+    compression = validate_compression(compression)
     columns = [
         "market",
         "symbol",
@@ -847,7 +850,7 @@ def render_copy_factors_sql(
     where_lines = []
     if append_after_date is not None:
         where_lines.append(f"    WHERE s.trade_date > DATE '{sql_literal(append_after_date.isoformat())}'")
-    copy_options = f"(FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()}"
+    copy_options = f"(FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression}"
     if append:
         copy_options += ", APPEND"
     copy_options += ")"

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__ as APP_VERSION
+from ..config_validators import optional_str
 from ..io_utils import write_json_atomic
 
 REPORT_SCHEMA_VERSION = "strategy-report-v1"
@@ -44,10 +45,10 @@ def save_report_document(data_root: Path, strategy_name: str, document: dict[str
     targets = {
         "latest": report_path(data_root, strategy_name),
     }
-    as_of_text = document.get("as_of")
+    as_of_text = optional_str(document.get("as_of"))
     if as_of_text:
         targets["by_date"] = report_path(data_root, strategy_name, as_of=date.fromisoformat(str(as_of_text)))
-    run_id = document.get("data_run_id")
+    run_id = optional_str(document.get("data_run_id"))
     if run_id:
         targets["by_run_id"] = report_path(data_root, strategy_name, run_id=str(run_id))
 

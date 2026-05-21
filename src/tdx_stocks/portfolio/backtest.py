@@ -7,6 +7,7 @@ from typing import Any
 
 from .. import __version__ as APP_VERSION
 from ..config import AppConfig
+from ..config_validators import optional_str
 from ..exit_codes import NoDataError
 from ..query import open_query_context
 from ..backtest.metrics import annualize_return, max_drawdown
@@ -154,7 +155,7 @@ def run_portfolio_backtest(
             app_version=APP_VERSION,
             generated_at=date.today().isoformat(),
             as_of=to_date.isoformat(),
-            data_run_id=str(ctx.manifest.get("run_id") or None),
+            data_run_id=optional_str(ctx.manifest.get("run_id")),
             source=source,
             params={
                 "from_date": from_date.isoformat(),

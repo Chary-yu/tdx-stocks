@@ -256,6 +256,48 @@ class DailyWorkflowTest(unittest.TestCase):
                                                         )
         self.assertEqual(result.report.status, "success")
         self.assertIn("strategy_json", result.outputs)
+        self.assertEqual(result.report.steps[-1]["step_name"], "daily_report")
+        self.assertEqual(result.report.steps[-1]["status"], "skipped")
+
+    def test_daily_workflow_preserves_zero_values_and_namespaces_outputs(self) -> None:
+        fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1"}, close=lambda: None)
+        fake_portfolio = SimpleNamespace(
+            as_of="2024-01-31",
+            holdings=[{"market": "sh", "symbol": "600000", "weight": 1.0}],
+            to_dict=lambda: {"holdings": [{"market": "sh", "symbol": "600000", "weight": 1.0}]},
+        )
+        config = AppConfig(paths=PathsConfig(data_root=Path(tempfile.gettempdir()) / "tdx-stocks-daily-test"))
+        with (
+            patch("tdx_stocks.daily.workflow.build_dataset", return_value={"run_id": "run-1"}),
+            patch("tdx_stocks.daily.workflow.open_query_context", return_value=fake_ctx),
+            patch("tdx_stocks.daily.workflow._load_latest_trade_date", return_value=date(2024, 1, 31)),
+            patch("tdx_stocks.daily.workflow._run_strategies", return_value=({"steps": [], "warnings": [], "errors": []}, {})) as run_strategies_mock,
+            patch("tdx_stocks.daily.workflow._run_compare", return_value={"rows": []}),
+            patch("tdx_stocks.daily.workflow._run_consensus", return_value={"rows": []}) as run_consensus_mock,
+            patch("tdx_stocks.daily.workflow.build_portfolio", return_value=fake_portfolio) as build_portfolio_mock,
+            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"latest_json": "/tmp/portfolio.json"}),
+            patch("tdx_stocks.daily.workflow.check_portfolio_risk", return_value=SimpleNamespace(passed=True, summary={})),
+            patch("tdx_stocks.daily.workflow.save_daily_report", return_value={"latest_json": "/tmp/daily.json", "latest_md": "/tmp/daily.md", "daily_json": "/tmp/daily.json", "daily_md": "/tmp/daily.md", "manifest": "/tmp/manifest.json"}),
+            patch("tdx_stocks.daily.workflow.write_daily_json_file", side_effect=[Path("/tmp/compare.json"), Path("/tmp/consensus.json")]),
+        ):
+            result = run_daily_workflow(
+                config,
+                as_of=date(2024, 1, 31),
+                strategy_limit=0,
+                min_hit=0,
+                portfolio_top=0,
+                portfolio_weighting="",
+                portfolio_max_weight=0.0,
+                skip_report=True,
+            )
+
+        self.assertEqual(run_strategies_mock.call_args.kwargs["strategy_limit"], 0)
+        self.assertEqual(run_consensus_mock.call_args.kwargs["min_hit"], 0)
+        self.assertEqual(build_portfolio_mock.call_args.kwargs["top"], 0)
+        self.assertEqual(build_portfolio_mock.call_args.kwargs["max_weight"], 0.0)
+        self.assertIn("portfolio:latest_json", result.outputs)
+        self.assertEqual(result.outputs["portfolio:latest_json"], "/tmp/portfolio.json")
+        self.assertEqual(result.report.steps[-1]["step_name"], "daily_report")
 
     def test_daily_workflow_writes_report_with_empty_strategy_outputs(self) -> None:
         fake_ctx = SimpleNamespace(con=object(), manifest={"run_id": "run-1"}, close=lambda: None)

@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from ..backtest.models import BacktestConfig
 from ..config import AppConfig, BuildConfig, DailyConfig, FactorConfig, PathsConfig, resolve_tdx_paths
+from ..config_validators import validate_compression
 from .schema import validate_run_config
 
 
@@ -66,7 +67,7 @@ def _build_app_config(data: Mapping[str, Any]) -> AppConfig:
             build=BuildConfig(
                 markets=tuple(build.get("markets", app_defaults.build.markets)),
                 universe=str(build.get("universe", app_defaults.build.universe)),
-                compression=str(build.get("compression", app_defaults.build.compression)),
+                compression=validate_compression(build.get("compression", app_defaults.build.compression)),
                 batch_rows=int(build.get("batch_rows", app_defaults.build.batch_rows)),
                 duckdb_memory_limit=str(build.get("duckdb_memory_limit", app_defaults.build.duckdb_memory_limit)),
                 overwrite_staging=bool(build.get("overwrite_staging", app_defaults.build.overwrite_staging)),

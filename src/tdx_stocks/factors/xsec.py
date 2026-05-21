@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..config_validators import validate_compression
 from ..duckdb_ops import parquet_glob, sql_literal
 
 
 def build_xsec_factors(con, factors_dir: Path, output_dir: Path, compression: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    compression = validate_compression(compression)
     source = f"read_parquet('{sql_literal(parquet_glob(factors_dir))}', hive_partitioning=true)"
     con.execute(
         f"""
@@ -76,6 +78,6 @@ def build_xsec_factors(con, factors_dir: Path, output_dir: Path, compression: st
             FROM ranked
         )
         TO '{sql_literal(output_dir.as_posix())}'
-        (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression.upper()})
+        (FORMAT PARQUET, PARTITION_BY (trade_year, market), COMPRESSION {compression})
         """
     )

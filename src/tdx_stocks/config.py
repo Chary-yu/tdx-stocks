@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
+from .config_validators import validate_compression
+
 DEFAULT_TDX_VIPDOC = Path("./vipdoc")
 DEFAULT_TDX_EXPORT = Path("./export")
 DEFAULT_DATA_ROOT = Path("./Database")
@@ -161,7 +163,7 @@ def load_config(path: Path | None) -> AppConfig:
             build=BuildConfig(
                 markets=tuple(build.get("markets", ("sh", "sz"))),
                 universe=build.get("universe", "ashare"),
-                compression=build.get("compression", "zstd"),
+                compression=validate_compression(build.get("compression", "zstd")),
                 batch_rows=int(build.get("batch_rows", 200_000)),
                 duckdb_memory_limit=build.get("duckdb_memory_limit", "8GB"),
                 overwrite_staging=bool(build.get("overwrite_staging", False)),

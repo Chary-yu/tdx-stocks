@@ -24,6 +24,7 @@ from tdx_stocks.runner.outputs import (
 from tdx_stocks.runner.portfolio import run_portfolio_task
 from tdx_stocks.runner.rebalance import run_rebalance_task
 from tdx_stocks.runner.signal import run_signal_task
+from tdx_stocks.reports.rendering import render_run_result_markdown
 from tdx_stocks.sync import SyncPlanStep, build_sync_plan, execute_sync
 
 pytestmark = pytest.mark.integration
@@ -205,6 +206,143 @@ class RunnerTaskAdapterTest(unittest.TestCase):
         self.assertEqual(rebalance_result.summary["weight_changes"], [])
         self.assertEqual(signal_result.summary["compare"]["rows"], [])
         mocked_tune.assert_called_once()
+
+    def test_render_run_result_markdown_formats_signal_summary(self) -> None:
+        result = SimpleNamespace(
+            task_type="signal",
+            name="today-signal",
+            status="success",
+            outputs={"signal_markdown": "Database/reports/signal_markdown.md"},
+            warnings=[],
+            errors=[],
+            summary={
+                "compare": {
+                    "as_of": "latest",
+                    "strategies": [
+                        {
+                            "strategy_name": "trend-strength",
+                            "candidate_count": 2,
+                            "avg_score": 88.75,
+                            "max_score": 91.0,
+                            "high_score_count": 1,
+                            "risk_flag_count": 1,
+                            "stocks": ["600519.SH", "000001.SZ"],
+                        }
+                    ],
+                    "overlaps": [
+                        {
+                            "left_strategy": "trend-strength",
+                            "right_strategy": "relative-strength",
+                            "overlap_count": 1,
+                            "stocks": ["600519.SH"],
+                        }
+                    ],
+                    "unique_stocks": {"trend-strength": ["000001.SZ"]},
+                },
+                "consensus": {
+                    "as_of": "latest",
+                    "rows": [
+                        {
+                            "market": "sh",
+                            "symbol": "600519",
+                            "hit_count": 2,
+                            "avg_score": 89.4,
+                            "max_score": 91.0,
+                            "strategies": ["trend-strength", "relative-strength"],
+                            "risk_flags": ["mild_volatility"],
+                        }
+                    ],
+                },
+            },
+            to_dict=lambda: {
+                "task_type": "signal",
+                "name": "today-signal",
+                "status": "success",
+                "summary": {
+                    "compare": {
+                        "as_of": "latest",
+                        "strategies": [
+                            {
+                                "strategy_name": "trend-strength",
+                                "candidate_count": 2,
+                                "avg_score": 88.75,
+                                "max_score": 91.0,
+                                "high_score_count": 1,
+                                "risk_flag_count": 1,
+                                "stocks": ["600519.SH", "000001.SZ"],
+                            }
+                        ],
+                        "overlaps": [
+                            {
+                                "left_strategy": "trend-strength",
+                                "right_strategy": "relative-strength",
+                                "overlap_count": 1,
+                                "stocks": ["600519.SH"],
+                            }
+                        ],
+                        "unique_stocks": {"trend-strength": ["000001.SZ"]},
+                    },
+                    "consensus": {
+                        "as_of": "latest",
+                        "rows": [
+                            {
+                                "market": "sh",
+                                "symbol": "600519",
+                                "hit_count": 2,
+                                "avg_score": 89.4,
+                                "max_score": 91.0,
+                                "strategies": ["trend-strength", "relative-strength"],
+                                "risk_flags": ["mild_volatility"],
+                            }
+                        ],
+                    },
+                },
+                "outputs": {"signal_markdown": "Database/reports/signal_markdown.md"},
+                "warnings": [],
+                "errors": [],
+            },
+        )
+
+        markdown = render_run_result_markdown(result)
+
+        self.assertIn("## Strategy Compare", markdown)
+        self.assertIn("## Consensus", markdown)
+        self.assertIn("### Unique Stocks", markdown)
+        self.assertIn("trend-strength, relative-strength", markdown)
+        self.assertIn("600519.SH, 000001.SZ", markdown)
+
+    def test_render_run_result_markdown_formats_daily_summary(self) -> None:
+        result = SimpleNamespace(
+            task_type="daily",
+            name="daily-workflow",
+            status="success",
+            outputs={"latest_md": "Database/reports/daily/latest.md"},
+            warnings=[],
+            errors=[],
+            summary={
+                "daily": {
+                    "step_count": 6,
+                    "warning_count": 1,
+                    "error_count": 0,
+                }
+            },
+            to_dict=lambda: {
+                "task_type": "daily",
+                "name": "daily-workflow",
+                "status": "success",
+                "summary": {"daily": {"step_count": 6, "warning_count": 1, "error_count": 0}},
+                "outputs": {"latest_md": "Database/reports/daily/latest.md"},
+                "warnings": [],
+                "errors": [],
+            },
+        )
+
+        markdown = render_run_result_markdown(result)
+
+        self.assertIn("## Daily", markdown)
+        self.assertIn("step_count", markdown)
+        self.assertIn("warning_count", markdown)
+        self.assertIn("error_count", markdown)
 
 
 class SyncTest(unittest.TestCase):

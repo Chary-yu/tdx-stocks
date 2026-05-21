@@ -18,6 +18,9 @@ def build_run_plan(run_config: LoadedRunConfig) -> dict[str, Any]:
     outputs: dict[str, Any] = {}
     steps: list[str] = []
 
+    def _pick(value: Any, fallback: Any) -> Any:
+        return fallback if value is None else value
+
     if task_type == "daily":
         daily = data.get("daily") or {}
         strategies = data.get("strategies") or {}
@@ -27,11 +30,11 @@ def build_run_plan(run_config: LoadedRunConfig) -> dict[str, Any]:
         inputs = {
             "as_of": (data.get("data") or {}).get("as_of", "latest"),
             "strategies": list(strategies.get("enabled") or daily.get("enabled_strategies") or []),
-            "strategy_limit": strategies.get("limit") or daily.get("strategy_limit"),
-            "min_score": strategies.get("min_score") or daily.get("strategy_min_score"),
-            "min_hit": consensus.get("min_hit") or daily.get("consensus_min_hit"),
-            "portfolio_top": portfolio.get("top") or daily.get("portfolio_top"),
-            "portfolio_weighting": portfolio.get("weighting") or daily.get("portfolio_weighting"),
+            "strategy_limit": _pick(strategies.get("limit"), daily.get("strategy_limit")),
+            "min_score": _pick(strategies.get("min_score"), daily.get("strategy_min_score")),
+            "min_hit": _pick(consensus.get("min_hit"), daily.get("consensus_min_hit")),
+            "portfolio_top": _pick(portfolio.get("top"), daily.get("portfolio_top")),
+            "portfolio_weighting": _pick(portfolio.get("weighting"), daily.get("portfolio_weighting")),
             "current_holdings": rebalance.get("current_holdings"),
         }
         outputs = {
@@ -56,7 +59,7 @@ def build_run_plan(run_config: LoadedRunConfig) -> dict[str, Any]:
         inputs = {
             "as_of": (data.get("data") or {}).get("as_of", "latest"),
             "strategies": list(strategies.get("enabled") or []),
-            "min_hit": consensus.get("min_hit") or 2,
+            "min_hit": _pick(consensus.get("min_hit"), 2),
         }
         outputs = {"reports": ["reports/latest.json"]}
         steps = ["load latest dataset", "compare strategies", "build consensus"]
@@ -88,7 +91,7 @@ def build_run_plan(run_config: LoadedRunConfig) -> dict[str, Any]:
         portfolio = data.get("portfolio") or {}
         inputs = {
             "source": portfolio.get("source") or "consensus",
-            "top": portfolio.get("top") or 20,
+            "top": _pick(portfolio.get("top"), 20),
             "weighting": portfolio.get("weighting") or "equal",
             "as_of": (data.get("data") or {}).get("as_of", "latest"),
         }

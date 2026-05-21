@@ -17,6 +17,7 @@ from ..portfolio import (
     save_portfolio_report,
     save_rebalance_plan,
 )
+from ..config_validators import optional_str
 from ..query import open_query_context
 from ..strategies.compare import compare_strategies
 from ..strategies.consensus import build_consensus
@@ -58,11 +59,11 @@ def run_daily_workflow(
     resolved_as_of = as_of or _load_latest_trade_date(config)
     daily_config = DailyRunConfig.from_app_config(config)
     strategy_names = strategies or list(daily_config.enabled_strategies)
-    strategy_limit = strategy_limit or daily_config.strategy_limit
+    strategy_limit = daily_config.strategy_limit if strategy_limit is None else strategy_limit
     min_score = min_score if min_score is not None else daily_config.strategy_min_score
-    min_hit = min_hit or daily_config.consensus_min_hit
-    portfolio_top = portfolio_top or daily_config.portfolio_top
-    portfolio_weighting = portfolio_weighting or daily_config.portfolio_weighting
+    min_hit = daily_config.consensus_min_hit if min_hit is None else min_hit
+    portfolio_top = daily_config.portfolio_top if portfolio_top is None else portfolio_top
+    portfolio_weighting = daily_config.portfolio_weighting if portfolio_weighting is None else portfolio_weighting
     portfolio_max_weight = (
         portfolio_max_weight if portfolio_max_weight is not None else daily_config.portfolio_max_weight
     )
@@ -92,7 +93,7 @@ def run_daily_workflow(
     ctx = open_query_context(config)
     try:
         manifest = ctx.manifest
-        data_run_id = str(manifest.get("run_id") or None)
+        data_run_id = optional_str(manifest.get("run_id"))
         latest_trade_date = resolved_as_of or _load_latest_trade_date(config)
         data_quality = manifest.get("summary", {}).get("checks", [])
         if not skip_strategies:
@@ -171,9 +172,9 @@ def run_daily_workflow(
             )
             portfolio_saved = save_portfolio_report(config.paths.data_root, portfolio_report)
             if isinstance(portfolio_saved, dict):
-                portfolio_outputs = {str(key): str(value) for key, value in portfolio_saved.items()}
+                portfolio_outputs = {f"portfolio:{key}": str(value) for key, value in portfolio_saved.items()}
             else:
-                portfolio_outputs = {"portfolio_json": portfolio_saved.as_posix()}
+                portfolio_outputs = {"portfolio:portfolio_json": portfolio_saved.as_posix()}
             portfolio_payload = portfolio_report.to_dict()
             outputs.update(portfolio_outputs)
             steps.append(
@@ -244,6 +245,16 @@ def run_daily_workflow(
             )
 
         if skip_report:
+            steps.append(
+                DailyStepResult(
+                    step_name="daily_report",
+                    status="skipped",
+                    message="report skipped",
+                    output_paths=[],
+                    metrics={},
+                    duration_seconds=0.0,
+                )
+            )
             report = _build_report(
                 as_of=latest_trade_date,
                 run_started=run_started,
@@ -259,16 +270,6 @@ def run_daily_workflow(
                 errors=errors,
             )
             markdown = render_daily_markdown(report)
-            steps.append(
-                DailyStepResult(
-                    step_name="daily_report",
-                    status="skipped",
-                    message="report skipped",
-                    output_paths=[],
-                    metrics={},
-                    duration_seconds=0.0,
-                )
-            )
             return DailyWorkflowResult(report=report, markdown=markdown, outputs=outputs)
 
         report = _build_report(
@@ -346,8 +347,8 @@ def _run_strategies(
                     strategy_name=definition.name,
                     as_of=as_of,
                     generated_at=datetime.now(),
-                    data_run_id=str(report.summary.get("dataset_run_id") or None),
-                    factor_version=str(report.summary.get("factor_version") or None),
+                    data_run_id=optional_str(report.summary.get("dataset_run_id")),
+                    factor_version=optional_str(report.summary.get("factor_version")),
                     params=params,
                     report=report,
                 ),

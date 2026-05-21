@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tdx_stocks.config_validators import validate_compression
 from tdx_stocks.duckdb_ops import connect_duckdb, copy_adj_daily, copy_parquet_dataset, sql_literal
 
 duckdb = pytest.importorskip("duckdb")
@@ -117,6 +118,12 @@ class CopyAdjDailyTest(unittest.TestCase):
             temp_dir = Path(tmp) / "duckdb tmp"
             with self.assertRaises(ValueError):
                 connect_duckdb(temp_dir, "not-a-limit")
+
+    def test_validate_compression_normalizes_and_rejects_injection(self) -> None:
+        self.assertEqual(validate_compression("zstd"), "ZSTD")
+        self.assertEqual(validate_compression("snappy"), "SNAPPY")
+        with self.assertRaises(ValueError):
+            validate_compression("zstd); drop table; --")
 
     def test_sql_literal_escapes_single_quotes(self) -> None:
         self.assertEqual(sql_literal("O'Reilly"), "O''Reilly")

@@ -15,13 +15,17 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
     task_data = data.get("data") or {}
     as_of_value = task_data.get("as_of") or "latest"
     as_of = None if as_of_value == "latest" else parse_iso_date(as_of_value)
+
+    def _pick(value: Any, fallback: Any) -> Any:
+        return fallback if value is None else value
+
     target = build_portfolio(
         run_config.app_config,
         source=str(portfolio.get("source") or "consensus"),
-        top=int(portfolio.get("top") or 20),
+        top=int(_pick(portfolio.get("top"), 20)),
         weighting=str(portfolio.get("weighting") or "equal"),
-        max_weight=float(portfolio.get("max_weight") or 0.10),
-        min_weight=float(portfolio.get("min_weight") or 0.0),
+        max_weight=float(_pick(portfolio.get("max_weight"), 0.10)),
+        min_weight=float(_pick(portfolio.get("min_weight"), 0.0)),
         max_risk_score=portfolio.get("max_risk_score"),
         exclude_risk_tags=tuple(portfolio.get("exclude_risk_tags") or ()),
         market=portfolio.get("market"),
@@ -33,7 +37,7 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
         current,
         target.holdings,
         as_of=target.as_of,
-        min_trade_weight=float(rebalance.get("min_trade_weight") or 0.0),
+        min_trade_weight=float(_pick(rebalance.get("min_trade_weight"), 0.0)),
         max_turnover=rebalance.get("max_turnover"),
     )
     return RunResult(

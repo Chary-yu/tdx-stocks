@@ -38,6 +38,12 @@ class _FakeStreamlit(types.SimpleNamespace):
     def set_page_config(self, *args, **kwargs):
         return None
 
+    def cache_data(self, *args, **kwargs):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
     def title(self, *args, **kwargs):
         return None
 

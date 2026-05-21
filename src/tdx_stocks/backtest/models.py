@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig, BuildConfig, FactorConfig, PathsConfig, resolve_tdx_paths
+from ..config_validators import validate_compression
 
 
 @dataclass(frozen=True)
@@ -287,7 +288,7 @@ def _build_build_config(data: dict[str, Any]) -> BuildConfig:
     return BuildConfig(
         markets=tuple(data.get("markets", defaults.markets)),
         universe=str(data.get("universe", defaults.universe)),
-        compression=str(data.get("compression", defaults.compression)),
+        compression=validate_compression(data.get("compression", defaults.compression)),
         batch_rows=int(data.get("batch_rows", defaults.batch_rows)),
         duckdb_memory_limit=str(data.get("duckdb_memory_limit", defaults.duckdb_memory_limit)),
         overwrite_staging=bool(data.get("overwrite_staging", defaults.overwrite_staging)),

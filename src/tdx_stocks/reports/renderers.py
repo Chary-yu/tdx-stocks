@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, is_dataclass
 from typing import Any, Iterable, Sequence
 
@@ -48,13 +47,13 @@ def fmt_list(value: object) -> str:
     if value is None:
         return "N/A"
     if isinstance(value, (list, tuple, set)):
-        items = [str(item) for item in value if item not in (None, "")]
+        items = [_stringify(item) for item in value if item not in (None, "")]
         return ", ".join(items) if items else "N/A"
     return str(value)
 
 
 def md_table(headers: Sequence[str], rows: Iterable[Sequence[object]]) -> str:
-    header_row = "| " + " | ".join(str(header) for header in headers) + " |"
+    header_row = "| " + " | ".join(_escape_md_cell(str(header)) for header in headers) + " |"
     separator = "| " + " | ".join("---" for _ in headers) + " |"
     body = [
         "| " + " | ".join(_escape_md_cell(_stringify(cell)) for cell in row) + " |"
@@ -259,14 +258,10 @@ def _render_simple_list_section(title: str, values: object) -> list[str]:
 
 def _render_json_details(title: str, payload: object) -> list[str]:
     return [
-        f"<details>",
-        f"<summary>{title}</summary>",
+        f"## {title}",
         "",
-        "```json",
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
-        "```",
+        "_Full JSON payload is available in the paired `.json` report file._",
         "",
-        "</details>",
     ]
 
 
@@ -386,7 +381,13 @@ def _stringify(value: object) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
     if isinstance(value, (list, tuple, set)):
-        return fmt_list(value)
+        items = [_stringify(item) for item in value if item not in (None, "")]
+        return ", ".join(items) if items else "N/A"
+    if isinstance(value, dict):
+        if not value:
+            return "N/A"
+        parts = [f"{key}: {_stringify(item)}" for key, item in value.items()]
+        return "<br>".join(parts)
     if isinstance(value, float):
         return fmt_float(value)
     return str(value)

@@ -5,6 +5,7 @@ from datetime import datetime, date
 from typing import Any
 
 from ..config import AppConfig
+from ..config_validators import optional_str
 from ..pipeline import parse_iso_date
 from ..strategies.consensus import build_consensus
 from ..strategies.registry import get_strategy, list_strategies
@@ -146,7 +147,7 @@ def _load_candidates(
         definition = get_strategy(strategy)
         report = definition.runner(config, definition.default_params if as_of is None else replace(definition.default_params, as_of=as_of))
         candidates = list(report.picks)
-        return candidates, str(report.summary.get("dataset_run_id") or None), as_of or "latest"
+        return candidates, optional_str(report.summary.get("dataset_run_id")), as_of or "latest"
 
     if source == "report":
         if strategy is None:
@@ -159,7 +160,7 @@ def _load_candidates(
         )
         if doc is None:
             raise FileNotFoundError(f"saved strategy report not found for {strategy!r}")
-        return list(doc.get("candidates") or []), str(doc.get("data_run_id") or None), str(doc.get("as_of") or "latest")
+        return list(doc.get("candidates") or []), optional_str(doc.get("data_run_id")), str(doc.get("as_of") or "latest")
     raise ValueError(f"unknown portfolio source: {source}")
 
 
