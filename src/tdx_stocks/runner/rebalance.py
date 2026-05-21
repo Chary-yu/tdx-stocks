@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..portfolio import Holding, build_portfolio, build_rebalance_plan, load_current_holdings_csv
+from ..portfolio import Holding, build_rebalance_plan, load_current_holdings_csv
+from ..portfolio.loader import load_portfolio_target
 from ..portfolio.risk_controls import DEFAULT_EXCLUDE_RISK_TAGS, normalize_exclude_risk_tags
 from ..execution.plan import build_execution_plan
 from ..events.bus import publish
@@ -24,7 +25,7 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     macro_filter = data.get("macro_filter") if isinstance(data.get("macro_filter"), dict) else {}
     event_calendar = data.get("event_calendar") if isinstance(data.get("event_calendar"), dict) else {}
     target_source = str(rebalance.get("target_source") or "portfolio")
-    if target_source not in {"portfolio", "portfolio_report"}:
+    if not (target_source in {"portfolio", "portfolio_report"} or target_source.startswith("file:")):
         publish(Event.create("RISK_INTERCEPTED", {"task": "rebalance", "reason": "invalid_target_source"}))
         return RunResult(
             task_type="rebalance",
@@ -41,28 +42,10 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     def _pick(value: Any, fallback: Any) -> Any:
         return fallback if value is None else value
 
-    emit_progress(progress, "构建目标组合")
-    target = build_portfolio(
-        run_config.app_config,
-        source=str(portfolio.get("source") or "consensus"),
-        top=int(_pick(portfolio.get("top"), 20)),
-        weighting=str(portfolio.get("weighting") or "liquidity-risk"),
-        max_weight=float(_pick(portfolio.get("max_weight"), 0.10)),
-        min_weight=float(_pick(portfolio.get("min_weight"), 0.0)),
-        max_risk_score=portfolio.get("max_risk_score"),
-        exclude_risk_tags=normalize_exclude_risk_tags(portfolio.get("exclude_risk_tags") or DEFAULT_EXCLUDE_RISK_TAGS),
-        market=portfolio.get("market"),
-        capital=float(portfolio.get("capital") or 10_000_000),
-        max_adv_participation=float(portfolio.get("max_adv_participation") or 0.10),
-        max_liquidation_days=float(portfolio.get("max_liquidation_days") or 0.5),
-        market_regime_enabled=bool(portfolio.get("market_regime_enabled", True)),
-        sector_max_weight=float(portfolio.get("max_sector_weight") or 0.25),
-        market_regime_config=macro_filter,
-        event_calendar_config=event_calendar,
-        as_of=as_of,
-    )
+    emit_progress(progress, "读取目标组合")
+    target_doc = load_portfolio_target(data_root=run_config.app_config.paths.data_root, source=target_source)
     require_risk_filtered = bool(rebalance.get("require_risk_filtered_target", True))
-    target_dict = target.to_dict()
+    target_dict = dict(target_doc)
     target_diagnostics = target_dict.get("diagnostics") if isinstance(target_dict.get("diagnostics"), dict) else {}
     if require_risk_filtered and not target_diagnostics.get("risk_filter_applied"):
         publish(Event.create("RISK_INTERCEPTED", {"task": "rebalance", "reason": "risk_filter_required"}))
@@ -82,13 +65,14 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, pr
     holdings_path = rebalance.get("current_holdings")
     current = load_current_holdings_csv(Path(holdings_path)) if holdings_path else []
     emit_progress(progress, "生成调仓计划")
-    target_holdings = [_holding_from_dict(row) for row in target.holdings]
+    target_holdings = [_holding_from_dict(row) for row in target_dict.get("holdings") or []]
     plan = build_rebalance_plan(
         current,
         target_holdings,
-        as_of=target.as_of,
+        as_of=str(target_dict.get("as_of") or resolve_report_as_of(run_config.app_config, as_of_value)),
         min_trade_weight=float(_pick(rebalance.get("min_trade_weight"), 0.0)),
         max_turnover=rebalance.get("max_turnover"),
+        cost_model=rebalance.get("cost_model") if isinstance(rebalance.get("cost_model"), dict) else None,
         target_risk_filter={
             "risk_filter_applied": True,
             "exclude_risk_tags": list(normalize_exclude_risk_tags(portfolio.get("exclude_risk_tags") or DEFAULT_EXCLUDE_RISK_TAGS)),

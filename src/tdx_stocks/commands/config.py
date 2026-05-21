@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from pathlib import Path
 
 from ..config.loader import RUNNABLE_TASKS, load_config_bundle, resolve_task_config_path
@@ -40,6 +41,7 @@ def cmd_config_validate(args: argparse.Namespace) -> int:
                     "task_type": task_type,
                     "task_name": task_name,
                     "warnings": list(bundle.warnings) + list(warnings),
+                    "issues": _classify_issues(list(bundle.warnings) + list(warnings)),
                 }
             )
         except Exception as exc:  # noqa: BLE001
@@ -74,6 +76,12 @@ def cmd_config_inspect(args: argparse.Namespace) -> int:
         print(f"Task: {task_type}")
         print(f"Name: {task_name}")
         print(f"Config: {bundle.task_path.as_posix()}")
+        print("Merged Aux Paths:")
+        for key in ("macro_filter", "event_calendar", "risk_management", "pre_filter", "stop_loss", "order_execution", "alerts", "logging", "risk_scenario"):
+            node = bundle.merged_config.get(key)
+            if isinstance(node, Mapping):
+                for dotted in _flatten_dotted(key, node):
+                    print(f"  {dotted}")
         if bundle.auxiliary_sources:
             print("Auxiliary:")
             for name, source in sorted(bundle.auxiliary_sources.items()):
@@ -87,3 +95,23 @@ def _resolve_validate_targets(target: str) -> list[str]:
     if target != "all":
         return [target]
     return list(RUNNABLE_TASKS)
+
+
+def _classify_issues(messages: list[str]) -> dict[str, list[str]]:
+    grouped = {"warning": [], "unsupported_feature": []}
+    for message in messages:
+        if message.startswith("unsupported_feature:"):
+            grouped["unsupported_feature"].append(message)
+        else:
+            grouped["warning"].append(message)
+    return grouped
+
+
+def _flatten_dotted(prefix: str, value: Mapping[str, object]) -> list[str]:
+    rows: list[str] = []
+    for key, child in sorted(value.items()):
+        dotted = f"{prefix}.{key}"
+        rows.append(dotted)
+        if isinstance(child, Mapping):
+            rows.extend(_flatten_dotted(dotted, child))
+    return rows

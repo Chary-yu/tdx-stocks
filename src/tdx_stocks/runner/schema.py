@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ..config.schema import CORE_EXECUTION_SECTIONS, UNSUPPORTED_FEATURE_RULES
 from .errors import InvalidRunConfigError
 
 SUPPORTED_TASK_TYPES = {"daily", "signal", "backtest", "grid_search", "portfolio", "rebalance"}
@@ -32,6 +33,9 @@ _TOP_LEVEL_ALLOWED = {
     "grid",
     "output",
     "data",
+    "exit_rules",
+    "signal",
+    "diversity_check",
     *AUXILIARY_SECTIONS,
 }
 
@@ -39,9 +43,12 @@ _SECTION_ALLOWED = {
     "task": {"type", "name"},
     "data": {"as_of"},
     "strategies": {"enabled", "limit", "min_score", "candidate_type", "market"},
-    "consensus": {"enabled", "min_hit", "limit"},
-    "portfolio": {"enabled", "source", "top", "weighting", "max_weight", "min_weight", "max_risk_score", "exclude_risk_tags", "market", "capital", "max_adv_participation", "max_liquidation_days", "market_regime_enabled", "max_sector_weight"},
-    "rebalance": {"enabled", "current_holdings", "min_trade_weight", "max_turnover", "require_risk_filtered_target", "reject_unfiltered_target", "target_source"},
+    "consensus": {"enabled", "min_hit", "limit", "advanced"},
+    "signal": {"decay"},
+    "diversity_check": {"enabled", "max_correlation_before_warning"},
+    "portfolio": {"enabled", "source", "top", "weighting", "max_weight", "min_weight", "max_risk_score", "exclude_risk_tags", "market", "capital", "max_adv_participation", "max_liquidation_days", "market_regime_enabled", "max_sector_weight", "weighting_hybrid", "regime", "attribution", "override"},
+    "rebalance": {"enabled", "current_holdings", "min_trade_weight", "max_turnover", "require_risk_filtered_target", "reject_unfiltered_target", "target_source", "cost_model"},
+    "exit_rules": {"enabled", "technical", "max_hold", "signal_exit"},
     "strategy": {"name", "limit", "min_score", "min_amount_ma20", "market", "candidate_type"},
     "backtest": {"from_date", "to_date", "top", "hold_days", "rolling", "fee_rate", "slippage", "fee_bps", "slippage_bps", "market", "candidate_type", "min_score", "min_amount_ma20"},
     "grid": None,
@@ -68,10 +75,10 @@ _REQUIRED_BY_TYPE = {
 }
 
 _ALLOWED_SECTIONS_BY_TYPE = {
-    "daily": {"task", "data", "strategies", "consensus", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
-    "signal": {"task", "data", "strategies", "consensus", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
-    "backtest": {"task", "strategy", "backtest", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
-    "grid_search": {"task", "strategy", "backtest", "grid", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "daily": {"task", "data", "strategies", "consensus", "signal", "diversity_check", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily", "exit_rules", *AUXILIARY_SECTIONS},
+    "signal": {"task", "data", "strategies", "consensus", "signal", "diversity_check", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "backtest": {"task", "strategy", "backtest", "exit_rules", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
+    "grid_search": {"task", "strategy", "backtest", "grid", "exit_rules", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
     "portfolio": {"task", "portfolio", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
     "rebalance": {"task", "portfolio", "rebalance", "output", "paths", "build", "factors", "daily", *AUXILIARY_SECTIONS},
 }
@@ -117,7 +124,17 @@ def validate_run_config(data: Mapping[str, object]) -> tuple[str, str, list[str]
                 raise InvalidRunConfigError(
                     f"Invalid config: [{section}].{bad} is not supported.\n\nUse:\n  {replacement} = \"2022-01-01\""
                 )
+            if section in CORE_EXECUTION_SECTIONS:
+                raise InvalidRunConfigError(
+                    f"Invalid config: unsupported core key(s) in [{section}]: {', '.join(unknown)}"
+                )
             warnings.append(f"ignored unsupported key(s) in [{section}]: {', '.join(unknown)}")
+    for (section, key), values in UNSUPPORTED_FEATURE_RULES.items():
+        node = data.get(section)
+        if isinstance(node, Mapping):
+            value = str(node.get(key) or "")
+            if value in values:
+                warnings.append(f"unsupported_feature: [{section}].{key}={value}")
     if task_type == "rebalance":
         rebalance = data.get("rebalance")
         if isinstance(rebalance, Mapping) and not rebalance.get("current_holdings"):

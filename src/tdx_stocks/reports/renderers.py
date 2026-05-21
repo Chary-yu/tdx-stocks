@@ -227,14 +227,17 @@ def render_daily_markdown(report: Any, *, stock_names: dict[tuple[str, str], str
     lines.extend(_daily_strategy_overview(payload))
     lines.extend(_daily_highlights(payload))
     lines.extend(_summary_block(payload))
+    lines.extend(_daily_system_risk_conclusion(payload))
     data_quality = payload.get("data_quality")
     checks = data_quality.get("checks") if isinstance(data_quality, dict) else data_quality
     lines.extend(_with_fallback("数据质量", _render_checks_section("数据质量", checks)))
+    lines.extend(_daily_data_quality_level(payload))
     lines.extend(_with_fallback("策略摘要", _render_kv_section("策略摘要", payload.get("strategy_summary"))))
     lines.extend(_with_fallback("共振股票", _render_consensus_section(payload.get("consensus_summary"), stock_names)))
     lines.extend(_with_fallback("组合摘要", _render_portfolio_summary(portfolio_summary)))
     lines.extend(_render_market_regime_section(portfolio_summary))
     lines.extend(_render_risk_interception_section(portfolio_summary, stock_names))
+    lines.extend(_daily_event_risk_section(portfolio_summary, stock_names))
     lines.extend(_render_sector_exposure_section(portfolio_summary))
     lines.extend(_render_portfolio_holdings_section(holdings, stock_names, heading="目标持仓"))
     lines.extend(_with_fallback("风险摘要", _render_risk_summary_section(risk_summary)))
@@ -245,6 +248,50 @@ def render_daily_markdown(report: Any, *, stock_names: dict[tuple[str, str], str
     lines.extend(_label_glossary(payload))
     lines.extend(_render_json_details("原始 JSON", payload))
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _daily_system_risk_conclusion(payload: dict[str, Any]) -> list[str]:
+    portfolio = payload.get("portfolio_summary") if isinstance(payload.get("portfolio_summary"), dict) else {}
+    diagnostics = portfolio.get("diagnostics") if isinstance(portfolio.get("diagnostics"), dict) else {}
+    regime = diagnostics.get("market_regime") if isinstance(diagnostics.get("market_regime"), dict) else {}
+    passed = not (regime.get("action") == "pause_open" or regime.get("status") in {"not_available", "bear"})
+    return _render_kv_table("系统级风控结论", [
+        ("是否通过", "是" if passed else "否（触发行情熔断）"),
+        ("市场状态", regime.get("status")),
+        ("系统动作", regime.get("action")),
+        ("说明", regime.get("reason") or regime.get("message")),
+    ])
+
+
+def _daily_data_quality_level(payload: dict[str, Any]) -> list[str]:
+    checks = payload.get("data_quality")
+    checks_list = checks.get("checks") if isinstance(checks, dict) else (checks if isinstance(checks, list) else [])
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    return _render_kv_table("数据质量错误等级", [
+        ("检查项数量", len(checks_list) if isinstance(checks_list, list) else 0),
+        ("警告数量", summary.get("warning_count")),
+        ("错误数量", summary.get("error_count")),
+    ])
+
+
+def _daily_event_risk_section(portfolio_summary: dict[str, Any], stock_names: dict[tuple[str, str], str]) -> list[str]:
+    diagnostics = portfolio_summary.get("diagnostics") if isinstance(portfolio_summary.get("diagnostics"), dict) else {}
+    interceptions = diagnostics.get("risk_interceptions") if isinstance(diagnostics.get("risk_interceptions"), list) else []
+    rows = []
+    for item in interceptions[:200]:
+        if not isinstance(item, dict):
+            continue
+        reason = str(item.get("reason") or "")
+        if "事件" not in reason:
+            continue
+        rows.append((
+            stock_display(item, stock_names, include_code=True),
+            item.get("action"),
+            reason,
+        ))
+    if not rows:
+        return []
+    return ["## 事件风险日志", "", md_table(("股票", "处理", "说明"), rows), ""]
 
 
 def render_strategy_markdown(report: dict[str, Any], *, stock_names: dict[tuple[str, str], str] | None = None) -> str:

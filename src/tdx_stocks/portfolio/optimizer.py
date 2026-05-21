@@ -14,12 +14,17 @@ def optimize_weights(
     capital: float,
     max_adv_participation: float,
     max_liquidation_days: float,
-) -> list[float]:
+) -> tuple[list[float], dict[str, Any]]:
     normalized_mode = str(mode or "equal")
+    diagnostics: dict[str, Any] = {"requested_weighting": normalized_mode, "effective_weighting": normalized_mode}
     if normalized_mode == "risk-parity":
-        raise NotImplementedError("risk-parity 暂未实现")
-    if normalized_mode in {"hybrid", "signal-strength"}:
+        diagnostics["effective_weighting"] = "liquidity-risk"
+        diagnostics["unsupported_feature"] = "risk-parity 当前暂未实现，已回退为 liquidity-risk"
         normalized_mode = "liquidity-risk"
+    if normalized_mode == "signal-strength":
+        normalized_mode = "signal-strength"
+    if normalized_mode == "hybrid":
+        normalized_mode = "hybrid"
     return build_portfolio_weights(
         candidates,
         normalized_mode,
@@ -29,4 +34,4 @@ def optimize_weights(
         capital=capital,
         max_adv_participation=max_adv_participation,
         max_liquidation_days=max_liquidation_days,
-    )
+    ), diagnostics

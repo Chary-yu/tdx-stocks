@@ -15,3 +15,7 @@ def subscribe(handler: Subscriber) -> None:
 def publish(event: Event) -> None:
     for handler in list(_SUBSCRIBERS):
         handler(event)
+
+
+def has_subscribers() -> bool:
+    return bool(_SUBSCRIBERS)

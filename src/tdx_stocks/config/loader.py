@@ -1,24 +1,16 @@
 from __future__ import annotations
 
+import os
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from .bundle import ConfigBundle
+from .normalize import AUX_CONFIG_ALIASES, SECTION_EXTRACTORS, extract_aux_section_payload
 
 RUNNABLE_TASKS = ("daily", "signal", "portfolio", "rebalance", "backtest", "grid_search")
-AUXILIARY_SECTIONS = (
-    "macro_filter",
-    "event_calendar",
-    "risk_management",
-    "stop_loss",
-    "order_execution",
-    "pre_filter",
-    "alerts",
-    "logging",
-    "risk_scenario",
-)
+AUXILIARY_SECTIONS = tuple(AUX_CONFIG_ALIASES.keys())
 
 TASK_PRESETS: dict[str, Path] = {
     "daily": Path("experiments/daily.toml"),
@@ -34,10 +26,11 @@ TASK_PRESETS: dict[str, Path] = {
 def resolve_task_config_path(value: str | Path) -> Path:
     path = Path(value)
     if path.suffix.lower() == ".toml" or path.exists():
-        return path
+        return path.resolve() if path.exists() else path
     preset = TASK_PRESETS.get(str(value))
     if preset is not None:
-        return preset
+        root = _discover_project_root(_safe_cwd())
+        return (root / preset).resolve()
     return path
 
 
@@ -53,7 +46,12 @@ def load_config_bundle(path: Path) -> ConfigBundle:
         if source is None:
             continue
         try:
-            auxiliary_configs[section] = _read_toml(source)
+            loaded = _read_toml(source)
+            auxiliary_configs[section] = extract_aux_section_payload(
+                section,
+                loaded,
+                extractor_key=SECTION_EXTRACTORS.get(section, section),
+            )
             auxiliary_sources[section] = source
         except (OSError, tomllib.TOMLDecodeError) as exc:
             warnings.append(f"failed to load {section} from {source}: {exc}")
@@ -73,6 +71,7 @@ def load_config_bundle(path: Path) -> ConfigBundle:
         merged_config=merged,
         auxiliary_configs=auxiliary_configs,
         auxiliary_sources=auxiliary_sources,
+        auxiliary_extractors=dict(SECTION_EXTRACTORS),
         warnings=warnings,
     )
 
@@ -88,12 +87,31 @@ def _project_root(task_path: Path) -> Path:
     return task_path.parent
 
 
+def _discover_project_root(start: Path) -> Path:
+    for candidate in (start, *start.parents):
+        if (candidate / "experiments").exists():
+            return candidate
+    return start
+
+
+def _safe_cwd() -> Path:
+    try:
+        return Path.cwd()
+    except FileNotFoundError:
+        return Path(os.environ.get("PWD", ".")).resolve()
+
+
 def _find_auxiliary_config(root: Path, section: str) -> Path | None:
-    candidates = [
-        root / "experiments" / f"{section}.toml",
-        root / "configs" / f"{section}.toml",
-        root / "config" / f"{section}.toml",
-    ]
+    names = AUX_CONFIG_ALIASES.get(section, [f"{section}.toml"])
+    candidates: list[Path] = []
+    for name in names:
+        candidates.extend(
+            [
+                root / "experiments" / name,
+                root / "configs" / name,
+                root / "config" / name,
+            ]
+        )
     for candidate in candidates:
         if candidate.exists():
             return candidate

@@ -32,6 +32,7 @@ def build_rebalance_plan(
     min_trade_weight: float = 0.0,
     max_turnover: float | None = None,
     target_risk_filter: dict[str, Any] | None = None,
+    cost_model: dict[str, Any] | None = None,
 ) -> RebalancePlan:
     current_map = {(holding.market, holding.symbol): holding for holding in current_holdings}
     target_map = {(holding.market, holding.symbol): holding for holding in target_holdings}
@@ -41,6 +42,7 @@ def build_rebalance_plan(
     market_regime = diagnostics_filter.get("market_regime") if isinstance(diagnostics_filter.get("market_regime"), dict) else {}
     pause_open = market_regime.get("action") == "pause_open" or market_regime.get("status") in {"not_available", "bear"}
     actions: list[RebalanceAction] = []
+    piecewise = cost_model.get("piecewise") if isinstance(cost_model, dict) and isinstance(cost_model.get("piecewise"), dict) else {}
     for market, symbol in keys:
         current = current_map.get((market, symbol))
         target = target_map.get((market, symbol))
@@ -53,6 +55,13 @@ def build_rebalance_plan(
             reason = "大盘风控要求暂停开仓，拒绝买入并保持现金"
             delta = 0.0
             target_weight = current_weight
+        elif _is_critical_trade(delta, piecewise):
+            critical = piecewise.get("critical") if isinstance(piecewise.get("critical"), dict) else {}
+            if bool(critical.get("reject", False)):
+                action = "REJECT_TRADE"
+                reason = "冲击成本等级 critical 且 reject=true，拒绝交易"
+                delta = 0.0
+                target_weight = current_weight
         actions.append(
             RebalanceAction(
                 market=market,
@@ -82,6 +91,7 @@ def build_rebalance_plan(
         "hold": [action.to_dict() for action in actions if action.action == "HOLD"],
         "increase": [action.to_dict() for action in actions if action.action == "INCREASE"],
         "reduce": [action.to_dict() for action in actions if action.action == "REDUCE"],
+        "rejected": [action.to_dict() for action in actions if action.action == "REJECT_TRADE"],
     }
     return RebalancePlan(
         schema_version="rebalance-plan-v1",
@@ -130,3 +140,13 @@ def _classify_action(current_weight: float, target_weight: float, min_trade_weig
     if delta < 0:
         return "REDUCE", "target weight below current"
     return "HOLD", "no change"
+
+
+def _is_critical_trade(delta: float, piecewise: dict[str, Any]) -> bool:
+    if not piecewise:
+        return False
+    critical = piecewise.get("critical")
+    if not isinstance(critical, dict):
+        return False
+    threshold = float(critical.get("delta_threshold") or 0.20)
+    return abs(delta) >= threshold

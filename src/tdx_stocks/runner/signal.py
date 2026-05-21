@@ -48,12 +48,24 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progr
     filtered_rows = []
     for row in consensus_report.rows:
         row_dict = row.to_dict()
+        factors = row_dict.get("factor_values") if isinstance(row_dict.get("factor_values"), dict) else {}
         merged = {
             "market": row_dict.get("market"),
             "symbol": row_dict.get("symbol"),
+            "name": row_dict.get("display_symbol"),
             "risk_flags": row_dict.get("risk_flags"),
             "tags": row_dict.get("tags"),
             "score": row_dict.get("avg_score"),
+            "is_st": row_dict.get("is_st", factors.get("is_st")),
+            "delist_risk": row_dict.get("delisting_risk", factors.get("delisting_risk")),
+            "listed_days": row_dict.get("listing_days", factors.get("listing_days")),
+            "close": row_dict.get("close", factors.get("adj_close")),
+            "amount_ma20": row_dict.get("amount_ma20", factors.get("amount_ma20")),
+            "turnover_ma20": row_dict.get("turnover_ma20", factors.get("turnover_ma20")),
+            "annualized_volatility": row_dict.get("annual_volatility", factors.get("annual_volatility")),
+            "max_drawdown_1y": row_dict.get("max_drawdown_1y", factors.get("max_drawdown_1y")),
+            "trading_days": row_dict.get("trading_days", factors.get("trading_days")),
+            "financial_data_age_months": row_dict.get("financial_data_age_months", factors.get("financial_data_age_months")),
         }
         result = apply_pre_filter(merged, pre_filter_cfg)
         if result.passed:
@@ -62,7 +74,16 @@ def run_signal_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progr
                 publish(Event.create("SIGNAL_DOWNGRADED_TO_WATCHLIST", {"market": row_dict.get("market"), "symbol": row_dict.get("symbol"), "risk_flags": sorted(risk_flags)}))
             filtered_rows.append(row)
         else:
-            pre_filter_logs.append({"market": row.market, "symbol": row.symbol, "reasons": result.reasons, "action": "filtered_out"})
+            pre_filter_logs.append(
+                {
+                    "market": row.market,
+                    "symbol": row.symbol,
+                    "name": merged.get("name"),
+                    "reasons": result.reasons,
+                    "details": result.details,
+                    "action": "filtered_out",
+                }
+            )
     consensus_dict = consensus_report.to_dict()
     consensus_dict["rows"] = [row.to_dict() for row in filtered_rows]
     consensus_dict["pre_filter_log"] = pre_filter_logs

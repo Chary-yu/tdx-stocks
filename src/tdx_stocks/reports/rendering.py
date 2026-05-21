@@ -422,9 +422,32 @@ def _render_grid(payload: dict[str, Any]) -> str:
 def _render_daily_wrapper(payload: dict[str, Any], stock_names: dict[tuple[str, str], str]) -> str:
     summary = _as_dict(payload.get("summary"))
     daily = _as_dict(summary.get("daily"))
+    daily_report = _as_dict(summary.get("daily_report"))
     lines = _title(payload, "每日综合报告")
     lines.extend(_current_strategy_section(payload, "daily"))
     lines.extend(_kv_section("运行摘要", [(key, value) for key, value in daily.items()]))
+    portfolio_summary = _as_dict(daily_report.get("portfolio_summary"))
+    diagnostics = _as_dict(portfolio_summary.get("diagnostics"))
+    regime = _as_dict(diagnostics.get("market_regime"))
+    checks = _as_list(_as_dict(daily_report.get("data_quality")).get("checks"))
+    lines.extend(_kv_section("系统级风控结论", [
+        ("是否通过", "否（触发行情熔断）" if regime.get("action") == "pause_open" else "是"),
+        ("风控状态", regime.get("status")),
+        ("系统动作", regime.get("action")),
+        ("说明", regime.get("reason") or regime.get("message")),
+    ]))
+    lines.extend(_market_regime_section(diagnostics))
+    lines.extend(_kv_section("数据质量错误等级", [
+        ("检查项数量", len(checks)),
+        ("错误数量", _as_dict(daily_report.get("summary")).get("error_count")),
+        ("警告数量", _as_dict(daily_report.get("summary")).get("warning_count")),
+    ]))
+    lines.extend(_risk_interception_section(diagnostics, stock_names))
+    event_logs = [row for row in _as_list(diagnostics.get("risk_interceptions")) if isinstance(row, dict) and str(row.get("reason") or "").startswith("命中事件窗口")]
+    lines.extend(_table_section("事件风险日志", ("股票", "事件动作", "说明"), [
+        (stock_display(row, stock_names, include_code=True), _value(row.get("action")), _value(row.get("reason")))
+        for row in event_logs[:MAX_TABLE_ROWS]
+    ]))
     lines.extend(_footer(payload))
     return _join(lines)
 
@@ -632,8 +655,13 @@ def _pre_filter_section(logs: list[Any], stock_names: dict[tuple[str, str], str]
     for idx, row in enumerate(logs[:MAX_TABLE_ROWS], start=1):
         if not isinstance(row, dict):
             continue
-        rows.append((idx, stock_display(row, stock_names), _format_tokens(row.get("reasons")), _value(row.get("action") or "filtered_out")))
-    return _table_section("初筛过滤日志", ("排名", "股票", "过滤原因", "处理"), rows)
+        details = _as_list(row.get("details"))
+        detail_text = []
+        for d in details:
+            if isinstance(d, dict):
+                detail_text.append(f"{_value(d.get('rule'))}: actual={_value(d.get('actual'))}, threshold={_value(d.get('threshold'))}")
+        rows.append((idx, stock_display(row, stock_names), _format_tokens(row.get("reasons")), "；".join(detail_text) if detail_text else "无", _value(row.get("action") or "filtered_out")))
+    return _table_section("初筛过滤日志", ("排名", "股票", "过滤原因", "实际值/阈值", "处理"), rows)
 
 
 def _execution_plan_section(plan: dict[str, Any]) -> list[str]:
@@ -907,6 +935,8 @@ def _backtest_trades(trades: list[Any], stock_names: dict[tuple[str, str], str])
             _num(row.get("sell_price")),
             _pct(row.get("net_return") if row.get("net_return") is not None else row.get("gross_return")),
             _value(row.get("exit_reason")),
+            _value(row.get("exit_trigger")),
+            _value(row.get("actual_hold_days")),
             _format_skip_reason(row.get("skipped_reason"), stock_names),
         ))
     title = "交易摘要"
@@ -914,7 +944,7 @@ def _backtest_trades(trades: list[Any], stock_names: dict[tuple[str, str], str])
         title = f"交易摘要（仅显示前 {MAX_TABLE_ROWS} 条，共 {len(trades)} 条）"
     elif trades:
         title = f"交易摘要（共 {len(trades)} 条）"
-    return _table_section(title, ("信号日", "买入日", "卖出日", "方向", "股票", "买入价", "卖出价", "净收益", "平仓触发原因", "跳过原因"), rows)
+    return _table_section(title, ("信号日", "买入日", "卖出日", "方向", "股票", "买入价", "卖出价", "净收益", "平仓触发原因", "触发类别", "实际持有天数", "跳过原因"), rows)
 
 
 def _backtest_exit_reason_stats(trades: list[Any]) -> list[str]:
@@ -1402,6 +1432,8 @@ def _as_list(value: object) -> list[Any]:
 
 
 def _payload_from_result(result: Any) -> dict[str, Any]:
+    if isinstance(result, dict):
+        return dict(result)
     if hasattr(result, "to_dict"):
         return dict(result.to_dict())
     return {

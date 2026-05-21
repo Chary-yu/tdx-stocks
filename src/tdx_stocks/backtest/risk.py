@@ -33,3 +33,10 @@ def check_exit_signal(pos: Position, bar: AdjDailyPrice, params: PortfolioParams
     if params.momentum_turn_negative and bar.close_price < bar.open_price:
         return "momentum_negative"
     return None
+
+
+def check_hard_stop(pos: Position, bar: AdjDailyPrice, params: PortfolioParams) -> str | None:
+    if params.hard_stop_loss_pct:
+        if float(bar.open_price) <= pos.buy_price * (1 - params.hard_stop_loss_pct):
+            return "hard_stop_loss"
+    return None

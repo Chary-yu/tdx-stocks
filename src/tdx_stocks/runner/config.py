@@ -33,8 +33,9 @@ def load_run_config(path: Path) -> LoadedRunConfig:
     bundle = load_config_bundle(path)
     task_type, task_name, _warnings = validate_run_config(bundle.merged_config)
     base_dir = bundle.task_path.parent.resolve()
+    project_root = _project_root_from_task_path(bundle.task_path)
     normalized = _resolve_config(bundle.merged_config, base_dir=base_dir)
-    app_config = _build_app_config(normalized)
+    app_config = _build_app_config(normalized, project_root=project_root)
     backtest_config = BacktestConfig.from_dict(normalized) if task_type in {"backtest", "grid_search"} else None
     return LoadedRunConfig(
         bundle=bundle,
@@ -49,8 +50,15 @@ def load_run_config(path: Path) -> LoadedRunConfig:
     )
 
 
-def _build_app_config(data: Mapping[str, Any]) -> AppConfig:
-    app_defaults = AppConfig()
+def _build_app_config(data: Mapping[str, Any], *, project_root: Path) -> AppConfig:
+    app_defaults = AppConfig(
+        paths=PathsConfig(
+            tdx_vipdoc=project_root / "vipdoc",
+            tdx_export=project_root / "export",
+            data_root=project_root / "Database",
+            plugin_dir=AppConfig().paths.plugin_dir,
+        )
+    )
     paths = data.get("paths") if isinstance(data.get("paths"), Mapping) else {}
     build = data.get("build") if isinstance(data.get("build"), Mapping) else {}
     factors = data.get("factors") if isinstance(data.get("factors"), Mapping) else {}
@@ -126,3 +134,10 @@ def _resolve_path(base_dir: Path, value: str) -> Path:
     if path.is_absolute():
         return path
     return (base_dir / path).resolve()
+
+
+def _project_root_from_task_path(task_path: Path) -> Path:
+    for candidate in (task_path.parent, *task_path.parents):
+        if (candidate / "experiments").exists():
+            return candidate
+    return task_path.parent

@@ -12,4 +12,5 @@ class ConfigBundle:
     merged_config: dict[str, Any]
     auxiliary_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     auxiliary_sources: dict[str, Path] = field(default_factory=dict)
+    auxiliary_extractors: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)

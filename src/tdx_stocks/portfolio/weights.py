@@ -36,6 +36,16 @@ def build_portfolio_weights(
 def _initial_weights(rows: list[dict[str, Any]], weighting: str) -> list[float]:
     if weighting == "equal":
         return [1.0 / len(rows)] * len(rows)
+    if weighting == "signal-strength":
+        scores = [max(float(row.get("score") or 0.0), 0.0) for row in rows]
+        if sum(scores) <= 0:
+            return [1.0 / len(rows)] * len(rows)
+        return _normalize(scores)
+    if weighting == "hybrid":
+        scores = [max(float(row.get("score") or 0.0), 0.0) for row in rows]
+        adv_scores = [max(float(amount_ma20(row) or 0.0), 1.0) for row in rows]
+        combo = [(s / max(sum(scores), 1e-9)) * 0.6 + (a / max(sum(adv_scores), 1e-9)) * 0.4 for s, a in zip(scores, adv_scores, strict=True)]
+        return _normalize(combo)
 
     scores = [float(row.get("score") or 0.0) for row in rows]
     if weighting in {"risk-adjusted", "liquidity-risk", "liquidity_risk"}:
@@ -78,7 +88,8 @@ def _apply_liquidity_caps(
         adv = amount_ma20(row)
         if adv is None or adv <= 0:
             continue
-        cap = (adv * max_adv_participation * max_liquidation_days) / capital
+        liquidity_cap_amount = adv * max_adv_participation * max_liquidation_days
+        cap = liquidity_cap_amount / capital
         if cap > 0 and capped[index] > cap:
             capped[index] = cap
     return capped

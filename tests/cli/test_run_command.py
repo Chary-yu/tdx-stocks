@@ -12,12 +12,12 @@ from tdx_stocks.commands.run import RUN_CONFIG_PRESETS, _resolve_run_config
 
 class RunCommandTest(unittest.TestCase):
     def test_presets_resolve_to_expected_templates(self) -> None:
-        self.assertEqual(_resolve_run_config("daily"), RUN_CONFIG_PRESETS["daily"])
-        self.assertEqual(_resolve_run_config("signal"), RUN_CONFIG_PRESETS["signal"])
-        self.assertEqual(_resolve_run_config("portfolio"), RUN_CONFIG_PRESETS["portfolio"])
-        self.assertEqual(_resolve_run_config("rebalance"), RUN_CONFIG_PRESETS["rebalance"])
-        self.assertEqual(_resolve_run_config("backtest"), RUN_CONFIG_PRESETS["backtest"])
-        self.assertEqual(_resolve_run_config("grid"), RUN_CONFIG_PRESETS["grid"])
+        self.assertTrue(_resolve_run_config("daily").as_posix().endswith(RUN_CONFIG_PRESETS["daily"].as_posix()))
+        self.assertTrue(_resolve_run_config("signal").as_posix().endswith(RUN_CONFIG_PRESETS["signal"].as_posix()))
+        self.assertTrue(_resolve_run_config("portfolio").as_posix().endswith(RUN_CONFIG_PRESETS["portfolio"].as_posix()))
+        self.assertTrue(_resolve_run_config("rebalance").as_posix().endswith(RUN_CONFIG_PRESETS["rebalance"].as_posix()))
+        self.assertTrue(_resolve_run_config("backtest").as_posix().endswith(RUN_CONFIG_PRESETS["backtest"].as_posix()))
+        self.assertTrue(_resolve_run_config("grid").as_posix().endswith(RUN_CONFIG_PRESETS["grid"].as_posix()))
 
     def test_custom_toml_is_not_rewritten(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

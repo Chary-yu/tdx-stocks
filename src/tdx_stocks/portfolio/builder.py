@@ -107,7 +107,7 @@ def build_portfolio(
     if not filtered_candidates:
         holdings: list[Holding] = []
     else:
-        weights = optimize_weights(
+        weights, weight_diag = optimize_weights(
             filtered_candidates,
             mode=weighting,
             max_weight=max_weight,
@@ -116,9 +116,10 @@ def build_portfolio(
             max_adv_participation=max_adv_participation,
             max_liquidation_days=max_liquidation_days,
         )
+        kept_pairs = [(candidate, weight) for candidate, weight in zip(filtered_candidates, weights, strict=True) if weight >= min_weight or min_weight <= 0]
         holdings = [
             _candidate_to_holding(candidate, weight, source, strategy, capital=capital, max_adv_participation=max_adv_participation, max_liquidation_days=max_liquidation_days)
-            for candidate, weight in zip(filtered_candidates, weights, strict=True)
+            for candidate, weight in kept_pairs
         ]
 
     risk = check_portfolio_risk(holdings, max_weight=max_weight)
@@ -152,6 +153,7 @@ def build_portfolio(
         "sector_exposure": sector,
         "technical_concentration": technical_concentration(holding_dicts),
         "technical_exit_policy": technical_exit_policy(),
+        "weighting_diagnostics": weight_diag if filtered_candidates else {"requested_weighting": weighting, "effective_weighting": weighting},
     }
     return PortfolioReport.build(
         generated_at=datetime.now(),

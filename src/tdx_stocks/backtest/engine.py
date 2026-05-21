@@ -138,8 +138,20 @@ def run_portfolio_backtest(
             skipped_reasons: list[str] = []
             buy_date = None
             sell_date = None
+            signal_date = trading_dates[index - 1] if index > 0 else None
+            score_map: dict[tuple[str, str], float] = {}
+            if signal_date is not None:
+                for candidate in signal_map.get(signal_date, []):
+                    market = str(candidate.get("market") or "").lower()
+                    symbol = str(candidate.get("symbol") or "")
+                    score = _float(candidate.get("score"))
+                    if market and symbol and score is not None:
+                        score_map[(market, symbol)] = score
 
             for symbol, pos in list(active_positions.items()):
+                latest_score = score_map.get((str(pos.market or "").lower(), symbol))
+                if latest_score is not None:
+                    pos.score = latest_score
                 bar = _load_daily_bar(
                     ctx.con,
                     daily_price_loader_fn,
@@ -153,11 +165,18 @@ def run_portfolio_backtest(
                         continue
                 elif bar is None or bar.is_suspended or bar.is_limit_down:
                     continue
-                exit_reason = "hold_days" if (today - pos.buy_date).days >= params.hold_days else None
-                if exit_reason is None and portfolio_params.max_hold_days is not None and (today - pos.buy_date).days >= portfolio_params.max_hold_days:
-                    exit_reason = "max_holding_days"
-                if exit_reason is None and pos.direction != "SHORT":
-                    exit_reason = ExitEngine.check(pos, bar, portfolio_params)
+                hold_days = (today - pos.buy_date).days
+                exit_reason = None
+                exit_trigger = None
+                if pos.direction != "SHORT":
+                    exit_reason, exit_trigger = ExitEngine.check(pos, bar, portfolio_params, hold_days=hold_days)
+                if exit_reason is None and portfolio_params.exit_when_score_below is not None and pos.score is not None:
+                    if float(pos.score) < float(portfolio_params.exit_when_score_below):
+                        exit_reason, exit_trigger = "score_below_threshold", "signal_exit"
+                if exit_reason is None and portfolio_params.max_hold_days is not None and hold_days >= portfolio_params.max_hold_days:
+                    exit_reason, exit_trigger = "max_holding_days", "max_hold"
+                if exit_reason is None and hold_days >= params.hold_days:
+                    exit_reason, exit_trigger = "hold_days", "legacy_hold_days"
                 if exit_reason is None:
                     continue
                 if pos.direction == "SHORT":
@@ -187,13 +206,15 @@ def run_portfolio_backtest(
                         net_return=round(net_return, 6),
                         direction=pos.direction,
                         shares=pos.shares,
+                        exit_reason=exit_reason,
+                        exit_trigger=exit_trigger,
+                        actual_hold_days=hold_days,
                     )
                 )
                 del active_positions[symbol]
                 activity_count += 1
                 sell_date = today
 
-            signal_date = trading_dates[index - 1] if index > 0 else None
             for candidate in signal_map.get(signal_date, []):
                 if len(active_positions) >= portfolio_params.max_positions:
                     skipped_reasons.append("max_positions")
