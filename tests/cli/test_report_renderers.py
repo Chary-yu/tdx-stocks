@@ -25,7 +25,7 @@ class ReportRenderersTest(unittest.TestCase):
                 "as_of": "2024-01-31",
                 "generated_at": "2024-02-01T10:00:00",
                 "data_run_id": "run-1",
-                "summary": {"holding_count": 1, "market_exposure": {"sh": 0.625, "sz": 0.375}},
+                "summary": {"holding_count": 1, "市场暴露": {"sh": 0.625, "sz": 0.375}},
                 "risk_summary": {"passed": True},
                 "holdings": [{"market": "sh", "symbol": "600519", "weight": 0.12, "score": 88.2, "source_strategy": "trend-strength", "candidate_type": "strong_trend", "risk_flags": ["none"], "tags": ["trend"], "reason": "top pick", "factor_values": {"holdings": [1, 2, 3]}}],
                 "diagnostics": {"holdings": [1, 2, 3]},
@@ -36,16 +36,16 @@ class ReportRenderersTest(unittest.TestCase):
             outputs={"latest_md": "/tmp/daily.md"},
         )
         markdown = render_daily_markdown(report)
-        self.assertIn("## Data Quality", markdown)
-        self.assertIn("## Portfolio", markdown)
-        self.assertIn("## Risk Summary", markdown)
-        self.assertIn("## Output Files", markdown)
-        self.assertIn("## Raw JSON", markdown)
-        self.assertIn("paired `.json` report file", markdown)
-        self.assertIn("market_exposure", markdown)
+        self.assertIn("## 数据质量", markdown)
+        self.assertIn("## 组合摘要", markdown)
+        self.assertIn("## 风险摘要", markdown)
+        self.assertIn("## 输出文件", markdown)
+        self.assertIn("## 原始 JSON", markdown)
+        self.assertIn("Database/report_payloads/", markdown)
+        self.assertIn("市场暴露", markdown)
         self.assertNotIn('"holdings": [', markdown)
         self.assertNotIn('"diagnostics"', markdown)
-        self.assertNotIn("{'market_exposure':", markdown)
+        self.assertNotIn("{'市场暴露':", markdown)
 
     def test_strategy_and_portfolio_markdown_have_readable_sections(self) -> None:
         strategy_markdown = render_strategy_markdown(
@@ -77,15 +77,15 @@ class ReportRenderersTest(unittest.TestCase):
                 "as_of": "2024-01-31",
                 "generated_at": "2024-02-01T10:00:00",
                 "data_run_id": "run-1",
-                "summary": {"holding_count": 1, "market_exposure": {"sh": 0.625, "sz": 0.375}},
+                "summary": {"holding_count": 1, "市场暴露": {"sh": 0.625, "sz": 0.375}},
                 "risk_summary": {"passed": True},
                 "holdings": [{"market": "sh", "symbol": "600519", "weight": 0.12, "score": 88.2, "source_strategy": "trend-strength", "candidate_type": "strong_trend", "risk_flags": ["none"], "tags": ["trend"], "reason": "top pick"}],
             }
         )
-        self.assertIn("## Strategy Definition", strategy_markdown)
-        self.assertIn("## Candidates", strategy_markdown)
+        self.assertIn("## 策略定义", strategy_markdown)
+        self.assertIn("## 候选股票", strategy_markdown)
         self.assertIn("| foo | 1 |", strategy_markdown)
-        self.assertIn("## Portfolio", portfolio_markdown)
-        self.assertIn("### Holdings", portfolio_markdown)
-        self.assertIn("market_exposure", portfolio_markdown)
-        self.assertNotIn("{'market_exposure':", portfolio_markdown)
+        self.assertIn("## 组合摘要", portfolio_markdown)
+        self.assertIn("## 目标持仓", portfolio_markdown)
+        self.assertIn("市场暴露", portfolio_markdown)
+        self.assertNotIn("{'市场暴露':", portfolio_markdown)

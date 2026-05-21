@@ -53,7 +53,10 @@ class RunReportOpeningCliTest(unittest.TestCase):
                             code = cli_main([ "run", preset ])
                         self.assertEqual(code, 0)
                         self.assertIn("Report:", stdout.getvalue())
-                        mocked_save_md.assert_called_once()
+                        if preset == "daily":
+                            mocked_save_md.assert_not_called()
+                        else:
+                            mocked_save_md.assert_called_once()
                         mocked_open.assert_called_once()
 
     def test_run_no_open_json_and_dry_run_skip_opening(self) -> None:
@@ -87,7 +90,7 @@ class RunReportOpeningCliTest(unittest.TestCase):
                     code = cli_main(["run", "daily", "--no-open"])
                 self.assertEqual(code, 0)
                 self.assertIn("Report:", stdout.getvalue())
-                mocked_save_md.assert_called_once()
+                mocked_save_md.assert_not_called()
                 mocked_open.assert_not_called()
 
                 stdout = io.StringIO()

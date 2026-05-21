@@ -270,8 +270,8 @@ class PortfolioBacktestTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp)
-            json_path = data_root / "reports" / "rebalance" / "2024-01-01" / "rebalance_plan.json"
-            csv_path = data_root / "reports" / "rebalance" / "2024-01-01" / "rebalance_plan.csv"
+            json_path = data_root / "report_payloads" / "rebalance" / "2024-01-01" / "rebalance_plan.json"
+            csv_path = data_root / "report_payloads" / "rebalance" / "2024-01-01" / "rebalance_plan.csv"
             json_path.parent.mkdir(parents=True, exist_ok=True)
             json_path.write_text('{"old": true}', encoding="utf-8")
             csv_path.write_text("old,csv\n", encoding="utf-8")

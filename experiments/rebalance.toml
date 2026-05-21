@@ -9,7 +9,7 @@ weighting = "equal"
 max_weight = 0.10
 
 [rebalance]
-current_holdings = "holdings.csv"
+current_holdings = "../holdings.csv.example"
 min_trade_weight = 0.01
 max_turnover = 0.50
 

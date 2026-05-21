@@ -170,8 +170,8 @@ class DailyStoreTest(unittest.TestCase):
             data_root = Path(tmp)
             markdown = render_daily_markdown(report)
             paths = save_daily_report(data_root, report, markdown)
-            self.assertTrue(Path(paths["latest_json"]).exists())
-            self.assertTrue(Path(paths["daily_md"]).exists())
+            self.assertTrue(Path(paths["payload_json"]).exists())
+            self.assertTrue(Path(paths["report_markdown"]).exists())
             self.assertIsNotNone(load_latest_daily_report(data_root))
             self.assertIsNotNone(load_daily_report(data_root, "2024-01-31"))
 
@@ -200,7 +200,7 @@ class DailyStoreTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp)
-            latest_json = data_root / "reports" / "daily" / "latest.json"
+            latest_json = data_root / "report_payloads" / "daily_2024-01-31.json"
             latest_json.parent.mkdir(parents=True, exist_ok=True)
             latest_json.write_text('{"old": true}', encoding="utf-8")
             markdown = render_daily_markdown(report)
@@ -242,10 +242,10 @@ class DailyWorkflowTest(unittest.TestCase):
                         with patch("tdx_stocks.daily.workflow.compare_strategies", return_value=SimpleNamespace(to_dict=lambda: {"rows": []})):
                             with patch("tdx_stocks.daily.workflow.build_consensus", return_value=SimpleNamespace(to_dict=lambda: {"rows": []})):
                                 with patch("tdx_stocks.daily.workflow.build_portfolio", return_value=SimpleNamespace(to_dict=lambda: {"holdings": [], "risk_summary": {}}, holdings=[])):
-                                    with patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"latest_json": "/tmp/portfolio.json"}):
+                                    with patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"payload_json": "/tmp/portfolio.json"}):
                                         with patch("tdx_stocks.daily.workflow.build_rebalance_plan") as mocked_rebalance:
                                             with patch("tdx_stocks.daily.workflow.save_rebalance_plan", return_value=(Path("/tmp/rebalance.json"), Path("/tmp/rebalance.csv"))):
-                                                with patch("tdx_stocks.daily.workflow.save_daily_report", return_value={"latest_json": "/tmp/daily.json", "latest_md": "/tmp/daily.md", "daily_json": "/tmp/daily.json", "daily_md": "/tmp/daily.md", "manifest": "/tmp/manifest.json"}):
+                                                with patch("tdx_stocks.daily.workflow.save_daily_report", return_value={"payload_json": "/tmp/daily.json", "report_markdown": "/tmp/daily.md", "manifest": "/tmp/manifest.json"}):
                                                     with patch("tdx_stocks.daily.workflow.write_daily_json_file", return_value=Path("/tmp/daily-compare.json")):
                                                         mocked_rebalance.return_value = SimpleNamespace(to_dict=lambda: {"turnover": 0.0}, turnover=0.0)
                                                         result = run_daily_workflow(
@@ -275,9 +275,9 @@ class DailyWorkflowTest(unittest.TestCase):
             patch("tdx_stocks.daily.workflow._run_compare", return_value={"rows": []}),
             patch("tdx_stocks.daily.workflow._run_consensus", return_value={"rows": []}) as run_consensus_mock,
             patch("tdx_stocks.daily.workflow.build_portfolio", return_value=fake_portfolio) as build_portfolio_mock,
-            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"latest_json": "/tmp/portfolio.json"}),
+            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"payload_json": "/tmp/portfolio.json"}),
             patch("tdx_stocks.daily.workflow.check_portfolio_risk", return_value=SimpleNamespace(passed=True, summary={})),
-            patch("tdx_stocks.daily.workflow.save_daily_report", return_value={"latest_json": "/tmp/daily.json", "latest_md": "/tmp/daily.md", "daily_json": "/tmp/daily.json", "daily_md": "/tmp/daily.md", "manifest": "/tmp/manifest.json"}),
+            patch("tdx_stocks.daily.workflow.save_daily_report", return_value={"payload_json": "/tmp/daily.json", "report_markdown": "/tmp/daily.md", "manifest": "/tmp/manifest.json"}),
             patch("tdx_stocks.daily.workflow.write_daily_json_file", side_effect=[Path("/tmp/compare.json"), Path("/tmp/consensus.json")]),
         ):
             result = run_daily_workflow(
@@ -295,8 +295,8 @@ class DailyWorkflowTest(unittest.TestCase):
         self.assertEqual(run_consensus_mock.call_args.kwargs["min_hit"], 0)
         self.assertEqual(build_portfolio_mock.call_args.kwargs["top"], 0)
         self.assertEqual(build_portfolio_mock.call_args.kwargs["max_weight"], 0.0)
-        self.assertIn("portfolio:latest_json", result.outputs)
-        self.assertEqual(result.outputs["portfolio:latest_json"], "/tmp/portfolio.json")
+        self.assertIn("portfolio:payload_json", result.outputs)
+        self.assertEqual(result.outputs["portfolio:payload_json"], "/tmp/portfolio.json")
         self.assertEqual(result.report.steps[-1]["step_name"], "daily_report")
 
     def test_daily_workflow_writes_report_with_empty_strategy_outputs(self) -> None:
@@ -324,15 +324,13 @@ class DailyWorkflowTest(unittest.TestCase):
             patch(
                 "tdx_stocks.daily.workflow.save_daily_report",
                 return_value={
-                    "latest_json": "/tmp/daily.json",
-                    "latest_md": "/tmp/daily.md",
-                    "daily_json": "/tmp/daily.json",
-                    "daily_md": "/tmp/daily.md",
+                    "payload_json": "/tmp/daily.json",
+                    "report_markdown": "/tmp/daily.md",
                     "manifest": "/tmp/manifest.json",
                 },
             ),
             patch("tdx_stocks.daily.workflow.build_portfolio", return_value=SimpleNamespace(to_dict=lambda: {"holdings": [], "risk_summary": {}}, holdings=[])),
-            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"latest_json": "/tmp/portfolio.json"}),
+            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"payload_json": "/tmp/portfolio.json"}),
             patch("tdx_stocks.daily.workflow.build_rebalance_plan") as mocked_rebalance,
             patch("tdx_stocks.daily.workflow.check_portfolio_risk", return_value=SimpleNamespace(passed=True, summary={})),
         ):
@@ -347,7 +345,7 @@ class DailyWorkflowTest(unittest.TestCase):
         self.assertEqual(result.report.status, "success")
         self.assertEqual(result.outputs["compare_json"], "/tmp/compare.json")
         self.assertEqual(result.outputs["consensus_json"], "/tmp/consensus.json")
-        self.assertEqual(result.outputs["latest_json"], "/tmp/daily.json")
+        self.assertEqual(result.outputs["payload_json"], "/tmp/daily.json")
 
     def test_daily_workflow_skips_portfolio_when_strategies_are_skipped(self) -> None:
         fake_ctx = SimpleNamespace(
@@ -397,7 +395,7 @@ class DailyWorkflowTest(unittest.TestCase):
             patch("tdx_stocks.daily.workflow._run_compare", return_value={"rows": []}),
             patch("tdx_stocks.daily.workflow._run_consensus", return_value={"rows": []}),
             patch("tdx_stocks.daily.workflow.build_portfolio", return_value=fake_portfolio),
-            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"latest_json": "/tmp/portfolio.json"}),
+            patch("tdx_stocks.daily.workflow.save_portfolio_report", return_value={"payload_json": "/tmp/portfolio.json"}),
             patch("tdx_stocks.daily.workflow.load_current_holdings_csv") as load_current_holdings_mock,
             patch("tdx_stocks.daily.workflow.build_rebalance_plan") as build_rebalance_plan_mock,
             patch("tdx_stocks.daily.workflow.save_rebalance_plan") as save_rebalance_plan_mock,
@@ -437,14 +435,14 @@ class DailyWorkflowTest(unittest.TestCase):
             outputs={},
         )
         markdown = render_daily_markdown(report)
-        self.assertIn("## Summary", markdown)
-        self.assertIn("## Data Quality", markdown)
-        self.assertIn("## Strategy Summary", markdown)
-        self.assertIn("## Consensus", markdown)
-        self.assertIn("## Portfolio", markdown)
-        self.assertIn("## Rebalance Plan", markdown)
-        self.assertIn("## Warnings", markdown)
-        self.assertIn("## Errors", markdown)
+        self.assertIn("## 运行摘要", markdown)
+        self.assertIn("## 数据质量", markdown)
+        self.assertIn("## 策略摘要", markdown)
+        self.assertIn("## 共振股票", markdown)
+        self.assertIn("## 组合摘要", markdown)
+        self.assertIn("## 调仓计划", markdown)
+        self.assertIn("## 警告", markdown)
+        self.assertIn("## 错误", markdown)
 
     def test_cli_main_rejects_output_conflict(self) -> None:
         buffer = StringIO()

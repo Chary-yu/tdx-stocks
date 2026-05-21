@@ -4,9 +4,12 @@ from ..backtest import BacktestParams, tune_strategy_parameters
 from ..pipeline import parse_iso_date
 from .config import LoadedRunConfig
 from .models import RunResult
+from ..reports.paths import run_report_outputs
+from ..progress import ProgressCallback, emit_progress
 
 
-def run_grid_search_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> RunResult:
+def run_grid_search_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progress: ProgressCallback | None = None) -> RunResult:
+    emit_progress(progress, "读取参数搜索任务配置")
     data = run_config.config
     strategy = data.get("strategy") or {}
     backtest = data.get("backtest") or {}
@@ -23,18 +26,21 @@ def run_grid_search_task(run_config: LoadedRunConfig, *, dry_run: bool = False) 
         min_score=backtest.get("min_score") or strategy.get("min_score"),
         min_amount_ma20=backtest.get("min_amount_ma20") or strategy.get("min_amount_ma20"),
     )
+    emit_progress(progress, "执行参数网格搜索")
+    strategy_name = str(strategy.get("name") or data.get("strategy_name") or "trend-strength")
     report = tune_strategy_parameters(
         run_config.app_config,
-        str(strategy.get("name") or data.get("strategy_name") or "trend-strength"),
+        strategy_name,
         params,
         min_scores=list(grid.get("strategy.min_score") or [55, 60, 65]),
         tops=list(grid.get("backtest.top") or [10, 20, 30]),
         hold_days=list(grid.get("backtest.hold_days") or [5, 10, 20]),
     )
+    emit_progress(progress, "准备参数搜索报告输出")
     return RunResult(
         task_type="grid_search",
         name=run_config.task_name,
         status="success",
         summary=report,
-        outputs={"grid_markdown": (run_config.app_config.paths.data_root / "reports" / "grid_markdown.md").as_posix()},
+        outputs=run_report_outputs(run_config.app_config.paths.data_root, "grid_search", as_of=backtest.get("to_date"), strategy=strategy_name),
     )

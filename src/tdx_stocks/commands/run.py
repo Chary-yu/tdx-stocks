@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from ..console import print_json
+from ..progress import RunProgress
 from ..io_utils import write_json_atomic, write_text_atomic
 from ..reports.opening import open_report_if_needed, print_report_path
 from ..runner.outputs import ensure_run_report_markdown, main_report_path
@@ -36,7 +37,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         else:
             print(render_run_plan(plan))
         return 0
-    result = dispatch_run(run_config, dry_run=args.dry_run)
+    progress = None if args.json or args.no_progress else RunProgress(run_config.task_type)
+    if progress is not None:
+        progress.start()
+    result = dispatch_run(run_config, dry_run=args.dry_run, progress=progress)
+    if progress is not None:
+        progress.finish(result.status)
     if args.output is not None:
         if args.json:
             write_json_atomic(args.output, result.to_dict())
@@ -48,8 +54,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         report_path = main_report_path(result.outputs)
         if report_path is not None:
-            if report_path.suffix.lower() == ".md":
-                ensure_run_report_markdown(report_path, result)
+            if report_path.suffix.lower() == ".md" and result.task_type != "daily":
+                ensure_run_report_markdown(report_path, result, app_config=run_config.app_config)
             print_report_path(report_path, json_mode=False)
             open_report_if_needed(args, report_path, json_mode=False)
         else:
@@ -70,6 +76,7 @@ def register_run_command(subparsers: argparse._SubParsersAction[argparse.Argumen
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--no-open", action="store_true")
+    parser.add_argument("--no-progress", action="store_true", help="Disable progress messages while the run task is executing.")
     parser.set_defaults(func=cmd_run)
 
 

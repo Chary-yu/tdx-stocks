@@ -628,12 +628,18 @@ def _match_signal_prices(con, signals: list[dict[str, Any]], hold_days: int) -> 
             b.trade_date AS buy_date,
             b.adj_open AS buy_price,
             b.rn AS buy_rn,
-            b.is_limit_up AS buy_is_limit_up,
-            b.is_limit_down AS buy_is_limit_down,
-            b.is_suspended AS buy_is_suspended
+            b.buy_is_limit_up,
+            b.buy_is_limit_down,
+            b.buy_is_suspended
             FROM tmp_backtest_signals AS s
             LEFT JOIN LATERAL (
-                SELECT trade_date, adj_open, rn, is_limit_up, is_suspended
+                SELECT
+                    trade_date,
+                    adj_open,
+                    rn,
+                    is_limit_up AS buy_is_limit_up,
+                    is_limit_down AS buy_is_limit_down,
+                    is_suspended AS buy_is_suspended
                 FROM adj_enriched AS b
                 WHERE b.market = s.market
                     AND b.symbol = s.symbol

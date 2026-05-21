@@ -53,7 +53,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         return 0
 
     markdown = render_daily_markdown(_to_report(doc))
-    output_path = args.output or _daily_report_markdown_path(config.paths.data_root, args.as_of)
+    output_path = args.output or _daily_report_markdown_path(config.paths.data_root, str(doc.get("as_of") or args.as_of))
     write_text_atomic(output_path, markdown)
     print_report_path(output_path, json_mode=False)
     open_report_if_needed(args, output_path, json_mode=False)

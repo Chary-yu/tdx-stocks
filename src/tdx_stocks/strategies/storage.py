@@ -11,7 +11,7 @@ from ..config_validators import optional_str
 from ..io_utils import write_json_atomic
 
 REPORT_SCHEMA_VERSION = "strategy-report-v1"
-REPORT_ROOT_NAME = "reports"
+REPORT_ROOT_NAME = "report_payloads"
 
 
 def strategy_reports_root(data_root: Path) -> Path:

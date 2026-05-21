@@ -27,6 +27,8 @@ from .config import DailyRunConfig
 from .diagnostics import collect_warnings_errors
 from .models import DailyRunReport, DailyStepResult
 from ..reports.renderers import render_daily_markdown
+from ..reports.stock_names import build_stock_name_map, collect_stock_keys
+from ..progress import ProgressCallback, emit_progress
 from .store import save_daily_report, write_daily_json_file
 
 
@@ -54,7 +56,9 @@ def run_daily_workflow(
     skip_rebalance: bool = False,
     skip_report: bool = False,
     build_data: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> DailyWorkflowResult:
+    emit_progress(progress, "准备每日综合报告参数")
     run_started = datetime.now()
     resolved_as_of = as_of or _load_latest_trade_date(config)
     daily_config = DailyRunConfig.from_app_config(config)
@@ -90,6 +94,7 @@ def run_daily_workflow(
             )
         )
 
+    emit_progress(progress, "打开本地数据集")
     ctx = open_query_context(config)
     try:
         manifest = ctx.manifest
@@ -97,6 +102,7 @@ def run_daily_workflow(
         latest_trade_date = resolved_as_of or _load_latest_trade_date(config)
         data_quality = manifest.get("summary", {}).get("checks", [])
         if not skip_strategies:
+            emit_progress(progress, "运行策略并保存策略报告")
             strategy_payloads, strategy_outputs = _run_strategies(
                 config,
                 strategy_names,
@@ -108,7 +114,9 @@ def run_daily_workflow(
             steps.extend(strategy_payloads["steps"])
             warnings.extend(strategy_payloads["warnings"])
             errors.extend(strategy_payloads["errors"])
+            emit_progress(progress, "生成策略对比")
             compare_payload = _run_compare(config, strategy_names, latest_trade_date)
+            emit_progress(progress, "生成共振股票")
             consensus_payload = _run_consensus(config, strategy_names, latest_trade_date, min_hit=min_hit)
             compare_path = write_daily_json_file(config.paths.data_root, latest_trade_date, "compare.json", compare_payload)
             consensus_path = write_daily_json_file(config.paths.data_root, latest_trade_date, "consensus.json", consensus_payload)
@@ -161,6 +169,7 @@ def run_daily_workflow(
         portfolio_payload = {"summary": "skipped", "holdings": [], "risk_summary": {}}
         rebalance_payload = {"summary": "skipped"}
         if not skip_portfolio:
+            emit_progress(progress, "构建目标组合")
             portfolio_report = build_portfolio(
                 config,
                 source="consensus",
@@ -200,6 +209,7 @@ def run_daily_workflow(
             )
             if current_holdings:
                 if not skip_rebalance:
+                    emit_progress(progress, "读取当前持仓并生成调仓计划")
                     current = load_current_holdings_csv(current_holdings)
                     plan = build_rebalance_plan(
                         current,
@@ -269,7 +279,8 @@ def run_daily_workflow(
                 warnings=warnings,
                 errors=errors,
             )
-            markdown = render_daily_markdown(report)
+            stock_names = build_stock_name_map(config.paths.tdx_export, collect_stock_keys(report.to_dict()))
+            markdown = render_daily_markdown(report, stock_names=stock_names)
             return DailyWorkflowResult(report=report, markdown=markdown, outputs=outputs)
 
         report = _build_report(
@@ -279,14 +290,16 @@ def run_daily_workflow(
             steps=steps,
             data_quality=data_quality,
             strategy_summary={"strategies": strategy_names, "limit": strategy_limit, "min_score": min_score},
-            consensus_summary={"min_hit": min_hit, "rows": len(consensus_payload.get("rows") or [])},
+            consensus_summary={"min_hit": min_hit, "row_count": len(consensus_payload.get("rows") or []), "rows": consensus_payload.get("rows") or []},
             portfolio_summary=portfolio_payload,
             rebalance_summary=rebalance_payload,
             outputs=outputs,
             warnings=warnings,
             errors=errors,
         )
-        markdown = render_daily_markdown(report)
+        emit_progress(progress, "生成每日 Markdown 报告")
+        stock_names = build_stock_name_map(config.paths.tdx_export, collect_stock_keys(report.to_dict()))
+        markdown = render_daily_markdown(report, stock_names=stock_names)
         saved = save_daily_report(config.paths.data_root, report, markdown)
         outputs.update(saved)
         steps.append(

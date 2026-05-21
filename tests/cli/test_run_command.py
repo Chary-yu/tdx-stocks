@@ -84,3 +84,36 @@ class RunCommandTest(unittest.TestCase):
             code = cli_main(["run", "daily", "--explain", "--json"])
         self.assertEqual(code, 0)
         mocked_dispatch.assert_not_called()
+
+    def test_run_progress_is_printed_for_non_json_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            result = SimpleNamespace(
+                task_type="signal",
+                status="success",
+                name="signal",
+                outputs={},
+                to_dict=lambda: {"status": "success"},
+            )
+            loaded = SimpleNamespace(
+                app_config=SimpleNamespace(paths=SimpleNamespace(data_root=data_root)),
+                task_type="signal",
+                task_name="signal",
+                path=Path("experiments/signal.toml"),
+                config={"task": {"type": "signal"}},
+            )
+            with (
+                patch("tdx_stocks.commands.run.load_run_config", return_value=loaded),
+                patch("tdx_stocks.commands.run.build_run_plan", return_value={"plan": 1}),
+                patch("tdx_stocks.commands.run.dispatch_run", return_value=result),
+                patch("tdx_stocks.commands.run.build_latest_run_report", return_value={"status": "success"}),
+                patch("tdx_stocks.commands.run.save_latest_run_report"),
+            ):
+                import contextlib
+                import io
+
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    code = cli_main(["run", "signal", "--no-open"])
+            self.assertEqual(code, 0)
+            self.assertIn("运行进度", stderr.getvalue())

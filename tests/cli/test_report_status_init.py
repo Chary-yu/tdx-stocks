@@ -60,7 +60,7 @@ class ReportStatusInitTest(unittest.TestCase):
             "candidates": [{"market": "sh", "symbol": "600519"}],
         }
         with tempfile.TemporaryDirectory() as tmp:
-            md_path = Path(tmp) / "reports" / "strategies" / "latest" / "trend-strength.md"
+            md_path = Path(tmp) / "report_payloads" / "strategies" / "latest" / "trend-strength.md"
             with (
                 patch("tdx_stocks.commands.report.load_config", return_value=SimpleNamespace(paths=SimpleNamespace(data_root=Path(tmp)))),
                 patch("tdx_stocks.commands.report.load_saved_report", return_value=report),

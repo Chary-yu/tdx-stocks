@@ -4,9 +4,12 @@ from ..backtest import BacktestParams, run_backtest
 from ..pipeline import parse_iso_date
 from .config import LoadedRunConfig
 from .models import RunResult
+from ..reports.paths import run_report_outputs
+from ..progress import ProgressCallback, emit_progress
 
 
-def run_backtest_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> RunResult:
+def run_backtest_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progress: ProgressCallback | None = None) -> RunResult:
+    emit_progress(progress, "读取回测任务配置")
     data = run_config.config
     strategy = data.get("strategy") or {}
     backtest = data.get("backtest") or {}
@@ -26,11 +29,14 @@ def run_backtest_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> 
         min_score=_pick(backtest.get("min_score"), strategy.get("min_score")),
         min_amount_ma20=_pick(backtest.get("min_amount_ma20"), strategy.get("min_amount_ma20")),
     )
-    report = run_backtest(run_config.app_config, str(strategy.get("name") or data.get("strategy_name") or "trend-strength"), params)
+    emit_progress(progress, "执行策略回测")
+    strategy_name = str(strategy.get("name") or data.get("strategy_name") or "trend-strength")
+    report = run_backtest(run_config.app_config, strategy_name, params)
+    emit_progress(progress, "准备回测报告输出")
     return RunResult(
         task_type="backtest",
         name=run_config.task_name,
         status="success",
         summary=report.to_dict(),
-        outputs={"backtest_markdown": (run_config.app_config.paths.data_root / "reports" / "backtest_markdown.md").as_posix()},
+        outputs=run_report_outputs(run_config.app_config.paths.data_root, "backtest", as_of=backtest.get("to_date"), strategy=strategy_name),
     )

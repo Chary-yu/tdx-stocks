@@ -99,6 +99,7 @@ def _build_files(root: Path, *, data_root: Path, profile: str, minimal: bool) ->
         "experiments/daily.toml": daily,
         "experiments/backtest.toml": _backtest_template(spec),
         "experiments/portfolio.toml": _portfolio_template(spec),
+        "experiments/rebalance.toml": _rebalance_template(spec),
         "experiments/advanced/signal.toml": signal,
         "experiments/advanced/grid_search.toml": _grid_search_template(),
         "experiments/advanced/rebalance.toml": _rebalance_template(spec),
@@ -366,7 +367,7 @@ weighting = "{spec.portfolio_weighting}"
 max_weight = {spec.portfolio_max_weight:.2f}
 
 [rebalance]
-current_holdings = "holdings.csv"
+current_holdings = "../holdings.csv.example"
 min_trade_weight = {spec.rebalance_min_trade_weight:.3f}
 max_turnover = {spec.rebalance_max_turnover:.2f}
 enabled = {str(spec.rebalance_enabled).lower()}

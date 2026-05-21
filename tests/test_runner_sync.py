@@ -61,7 +61,8 @@ class RunnerOutputsTest(unittest.TestCase):
         self.assertEqual(plan["task"]["type"], "daily")
         self.assertEqual(plan["inputs"]["strategies"], ["trend-strength"])
         self.assertIn("run selected strategies", rendered)
-        self.assertIn("reports/daily/latest.json", rendered)
+        self.assertIn("reports/daily_<date>.md", rendered)
+        self.assertIn("report_payloads/daily_<date>.json", rendered)
 
     def test_build_run_plan_handles_portfolio_and_backtest(self) -> None:
         portfolio_config = {
@@ -79,7 +80,8 @@ class RunnerOutputsTest(unittest.TestCase):
 
         self.assertEqual(portfolio_plan["inputs"]["source"], "consensus")
         self.assertEqual(backtest_plan["inputs"]["strategy"], "trend-strength")
-        self.assertEqual(backtest_plan["outputs"]["reports"], ["reports/latest.json"])
+        self.assertIn("reports/backtest_<date>.md", backtest_plan["outputs"]["reports"])
+        self.assertIn("report_payloads/backtest_<date>.json", backtest_plan["outputs"]["payloads"])
 
     def test_save_and_load_latest_run_report_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -305,11 +307,11 @@ class RunnerTaskAdapterTest(unittest.TestCase):
 
         markdown = render_run_result_markdown(result)
 
-        self.assertIn("## Strategy Compare", markdown)
-        self.assertIn("## Consensus", markdown)
-        self.assertIn("### Unique Stocks", markdown)
-        self.assertIn("trend-strength, relative-strength", markdown)
-        self.assertIn("600519.SH, 000001.SZ", markdown)
+        self.assertIn("## 策略对比", markdown)
+        self.assertIn("## 共振股票", markdown)
+        self.assertIn("## 策略独有股票", markdown)
+        self.assertIn("趋势强度，相对强度", markdown)
+        self.assertIn("600519.SH，000001.SZ", markdown)
 
     def test_render_run_result_markdown_formats_daily_summary(self) -> None:
         result = SimpleNamespace(
@@ -339,10 +341,47 @@ class RunnerTaskAdapterTest(unittest.TestCase):
 
         markdown = render_run_result_markdown(result)
 
-        self.assertIn("## Daily", markdown)
+        self.assertIn("## 运行摘要", markdown)
         self.assertIn("step_count", markdown)
         self.assertIn("warning_count", markdown)
         self.assertIn("error_count", markdown)
+
+    def test_render_run_result_markdown_prefers_stock_names_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export_dir = root / "export"
+            export_dir.mkdir(parents=True)
+            (export_dir / "SH#600519.txt").write_text("600519 贵州茅台 日线\n", encoding="gbk")
+            config = AppConfig(paths=PathsConfig(data_root=root / "Database", tdx_export=export_dir))
+            result = SimpleNamespace(
+                task_type="signal",
+                name="today-signal",
+                status="success",
+                outputs={"signal_markdown": "Database/reports/signal_markdown.md"},
+                warnings=[],
+                errors=[],
+                summary={
+                    "compare": {"strategies": [{"strategy_name": "trend-strength", "stocks": ["600519.SH"]}]},
+                    "consensus": {"rows": [{"market": "sh", "symbol": "600519", "hit_count": 2, "avg_score": 90.0}]},
+                },
+                to_dict=lambda: {
+                    "task_type": "signal",
+                    "name": "today-signal",
+                    "status": "success",
+                    "summary": {
+                        "compare": {"strategies": [{"strategy_name": "trend-strength", "stocks": ["600519.SH"]}]},
+                        "consensus": {"rows": [{"market": "sh", "symbol": "600519", "hit_count": 2, "avg_score": 90.0}]},
+                    },
+                    "outputs": {"signal_markdown": "Database/reports/signal_markdown.md"},
+                    "warnings": [],
+                    "errors": [],
+                },
+            )
+
+            markdown = render_run_result_markdown(result, app_config=config)
+
+        self.assertIn("贵州茅台", markdown)
+        self.assertIn("股票代码：600519.SH", markdown)
 
 
 class SyncTest(unittest.TestCase):

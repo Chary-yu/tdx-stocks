@@ -5,9 +5,11 @@ from datetime import date
 from ..daily import run_daily_workflow
 from .config import LoadedRunConfig
 from .models import RunResult
+from ..progress import ProgressCallback, emit_progress
 
 
-def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> RunResult:
+def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progress: ProgressCallback | None = None) -> RunResult:
+    emit_progress(progress, "读取每日任务配置")
     data = run_config.config
     strategies = data.get("strategies") or {}
     consensus = data.get("consensus") or {}
@@ -31,8 +33,10 @@ def run_daily_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> Run
         skip_rebalance=not bool(rebalance.get("enabled", False)),
         skip_report=dry_run,
         build_data=False,
+        progress=progress,
     )
     summary = report.report.summary
+    emit_progress(progress, "准备每日报告输出")
     return RunResult(
         task_type="daily",
         name=run_config.task_name,

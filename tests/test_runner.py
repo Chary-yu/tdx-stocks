@@ -26,6 +26,7 @@ class InitCommandTest(unittest.TestCase):
                 self.assertTrue((root / "experiments" / "daily.toml").exists())
                 self.assertTrue((root / "experiments" / "backtest.toml").exists())
                 self.assertTrue((root / "experiments" / "portfolio.toml").exists())
+                self.assertTrue((root / "experiments" / "rebalance.toml").exists())
                 self.assertTrue((root / "experiments" / "advanced" / "signal.toml").exists())
                 self.assertTrue((root / "experiments" / "advanced" / "grid_search.toml").exists())
                 self.assertTrue((root / "experiments" / "advanced" / "rebalance.toml").exists())
@@ -43,6 +44,8 @@ class InitCommandTest(unittest.TestCase):
                 self.assertTrue((root / "reports" / "signals").exists())
                 self.assertTrue((root / "reports" / "grid_search").exists())
                 self.assertTrue((root / "reports" / "rebalance").exists())
+                rebalance = (root / "experiments" / "rebalance.toml").read_text(encoding="utf-8")
+                self.assertIn('current_holdings = "../holdings.csv.example"', rebalance)
             finally:
                 os.chdir(cwd)
 

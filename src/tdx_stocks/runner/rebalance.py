@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from ..portfolio import build_portfolio, build_rebalance_plan, load_current_holdings_csv
+from ..portfolio import Holding, build_portfolio, build_rebalance_plan, load_current_holdings_csv
 from ..pipeline import parse_iso_date
 from .config import LoadedRunConfig
 from .models import RunResult
+from ..reports.paths import run_report_outputs
+from ..progress import ProgressCallback, emit_progress
+from .dates import resolve_report_as_of
 
 
-def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False) -> RunResult:
+def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False, progress: ProgressCallback | None = None) -> RunResult:
+    emit_progress(progress, "读取调仓任务配置")
     data = run_config.config
     portfolio = data.get("portfolio") or {}
     rebalance = data.get("rebalance") or {}
@@ -19,6 +24,7 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
     def _pick(value: Any, fallback: Any) -> Any:
         return fallback if value is None else value
 
+    emit_progress(progress, "构建目标组合")
     target = build_portfolio(
         run_config.app_config,
         source=str(portfolio.get("source") or "consensus"),
@@ -31,19 +37,40 @@ def run_rebalance_task(run_config: LoadedRunConfig, *, dry_run: bool = False) ->
         market=portfolio.get("market"),
         as_of=as_of,
     )
+    emit_progress(progress, "读取当前持仓")
     holdings_path = rebalance.get("current_holdings")
     current = load_current_holdings_csv(Path(holdings_path)) if holdings_path else []
+    emit_progress(progress, "生成调仓计划")
+    target_holdings = [_holding_from_dict(row) for row in target.holdings]
     plan = build_rebalance_plan(
         current,
-        target.holdings,
+        target_holdings,
         as_of=target.as_of,
         min_trade_weight=float(_pick(rebalance.get("min_trade_weight"), 0.0)),
         max_turnover=rebalance.get("max_turnover"),
     )
+    emit_progress(progress, "准备调仓报告输出")
     return RunResult(
         task_type="rebalance",
         name=run_config.task_name,
         status="success",
         summary=plan.to_dict(),
-        outputs={"rebalance_markdown": (run_config.app_config.paths.data_root / "reports" / "rebalance_markdown.md").as_posix()},
+        outputs=run_report_outputs(run_config.app_config.paths.data_root, "rebalance", as_of=resolve_report_as_of(run_config.app_config, plan.as_of)),
+    )
+
+
+def _holding_from_dict(row: dict[str, Any]) -> Holding:
+    return Holding(
+        market=str(row.get("market") or "").lower(),
+        symbol=str(row.get("symbol") or ""),
+        weight=float(row.get("weight") or 0.0),
+        score=float(row.get("score")) if row.get("score") is not None else None,
+        source_strategy=str(row.get("source_strategy") or ""),
+        source_strategies=[str(item) for item in row.get("source_strategies") or []],
+        candidate_type=str(row.get("candidate_type") or "") or None,
+        risk_flags=[str(item) for item in row.get("risk_flags") or []],
+        tags=[str(item) for item in row.get("tags") or []],
+        reason=str(row.get("reason") or ""),
+        risk_score=float(row.get("risk_score")) if row.get("risk_score") is not None else None,
+        factor_values=dict(row.get("factor_values") or {}),
     )

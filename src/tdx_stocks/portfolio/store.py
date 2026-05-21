@@ -10,7 +10,7 @@ from .models import PortfolioBacktestReport, PortfolioReport, RebalancePlan
 
 
 def portfolio_reports_root(data_root: Path) -> Path:
-    return data_root / "reports" / "portfolios"
+    return data_root / "report_payloads" / "portfolios"
 
 
 def portfolio_backtests_root(data_root: Path) -> Path:
@@ -18,7 +18,7 @@ def portfolio_backtests_root(data_root: Path) -> Path:
 
 
 def rebalance_root(data_root: Path) -> Path:
-    return data_root / "reports" / "rebalance"
+    return data_root / "report_payloads" / "rebalance"
 
 
 def latest_portfolio_path(data_root: Path) -> Path:
